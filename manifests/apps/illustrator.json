@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"illustrator","name":"Adobe Illustrator","category":"art","platforms":["windows","macos"],"executables":["Illustrator.exe"],"knownPaths":["C:/Program Files/Adobe/Adobe Illustrator */Support Files/Contents/Windows/Illustrator.exe"],"fileTypes":[".ai"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

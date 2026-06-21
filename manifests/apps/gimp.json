@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"gimp","name":"GIMP","category":"art","platforms":["windows","macos","linux"],"executables":["gimp-2.10.exe","gimp.exe","gimp"],"knownPaths":["C:/Program Files/GIMP 2/bin/gimp-2.10.exe"],"fileTypes":[".xcf"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

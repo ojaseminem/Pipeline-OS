@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"cinema-4d","name":"Maxon Cinema 4D","category":"dcc","platforms":["windows","macos"],"executables":["Cinema 4D.exe"],"knownPaths":["C:/Program Files/Maxon Cinema 4D */Cinema 4D.exe"],"fileTypes":[".c4d"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

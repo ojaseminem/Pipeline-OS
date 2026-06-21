@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"nuke","name":"Foundry Nuke","category":"dcc","platforms":["windows","macos","linux"],"executables":["Nuke.exe"],"knownPaths":["C:/Program Files/Nuke*/Nuke*.exe"],"fileTypes":[".nk"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

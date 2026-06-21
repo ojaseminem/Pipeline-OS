@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"zbrush","name":"Maxon ZBrush","category":"art","platforms":["windows","macos"],"executables":["ZBrush.exe"],"knownPaths":["C:/Program Files/Maxon ZBrush */ZBrush.exe","C:/Program Files/Pixologic/ZBrush */ZBrush.exe"],"fileTypes":[".zpr",".ztl"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

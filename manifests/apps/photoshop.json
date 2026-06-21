@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"photoshop","name":"Adobe Photoshop","category":"art","platforms":["windows","macos"],"executables":["Photoshop.exe"],"knownPaths":["C:/Program Files/Adobe/Adobe Photoshop */Photoshop.exe"],"fileTypes":[".psd",".psb"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"after-effects","name":"Adobe After Effects","category":"dcc","platforms":["windows","macos"],"executables":["AfterFX.exe"],"knownPaths":["C:/Program Files/Adobe/Adobe After Effects */Support Files/AfterFX.exe"],"fileTypes":[".aep"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

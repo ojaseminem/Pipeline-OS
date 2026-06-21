@@ -31,7 +31,10 @@ import { installedApps as defaultApps, pinnedProjects as defaultPinned, recentPr
 import { APP_CATEGORY_LABELS, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, type HealthIssue, type UpdateInfo } from "./bridge";
 import { createQueryClient, useApps, useInvalidate, useProjects, useTools } from "./lib/queries";
 import { type ThemePreference, useTheme } from "./theme";
+import { Onboarding, type OnboardingPrefs } from "./components/onboarding";
 import voidlineImage from "./assets/voidline-reactor.png";
+
+type UndoEntry = { label: string; undo: () => Promise<void>; redo: () => Promise<void> };
 
 const navigation = [
   ["Home", Home],
@@ -123,7 +126,7 @@ function AppShell() {
   const [continueProject, setContinueProject] = useState<Project | null>(isDemoMode() ? sampleContinueProject : null);
   const [pinnedProjects, setPinnedProjects] = useState(isDemoMode() ? defaultPinned : []);
   const [recentProjects, setRecentProjects] = useState(isDemoMode() ? defaultRecent : []);
-  const [installedApps, setInstalledApps] = useState<Array<{ id: string; name: string; versions: string[] }>>(
+  const [installedApps, setInstalledApps] = useState<Array<{ id: string; name: string; executable?: string | null; versions: string[] }>>(
     isDemoMode() ? defaultApps.map((app) => ({ id: app.name.toLowerCase().replaceAll(" ", "-"), ...app })) : [],
   );
   const [health, setHealth] = useState<HealthIssue[]>([]);
@@ -145,6 +148,9 @@ function AppShell() {
   const [overrideExecutable, setOverrideExecutable] = useState("");
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
+  const undoStack = useRef<UndoEntry[]>([]);
+  const redoStack = useRef<UndoEntry[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
   const { preference, setPreference } = useTheme();
   const projects = projectView === "pinned" ? pinnedProjects : recentProjects;
@@ -166,17 +172,45 @@ function AppShell() {
   useEffect(() => {
     if (!isNativeRuntime()) return;
     desktopApi.checkForUpdate().then((info) => { if (info.available) setUpdate(info); }).catch(() => undefined);
+    if (localStorage.getItem("vantadeck.onboarded") !== "true") setOnboarding(true);
   }, []);
 
+  async function undoLast() {
+    const entry = undoStack.current.pop();
+    if (!entry) return;
+    await entry.undo();
+    redoStack.current.push(entry);
+    toast.message(`Undone: ${entry.label}`, { action: { label: "Redo", onClick: () => void redoLast() } });
+  }
+  async function redoLast() {
+    const entry = redoStack.current.pop();
+    if (!entry) return;
+    await entry.redo();
+    undoStack.current.push(entry);
+    toast.message(`Redone: ${entry.label}`);
+  }
+  async function performUndoable(label: string, redo: () => Promise<void>, undo: () => Promise<void>) {
+    try {
+      await redo();
+      undoStack.current.push({ label, undo, redo });
+      redoStack.current = [];
+      toast.success(label, { action: { label: "Undo", onClick: () => void undoLast() } });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   useEffect(() => {
-    const focusSearch = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        searchRef.current?.focus();
-      }
+    const onKey = (event: KeyboardEvent) => {
+      const meta = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (meta && key === "k") { event.preventDefault(); searchRef.current?.focus(); }
+      else if (meta && key === "z" && !event.shiftKey) { event.preventDefault(); void undoLast(); }
+      else if (meta && (key === "y" || (key === "z" && event.shiftKey))) { event.preventDefault(); void redoLast(); }
     };
-    window.addEventListener("keydown", focusSearch);
-    return () => window.removeEventListener("keydown", focusSearch);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function run(label: string, action: () => Promise<unknown>) {
@@ -184,21 +218,41 @@ function AppShell() {
     catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
   }
 
-  async function runScan() {
+  async function scanWith(rootsValue: string) {
     if (scanning) return;
     setScanning(true);
     try {
       await run("Scanning applications", async () => {
-        await desktopApi.scanApps(scanRoots.split(";").map((value) => value.trim()).filter(Boolean));
+        await desktopApi.scanApps(rootsValue.split(";").map((value) => value.trim()).filter(Boolean));
         await invalidate.apps();
       });
     } finally {
       setScanning(false);
     }
   }
+  const runScan = () => scanWith(scanRoots);
+
+  function completeOnboarding(prefs: OnboardingPrefs) {
+    localStorage.setItem("vantadeck.onboarded", "true");
+    localStorage.setItem("vantadeck.profile", JSON.stringify(prefs));
+    setPreference(prefs.theme);
+    setScanRoots(prefs.scanRoots);
+    setOnboarding(false);
+    setActiveScreen("Applications");
+    if (isNativeRuntime()) void scanWith(prefs.scanRoots);
+  }
+  function skipOnboarding() {
+    localStorage.setItem("vantadeck.onboarded", "true");
+    setOnboarding(false);
+  }
 
   function openScreen(screen: Screen) {
     setActiveScreen(screen);
+  }
+
+  function launchInstalled(app: { id: string; name: string; executable?: string | null }) {
+    if (app.executable) void run(`Launching ${app.name}`, () => desktopApi.launchApp(app.id, app.executable!));
+    else openScreen("Applications");
   }
 
   async function submitImport(event: FormEvent) {
@@ -246,7 +300,7 @@ function AppShell() {
             <Folder className="mt-0.5 text-primary" />
             <div className="min-w-0 flex-1"><h3 className="truncate font-medium">{project.name}</h3><p className="truncate text-sm text-muted-foreground">{project.path}</p>
               <div className="mt-3 flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => void run(project.pinned ? "Unpinning project" : "Pinning project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await invalidate.projects(); })}>{project.pinned ? "Unpin" : "Pin"}</Button>
+                <Button variant="outline" size="sm" onClick={() => void performUndoable(project.pinned ? "Unpinned project" : "Pinned project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await invalidate.projects(); }, async () => { await desktopApi.pinProject(project.path, project.pinned); await invalidate.projects(); })}>{project.pinned ? "Unpin" : "Pin"}</Button>
                 <Button variant="outline" size="sm" onClick={() => void run("Reading Git status", async () => { const result = await desktopApi.gitStatus(project.path); toast.message(`Branch ${result.branch ?? "detached"}`, { description: `${result.changedFiles.length} changed files.` }); })}>Git status</Button>
               </div>
             </div>
@@ -371,7 +425,7 @@ function AppShell() {
                   <ul className="space-y-1.5 text-sm text-muted-foreground"><li className="flex items-center gap-2"><Folder size={14} /> Project metadata and activity stay on this machine.</li><li className="flex items-center gap-2"><FileCode2 size={14} /> Portable settings live in .vantadeck/project.toml.</li></ul>
                 </div>
                 <div className="space-y-3 border-l border-border p-5"><Button className="w-full" onClick={() => openScreen("Projects")}>Open Project</Button>
-                  <div><h2 className="mb-2 text-sm font-semibold">Health summary</h2>{health.length ? <div className="space-y-2">{health.slice(0, 3).map((issue) => <div key={issue.code} className="flex items-start gap-2 text-sm"><CircleAlert className={issue.severity === "error" ? "text-destructive" : "text-primary"} size={16} /><span><strong className="block">{issue.title}</strong><small className="text-muted-foreground">{issue.detail}</small></span></div>)}</div> : <EmptyState text="No current health issues." />}</div>
+                  <div><h2 className="mb-2 text-sm font-semibold">Health summary</h2>{health.length ? <div className="space-y-2">{health.slice(0, 3).map((issue) => <div key={issue.code} className="flex items-start gap-2 text-sm"><CircleAlert className={cn("shrink-0", issue.severity === "error" ? "text-destructive" : "text-primary")} size={16} /><span className="min-w-0" title={issue.detail}><strong className="block truncate">{issue.title}</strong><small className="line-clamp-2 text-muted-foreground">{issue.detail}</small></span></div>)}</div> : <EmptyState text="No current health issues." />}</div>
                 </div>
               </CardContent></Card> : <Card><CardContent className="p-6"><EmptyState text="Import a project to start working locally." /></CardContent></Card>}
             </section>
@@ -386,16 +440,17 @@ function AppShell() {
                 <Button variant="link" className="px-0" onClick={() => openScreen("Projects")}>View all projects <ChevronRight size={16} /></Button>
               </div>
               <aside className="space-y-4">
-                <Card><CardContent className="p-4"><div className="mb-2 flex items-center justify-between text-sm font-semibold">Project Health <Button variant="ghost" size="sm" className="h-auto p-0 text-muted-foreground" onClick={() => openScreen("Health")}>View All ({health.length})</Button></div>{health.length ? <div className="space-y-2">{health.slice(0, 3).map((issue) => <div key={issue.code} className="flex items-start gap-2 text-sm"><CircleAlert className={issue.severity === "error" ? "text-destructive" : "text-primary"} size={16} /><span><strong className="block">{issue.title}</strong><small className="text-muted-foreground">{issue.detail}</small></span></div>)}</div> : <EmptyState text="No current health issues." />}</CardContent></Card>
-                <Card><CardContent className="p-4"><div className="mb-2 flex items-center justify-between text-sm font-semibold">Installed Apps <Button variant="ghost" size="sm" className="h-auto p-0 text-muted-foreground" onClick={() => openScreen("Applications")}>Manage</Button></div><div className="space-y-1">{installedApps.map((app) => <button key={app.name} onClick={() => openScreen("Applications")} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted/50"><span className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary"><AppWindow size={18} /></span><span className="flex-1"><strong className="block">{app.name}</strong><small className="text-xs text-muted-foreground">{app.versions.join(", ")}</small></span><ChevronRight size={15} className="text-muted-foreground" /></button>)}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="mb-2 flex items-center justify-between text-sm font-semibold">Project Health <Button variant="ghost" size="sm" className="h-auto p-0 text-muted-foreground" onClick={() => openScreen("Health")}>View All ({health.length})</Button></div>{health.length ? <div className="space-y-2">{health.slice(0, 3).map((issue) => <div key={issue.code} className="flex items-start gap-2 text-sm"><CircleAlert className={cn("shrink-0", issue.severity === "error" ? "text-destructive" : "text-primary")} size={16} /><span className="min-w-0" title={issue.detail}><strong className="block truncate">{issue.title}</strong><small className="line-clamp-2 text-muted-foreground">{issue.detail}</small></span></div>)}</div> : <EmptyState text="No current health issues." />}</CardContent></Card>
+                <Card><CardContent className="p-4"><div className="mb-2 flex items-center justify-between text-sm font-semibold">Installed Apps <Button variant="ghost" size="sm" className="h-auto p-0 text-muted-foreground" onClick={() => openScreen("Applications")}>Manage</Button></div><div className="space-y-1">{installedApps.length ? installedApps.map((app) => <button key={app.name} onClick={() => launchInstalled(app)} title={app.executable ? `Launch ${app.name}` : "Open Applications"} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted/50"><span className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary"><AppIcon executable={app.executable ?? undefined} size={18} /></span><span className="min-w-0 flex-1"><strong className="block truncate">{app.name}</strong><small className="block truncate text-xs text-muted-foreground">{app.versions.join(", ")}</small></span><ChevronRight size={15} className="text-muted-foreground" /></button>) : <EmptyState text="No apps detected yet." />}</div></CardContent></Card>
               </aside>
             </section>
           </div> : managementContent}
         </div>
 
+        <Onboarding open={onboarding} onComplete={completeOnboarding} onSkip={skipOnboarding} />
         <footer className="flex items-center gap-2 border-t border-border px-6 py-2.5">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Quick Launch</span>
-          {installedApps.slice(0, 5).map((app) => <Button key={app.id} variant="ghost" size="sm" onClick={() => openScreen("Applications")}><AppWindow size={18} /> {app.name}</Button>)}
+          {installedApps.slice(0, 6).map((app) => <Button key={app.id} variant="ghost" size="sm" title={app.executable ? `Launch ${app.name}` : "Open Applications"} onClick={() => launchInstalled(app)}><AppIcon executable={app.executable ?? undefined} size={18} /> {app.name}</Button>)}
           {installedApps.length === 0 ? <Button variant="ghost" size="sm" onClick={() => openScreen("Applications")}><Search size={18} /> Detect applications</Button> : null}
           <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground"><Settings size={15} /> Theme<select aria-label="Theme" className={themeSelectClass} value={preference} onChange={(event) => setPreference(event.target.value as ThemePreference)}><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
         </footer>

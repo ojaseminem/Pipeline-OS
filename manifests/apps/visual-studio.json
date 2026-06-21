@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"visual-studio","name":"Visual Studio","category":"code","platforms":["windows"],"executables":["devenv.exe"],"knownPaths":["C:/Program Files/Microsoft Visual Studio/*/*/Common7/IDE/devenv.exe"],"fileTypes":[".sln"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

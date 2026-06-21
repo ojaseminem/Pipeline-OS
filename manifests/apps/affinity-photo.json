@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"affinity-photo","name":"Affinity Photo","category":"art","platforms":["windows","macos"],"executables":["Photo.exe"],"knownPaths":["C:/Program Files/Affinity/Photo */Photo.exe"],"fileTypes":[".afphoto"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

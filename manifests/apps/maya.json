@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"maya","name":"Autodesk Maya","category":"dcc","platforms":["windows","macos","linux"],"executables":["maya.exe","maya"],"knownPaths":["C:/Program Files/Autodesk/Maya*/bin/maya.exe"],"fileTypes":[".ma",".mb"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

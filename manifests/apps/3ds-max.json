@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"3ds-max","name":"Autodesk 3ds Max","category":"dcc","platforms":["windows"],"executables":["3dsmax.exe"],"knownPaths":["C:/Program Files/Autodesk/3ds Max */3dsmax.exe"],"fileTypes":[".max"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

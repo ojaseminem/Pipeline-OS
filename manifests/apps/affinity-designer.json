@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"affinity-designer","name":"Affinity Designer","category":"art","platforms":["windows","macos"],"executables":["Designer.exe"],"knownPaths":["C:/Program Files/Affinity/Designer */Designer.exe"],"fileTypes":[".afdesign"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

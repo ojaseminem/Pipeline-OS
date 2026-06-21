@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"davinci-resolve","name":"DaVinci Resolve","category":"dcc","platforms":["windows","macos","linux"],"executables":["Resolve.exe"],"knownPaths":["C:/Program Files/Blackmagic Design/DaVinci Resolve/Resolve.exe"],"fileTypes":[".drp"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

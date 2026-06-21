@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"houdini","name":"SideFX Houdini","category":"dcc","platforms":["windows","macos","linux"],"executables":["houdinifx.exe","houdini.exe","houdini"],"knownPaths":["C:/Program Files/Side Effects Software/Houdini */bin/houdinifx.exe"],"fileTypes":[".hip",".hipnc"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

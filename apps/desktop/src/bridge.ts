@@ -39,7 +39,7 @@ export type DashboardSnapshot = {
   continueProject: Project | null;
   pinnedProjects: Project[];
   recentProjects: Project[];
-  apps: Array<{ id: string; name: string; category: string; versions: string[] }>;
+  apps: Array<{ id: string; name: string; category: string; executable?: string | null; versions: string[] }>;
   health: HealthIssue[];
 };
 

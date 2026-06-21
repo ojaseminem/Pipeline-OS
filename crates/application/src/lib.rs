@@ -62,10 +62,14 @@ pub struct ProjectSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSummary {
     pub id: String,
     pub name: String,
     pub category: String,
+    /// Executable of the newest architecture-compatible installation, if any,
+    /// so the dashboard can launch the app directly from Quick Launch.
+    pub executable: Option<String>,
     pub versions: Vec<String>,
 }
 
@@ -110,24 +114,28 @@ impl DashboardSnapshot {
                     id: "blender".into(),
                     name: "Blender".into(),
                     category: "dcc".into(),
+                    executable: None,
                     versions: vec!["4.1.1 LTS".into(), "3.6.5 LTS".into()],
                 },
                 AppSummary {
                     id: "unreal-engine".into(),
                     name: "Unreal Engine".into(),
                     category: "game-engine".into(),
+                    executable: None,
                     versions: vec!["5.3.2".into(), "5.2.1".into()],
                 },
                 AppSummary {
                     id: "unity".into(),
                     name: "Unity".into(),
                     category: "game-engine".into(),
+                    executable: None,
                     versions: vec!["2022.3.18f1".into()],
                 },
                 AppSummary {
                     id: "vscode".into(),
                     name: "Visual Studio Code".into(),
                     category: "code".into(),
+                    executable: None,
                     versions: vec!["1.87.2".into()],
                 },
             ],

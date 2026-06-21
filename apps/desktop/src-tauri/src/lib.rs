@@ -6,32 +6,59 @@ use tauri_plugin_updater::UpdaterExt;
 use vantadeck_application::{
     AppSummary, ApplicationService, HealthSummary, LaunchResult, ProjectSummary,
 };
-use vantadeck_domain::{AppInstallation, DetectedApplication, HealthIssue, ProjectConfig};
+use vantadeck_domain::{
+    AppCategory, AppInstallation, DetectedApplication, HealthIssue, ProjectConfig,
+};
 use vantadeck_launcher::LaunchSpec;
-use vantadeck_manifests::ToolManifest;
+use vantadeck_manifests::{AppManifest, ToolManifest};
 use vantadeck_storage::Storage;
 use vantadeck_vcs::GitProvider;
 use vantadeck_vcs::VcsOperationResult;
-
-// (id, display name, category). Categories match the `AppCategory` kebab-case
-// contract. `version-control` apps are tools used for project source control and
-// are intentionally never offered as launchable applications.
-const APP_CATALOG: &[(&str, &str, &str)] = &[
-    ("blender", "Blender", "dcc"),
-    ("godot", "Godot", "game-engine"),
-    ("unity", "Unity", "game-engine"),
-    ("unreal-engine", "Unreal Engine", "game-engine"),
-    ("rider", "JetBrains Rider", "code"),
-    ("vscode", "Visual Studio Code", "code"),
-    ("git", "Git", "version-control"),
-    ("git-lfs", "Git LFS", "version-control"),
-    ("perforce", "Perforce CLI", "version-control"),
-];
 
 /// Categories that represent launchable creative applications. Version-control
 /// tooling is detected for project workflows but is never launched directly.
 fn is_launchable_category(category: &str) -> bool {
     matches!(category, "game-engine" | "dcc" | "art" | "code")
+}
+
+fn category_str(category: &AppCategory) -> &'static str {
+    match category {
+        AppCategory::GameEngine => "game-engine",
+        AppCategory::Dcc => "dcc",
+        AppCategory::Art => "art",
+        AppCategory::Code => "code",
+        AppCategory::VersionControl => "version-control",
+        AppCategory::Utility => "utility",
+    }
+}
+
+/// The application catalog, derived from the bundled manifests so any manifest
+/// added under `manifests/apps/` automatically appears in the app — no parallel
+/// hard-coded list to maintain. Returns (id, display name, category).
+fn manifest_catalog(manifest_dir: &Path) -> Vec<(String, String, String)> {
+    let mut catalog = Vec::new();
+    let Ok(entries) = std::fs::read_dir(manifest_dir) else {
+        return catalog;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(manifest) = AppManifest::from_json(&text) else {
+            continue;
+        };
+        catalog.push((
+            manifest.id,
+            manifest.name,
+            category_str(&manifest.category).to_string(),
+        ));
+    }
+    catalog.sort_by_key(|(_, name, _)| name.to_lowercase());
+    catalog
 }
 const TOOL_INDEX_SOURCE: &str = "https://tools.vantadeck.org/v1/index.json";
 
@@ -115,21 +142,25 @@ fn project_summary(name: String, root: &Path) -> ProjectSummary {
     }
 }
 
-async fn apps(service: &ApplicationService) -> Result<Vec<DesktopApp>, String> {
-    let mut result = Vec::with_capacity(APP_CATALOG.len());
-    for (id, name, category) in APP_CATALOG {
+async fn apps(
+    service: &ApplicationService,
+    manifest_dir: &Path,
+) -> Result<Vec<DesktopApp>, String> {
+    let catalog = manifest_catalog(manifest_dir);
+    let mut result = Vec::with_capacity(catalog.len());
+    for (id, name, category) in catalog {
         result.push(DesktopApp {
-            id: (*id).into(),
-            name: (*name).into(),
-            category: (*category).into(),
-            launchable: is_launchable_category(category),
+            launchable: is_launchable_category(&category),
             installations: service
-                .detected_installations(id)
+                .detected_installations(&id)
                 .await
                 .map_err(|e| e.to_string())?
                 .into_iter()
                 .map(DesktopInstallation::from)
                 .collect(),
+            id,
+            name,
+            category,
         });
     }
     Ok(result)
@@ -146,7 +177,7 @@ async fn dashboard_snapshot(state: State<'_, DesktopState>) -> Result<DesktopDas
         .iter()
         .map(|p| project_summary(p.name.clone(), &p.root))
         .collect::<Vec<_>>();
-    let detected = apps(&state.service).await?;
+    let detected = apps(&state.service, &state.manifest_dir).await?;
     let health = if let Some(project) = projects.first() {
         state
             .service
@@ -176,11 +207,19 @@ async fn dashboard_snapshot(state: State<'_, DesktopState>) -> Result<DesktopDas
         apps: detected
             .into_iter()
             .filter(|app| app.launchable && !app.installations.is_empty())
-            .map(|app| AppSummary {
-                id: app.id,
-                name: app.name,
-                category: app.category,
-                versions: app.installations.into_iter().map(|i| i.version).collect(),
+            .map(|app| {
+                let primary = app.installations.iter().find(|i| i.runnable);
+                AppSummary {
+                    executable: primary.map(|i| i.executable.clone()),
+                    versions: app
+                        .installations
+                        .iter()
+                        .map(|i| i.version.clone())
+                        .collect(),
+                    id: app.id,
+                    name: app.name,
+                    category: app.category,
+                }
             })
             .collect(),
         health,
@@ -249,7 +288,7 @@ async fn git_status(
 
 #[tauri::command]
 async fn list_apps(state: State<'_, DesktopState>) -> Result<Vec<DesktopApp>, String> {
-    apps(&state.service).await
+    apps(&state.service, &state.manifest_dir).await
 }
 
 #[tauri::command]
@@ -286,11 +325,11 @@ fn launch_is_allowed(installations: &[AppInstallation], executable: &Path) -> bo
         .any(|candidate| candidate.executable == executable)
 }
 
-fn catalog_category(app_id: &str) -> Option<&'static str> {
-    APP_CATALOG
-        .iter()
-        .find(|(id, _, _)| *id == app_id)
-        .map(|(_, _, category)| *category)
+fn catalog_category(manifest_dir: &Path, app_id: &str) -> Option<String> {
+    manifest_catalog(manifest_dir)
+        .into_iter()
+        .find(|(id, _, _)| id == app_id)
+        .map(|(_, _, category)| category)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -299,7 +338,7 @@ async fn launch_app(
     executable: String,
     state: State<'_, DesktopState>,
 ) -> Result<(), String> {
-    match catalog_category(&app_id) {
+    match catalog_category(&state.manifest_dir, &app_id).as_deref() {
         Some(category) if !is_launchable_category(category) => {
             return Err(format!(
                 "{app_id} is a version-control tool and is used for project source control, not launched directly."

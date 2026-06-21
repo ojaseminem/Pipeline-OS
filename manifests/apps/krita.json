@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"krita","name":"Krita","category":"art","platforms":["windows","macos","linux"],"executables":["krita.exe","krita"],"knownPaths":["C:/Program Files/Krita (x64)/bin/krita.exe"],"fileTypes":[".kra"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}
