@@ -41,7 +41,7 @@ const sampleContinueProject: Project = {
   lastOpened: "Today, 10:42 AM",
 };
 
-function ProjectTable({ projects }: { projects: Project[] }) {
+function ProjectTable({ projects, onOpen }: { projects: Project[]; onOpen: (project: Project) => void }) {
   return (
     <div className="project-table" role="table" aria-label="Projects">
       <div className="project-row project-head" role="row">
@@ -53,7 +53,7 @@ function ProjectTable({ projects }: { projects: Project[] }) {
           <span>{project.lastOpened}</span>
           <span className="engine"><Box size={15} /> {project.engine} {project.version}</span>
           <span className="branch"><GitBranch size={14} /> {project.branch}</span>
-          <span className="row-actions"><button className="outline-button"><Folder size={14} /> Open Project</button><button className="icon-button" aria-label={`More actions for ${project.name}`}><MoreHorizontal size={17} /></button></span>
+          <span className="row-actions"><button className="outline-button" onClick={() => onOpen(project)}><Folder size={14} /> Open Project</button><button className="icon-button" onClick={() => onOpen(project)} aria-label={`More actions for ${project.name}`}><MoreHorizontal size={17} /></button></span>
         </div>
       ))}
     </div>
@@ -194,12 +194,12 @@ export function App() {
           <section className="workspace">
             <div className="projects-pane">
               <div className="tabs" role="tablist"><button role="tab" aria-selected={projectView === "pinned"} onClick={() => setProjectView("pinned")}>Pinned Projects</button><button role="tab" aria-selected={projectView === "recent"} onClick={() => setProjectView("recent")}>Recent Projects</button></div>
-              <ProjectTable projects={filteredProjects} />
-              <button className="text-link">View all projects <ChevronRight size={17} /></button>
+              <ProjectTable projects={filteredProjects} onOpen={() => openScreen("Projects")} />
+              <button className="text-link" onClick={() => openScreen("Projects")}>View all projects <ChevronRight size={17} /></button>
             </div>
             <aside className="right-rail">
               <section className="rail-section"><div className="rail-title">Project Health <button onClick={() => openScreen("Health")}>View All ({health.length})</button></div>{health.length ? <div className="health-list">{health.slice(0, 3).map((issue) => <div className="health-item" key={issue.code}><CircleAlert className={issue.severity} size={17} /><span><strong>{issue.title}</strong><small>{issue.detail}</small></span></div>)}</div> : <EmptyState text="No current health issues." />}</section>
-              <section className="rail-section"><div className="rail-title">Installed Apps <button>Manage</button></div><div className="apps-list">{installedApps.map((app) => <button className="app-row" key={app.name}><span className="app-glyph"><AppWindow size={19} /></span><span><strong>{app.name}</strong>{app.versions.map((version) => <small key={version}>{version}</small>)}</span><ChevronRight size={16} /></button>)}</div></section>
+              <section className="rail-section"><div className="rail-title">Installed Apps <button onClick={() => openScreen("Applications")}>Manage</button></div><div className="apps-list">{installedApps.map((app) => <button className="app-row" onClick={() => openScreen("Applications")} key={app.name}><span className="app-glyph"><AppWindow size={19} /></span><span><strong>{app.name}</strong>{app.versions.map((version) => <small key={version}>{version}</small>)}</span><ChevronRight size={16} /></button>)}</div></section>
             </aside>
           </section></> : managementContent}
         </div>

@@ -67,4 +67,35 @@ describe("dashboard projects", () => {
     await userEvent.keyboard("{Control>}k{/Control}");
     expect(screen.getByPlaceholderText("Search projects, apps, tools, docs...")).toHaveFocus();
   });
+
+  it("navigates to Projects when clicking 'View all projects' button", async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole("button", { name: /View all projects/ }));
+    expect(screen.getByRole("heading", { name: "Projects" })).toBeInTheDocument();
+  });
+
+  it("navigates to Applications when clicking 'Manage' button in Installed Apps", async () => {
+    render(<App />);
+    const manageButton = screen.getByRole("button", { name: "Manage" });
+    await userEvent.click(manageButton);
+    expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
+  });
+
+  it("navigates to Applications when clicking an app-row button", async () => {
+    render(<App />);
+    const appRows = screen.getAllByRole("button", { name: /Chrome|Firefox|Visual Studio Code/ });
+    if (appRows.length > 0) {
+      await userEvent.click(appRows[0]);
+      expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
+    }
+  });
+
+  it("navigates to Projects when clicking ProjectTable 'Open Project' button", async () => {
+    render(<App />);
+    const openProjectButtons = screen.queryAllByRole("button", { name: /Open Project/ });
+    if (openProjectButtons.length > 0) {
+      await userEvent.click(openProjectButtons[0]);
+      expect(screen.getByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    }
+  });
 });
