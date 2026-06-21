@@ -1,0 +1,17 @@
+target/
+node_modules/
+dist/
+*.tsbuildinfo
+.vite.log
+/apps/desktop/vite.config.js
+/apps/desktop/vite.config.d.ts
+/apps/desktop/src-tauri/target/
+/.worktrees/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example

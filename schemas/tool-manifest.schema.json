@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vantadeck.org/v1/tool-manifest.schema.json",
+  "title": "Vantadeck Tool Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "description",
+    "sourceUrl",
+    "license",
+    "supportedHosts",
+    "platforms",
+    "provenance",
+    "reviewState",
+    "lastVerifiedAt",
+    "safetyNotes",
+    "artifacts"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "sourceUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "license": { "type": "string", "minLength": 1 },
+    "supportedHosts": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "platforms": {
+      "type": "array",
+      "items": { "enum": ["windows", "macos", "linux"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "provenance": { "type": "string", "minLength": 1 },
+    "reviewState": { "enum": ["submitted", "reviewed", "verified", "stale", "withdrawn"] },
+    "lastVerifiedAt": { "type": "string", "format": "date" },
+    "safetyNotes": { "type": "string", "minLength": 1 },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["platform", "url", "sha256"],
+        "properties": {
+          "platform": { "enum": ["windows", "macos", "linux"] },
+          "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+          "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" }
+        }
+      }
+    }
+  }
+}

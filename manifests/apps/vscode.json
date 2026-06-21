@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"vscode","name":"Visual Studio Code","category":"code","platforms":["windows","macos","linux"],"executables":["Code.exe","code"],"knownPaths":["C:/Users/{user}/AppData/Local/Programs/Microsoft VS Code/Code.exe"],"fileTypes":[],"launchTemplates":[{"id":"folder","name":"Open Folder","arguments":["{projectRoot}"]}]}

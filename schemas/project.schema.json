@@ -1,0 +1,12 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://schemas.vantadeck.org/v1/project.schema.json",
+  "title":"Vantadeck Project",
+  "type":"object",
+  "required":["schema_version","name","project_type"],
+  "properties":{
+    "schema_version":{"const":1},"name":{"type":"string","minLength":1},"project_type":{"type":"string","minLength":1},
+    "linked_apps":{"type":"array","items":{"type":"object","required":["app_id"],"properties":{"app_id":{"type":"string"},"preferred_version":{"type":"string"},"project_file":{"type":"string"},"folder":{"type":"string"}}}},
+    "launch_profiles":{"type":"array"},"shortcuts":{"type":"array"},"version_control":{"type":["object","null"]},"enabled_health_checks":{"type":"array","items":{"type":"string"}}
+  }
+}

@@ -1,0 +1,26 @@
+[package]
+name = "vantadeck-application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+semver.workspace = true
+thiserror.workspace = true
+vantadeck-domain = { path = "../domain" }
+vantadeck-detection = { path = "../detection" }
+vantadeck-health = { path = "../health" }
+vantadeck-launcher = { path = "../launcher" }
+vantadeck-manifests = { path = "../manifests" }
+vantadeck-projects = { path = "../projects" }
+vantadeck-storage = { path = "../storage" }
+vantadeck-vcs = { path = "../vcs" }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

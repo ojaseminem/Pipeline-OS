@@ -1,0 +1,25 @@
+[package]
+name = "vantadeck-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "vantadeck_desktop_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+serde.workspace = true
+tauri = { version = "=2.11.3", features = [] }
+vantadeck-application = { path = "../../../crates/application" }
+vantadeck-domain = { path = "../../../crates/domain" }
+vantadeck-launcher = { path = "../../../crates/launcher" }
+vantadeck-manifests = { path = "../../../crates/manifests" }
+vantadeck-storage = { path = "../../../crates/storage" }
+vantadeck-vcs = { path = "../../../crates/vcs" }
+semver.workspace = true

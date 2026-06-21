@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Blender
+GenericName=3D modeler
+Exec="/opt/Blender 4.2/blender" --new-window %F
+TryExec=/opt/Blender 4.2/blender
+Icon=blender
+Terminal=false

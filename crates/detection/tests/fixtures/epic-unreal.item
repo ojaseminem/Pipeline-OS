@@ -1,0 +1,7 @@
+{
+  "AppName": "UE_5.4",
+  "DisplayName": "Unreal Engine",
+  "AppVersion": "5.4.4-35576357+++UE5+Release-5.4",
+  "InstallLocation": "C:/Program Files/Epic Games/UE_5.4",
+  "LaunchExecutable": "Engine/Binaries/Win64/UnrealEditor.exe"
+}

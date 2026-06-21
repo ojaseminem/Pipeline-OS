@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"git","name":"Git","category":"version-control","platforms":["windows","macos","linux"],"executables":["git.exe","git"],"knownPaths":["C:/Program Files/Git/cmd/git.exe","/usr/bin/git"],"fileTypes":[],"launchTemplates":[]}

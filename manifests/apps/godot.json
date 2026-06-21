@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"godot","name":"Godot","category":"game-engine","platforms":["windows","macos","linux"],"executables":["Godot.exe","godot","godot4"],"knownPaths":[],"fileTypes":["project.godot"],"launchTemplates":[{"id":"editor","name":"Godot Editor","arguments":["--editor","--path","{projectRoot}"]}]}

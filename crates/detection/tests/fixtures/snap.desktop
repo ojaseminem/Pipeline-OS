@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=Blender
+Exec=env BAMF_DESKTOP_FILE_HINT=/var/lib/snapd/desktop/applications/blender_blender.desktop /snap/bin/blender %F
+X-SnapInstanceName=blender
+Terminal=false

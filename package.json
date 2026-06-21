@@ -1,0 +1,12 @@
+{
+  "name": "vantadeck-workspace",
+  "private": true,
+  "workspaces": ["apps/desktop"],
+  "scripts": {
+    "build": "npm run build --workspace @vantadeck/desktop",
+    "test": "npm run test --workspace @vantadeck/desktop",
+    "lint": "npm run lint --workspace @vantadeck/desktop",
+    "typecheck": "npm run typecheck --workspace @vantadeck/desktop",
+    "validate:contracts": "node scripts/validate-contracts.mjs"
+  }
+}

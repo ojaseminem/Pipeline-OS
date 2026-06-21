@@ -1,0 +1,18 @@
+[package]
+name = "vantadeck-detection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+semver.workspace = true
+serde_json.workspace = true
+vantadeck-domain = { path = "../domain" }
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

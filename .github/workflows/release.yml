@@ -1,0 +1,183 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v-prefixed tag to rebuild as a draft
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-ref:
+    name: Validate immutable signed tag
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: tag
+        name: Resolve and verify signed tag
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "${REQUESTED_TAG}" =~ ^v[0-9] ]] || { echo "release tag must start with v and a digit" >&2; exit 1; }
+          git show-ref --verify --quiet "refs/tags/${REQUESTED_TAG}"
+          test "$(git cat-file -t "refs/tags/${REQUESTED_TAG}")" = tag
+          git verify-tag "${REQUESTED_TAG}"
+          printf 'tag=%s\n' "${REQUESTED_TAG}" >> "${GITHUB_OUTPUT}"
+          printf 'sha=%s\n' "$(git rev-list -n 1 "${REQUESTED_TAG}")" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: validate-ref
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: "--bundles nsis,msi"
+          - os: macos-latest
+            args: "--bundles app,dmg"
+          - os: ubuntu-24.04
+            args: "--bundles appimage,deb,rpm"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate-ref.outputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: 1.96.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - run: npm run build
+      - name: Build native bundles
+        run: npm run tauri --workspace @vantadeck/desktop -- build ${{ matrix.args }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vantadeck-${{ runner.os }}
+          path: target/release/bundle/**
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-draft:
+    name: Assemble signed draft and evidence
+    needs: [validate-ref, build]
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate-ref.outputs.sha }}
+          path: source
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+      - name: Generate Rust and Node source SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: source
+          format: spdx-json
+          output-file: source-sbom.spdx.json
+          upload-artifact: false
+      - name: Generate packaged-artifact SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: artifacts
+          format: spdx-json
+          output-file: artifact-sbom.spdx.json
+          upload-artifact: false
+      - name: Create deterministic checksum and artifact manifests
+        shell: bash
+        env:
+          VALIDATED_TAG: ${{ needs.validate-ref.outputs.tag }}
+          VALIDATED_SHA: ${{ needs.validate-ref.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          while IFS= read -r -d '' file; do
+            case "${file}" in
+              *.msi|*.exe|*.dmg|*.AppImage|*.deb|*.rpm) ;;
+              *) continue ;;
+            esac
+            name="$(basename "${file}")"
+            test ! -e "release-assets/${name}" || { echo "duplicate release asset: ${name}" >&2; exit 1; }
+            cp "${file}" "release-assets/${name}"
+          done < <(find artifacts -type f -print0 | sort -z)
+          test -n "$(find release-assets -maxdepth 1 -type f -print -quit)" || { echo "no distributable release assets found" >&2; exit 1; }
+          (cd release-assets && find . -maxdepth 1 -type f -printf '%f\0' | sort -z | xargs -0 sha256sum) > SHA256SUMS.txt
+          {
+            printf 'release_tag=%s\n' "${VALIDATED_TAG}"
+            printf 'release_sha=%s\n' "${VALIDATED_SHA}"
+            printf 'workflow_run=%s/actions/runs/%s\n' "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+            find release-assets -maxdepth 1 -type f -printf '%s %f\n' | sort -k2
+          } > ARTIFACTS.txt
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - name: Keyless-sign artifacts and release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir signatures
+          mapfile -d '' files < <(find release-assets -maxdepth 1 -type f -print0 | sort -z)
+          for file in "${files[@]}"; do
+            cosign sign-blob --yes --bundle "signatures/$(basename "${file}").sigstore.json" "${file}"
+          done
+          for file in SHA256SUMS.txt ARTIFACTS.txt source-sbom.spdx.json artifact-sbom.spdx.json; do
+            cosign sign-blob --yes --bundle "${file}.sigstore.json" "${file}"
+          done
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
+        with:
+          subject-path: release-assets/*
+      - name: Attest packaged-artifact SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4
+        with:
+          subject-path: release-assets/*
+          sbom-path: artifact-sbom.spdx.json
+      - name: Publish draft release for native validation and promotion
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
+        with:
+          tag_name: ${{ needs.validate-ref.outputs.tag }}
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/*
+            signatures/*
+            SHA256SUMS.txt
+            SHA256SUMS.txt.sigstore.json
+            ARTIFACTS.txt
+            ARTIFACTS.txt.sigstore.json
+            source-sbom.spdx.json
+            source-sbom.spdx.json.sigstore.json
+            artifact-sbom.spdx.json
+            artifact-sbom.spdx.json.sigstore.json

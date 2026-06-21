@@ -1,0 +1,10 @@
+Developer Certificate of Origin
+Version 1.1
+
+By making a contribution to this project, I certify that the contribution was created
+in whole or in part by me and I have the right to submit it under the open source
+license indicated in the repository, or that it is based on appropriately licensed
+work and I have the right to submit it, and that I understand the contribution and a
+record of it are public and maintained indefinitely.
+
+Contributors certify this by adding `Signed-off-by: Name <email>` to each commit.
