@@ -15,7 +15,8 @@ use vantadeck_detection::{
     FlatpakDetectionSource, SnapDetectionSource,
 };
 use vantadeck_detection::{
-    DetectionEngine, DetectionSource, FilesystemDetectionSource, ScanRequest,
+    DetectionEngine, DetectionSource, FilesystemDetectionSource, KnownPathDetectionSource,
+    ScanRequest,
 };
 #[cfg(windows)]
 use vantadeck_detection::{
@@ -220,7 +221,8 @@ impl ApplicationService {
                         &manifest.id,
                         &manifest.name,
                         manifest.executables.iter().map(String::as_str).collect(),
-                    ),
+                    )
+                    .with_known_paths(manifest.known_paths.clone()),
                     manifest.category,
                     None,
                 )
@@ -571,9 +573,17 @@ fn system_detection_engine(roots: &[PathBuf]) -> DetectionEngine {
     } else {
         roots.to_vec()
     };
-    let mut sources: Vec<Box<dyn DetectionSource>> = vec![Box::new(
-        FilesystemDetectionSource::new("filesystem", 80, filesystem_roots, 6),
-    )];
+    let mut sources: Vec<Box<dyn DetectionSource>> = vec![
+        // Manifest-declared install locations (Unity Hub, Epic UE_*, JetBrains,
+        // per-user editors) are checked on every scan, independent of roots.
+        Box::new(KnownPathDetectionSource::new("known-path", 90)),
+        Box::new(FilesystemDetectionSource::new(
+            "filesystem",
+            80,
+            filesystem_roots,
+            6,
+        )),
+    ];
     #[cfg(windows)]
     if include_system_sources {
         sources.push(Box::new(RegistryDetectionSource::system()));

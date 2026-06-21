@@ -1,7 +1,7 @@
 import { installedApps, pinnedProjects, recentProjects, type Project } from "./data";
 
 export type HealthIssue = { code: string; title: string; detail: string; severity: string; remediation?: string };
-export type AppInstallation = { version: string; executable: string; state: string; evidence: Array<{ source: string; detail: string; confidence: number }> };
+export type AppInstallation = { version: string; executable: string; state: string; runnable: boolean };
 export type ManagedApp = { id: string; name: string; category: string; launchable: boolean; installations: AppInstallation[] };
 export type RegisteredProject = { name: string; path: string; pinned: boolean };
 export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null };

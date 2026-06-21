@@ -29,6 +29,9 @@ pub struct ScanRequest {
     pub app_id: String,
     pub display_name: String,
     pub executables: Vec<String>,
+    /// Glob patterns of well-known install locations from the app manifest. May
+    /// contain `*` wildcards and a `{user}` placeholder.
+    pub known_paths: Vec<String>,
 }
 
 impl ScanRequest {
@@ -41,13 +44,68 @@ impl ScanRequest {
             app_id: app_id.into(),
             display_name: display_name.into(),
             executables: executables.into_iter().map(Into::into).collect(),
+            known_paths: Vec::new(),
         }
+    }
+
+    pub fn with_known_paths(mut self, known_paths: Vec<impl Into<String>>) -> Self {
+        self.known_paths = known_paths.into_iter().map(Into::into).collect();
+        self
     }
 }
 
 #[async_trait]
 pub trait DetectionSource: Send + Sync {
     async fn scan(&self, request: &ScanRequest) -> io::Result<Vec<AppInstallation>>;
+}
+
+/// Detects installations from the manifest's declared well-known paths,
+/// expanding `*` globs and the `{user}` placeholder. This finds editors that
+/// install into versioned hub directories (Unity Hub, Epic UE_*, JetBrains) on
+/// any drive, which a bounded directory walk would otherwise miss.
+pub struct KnownPathDetectionSource {
+    source_id: String,
+    confidence: u8,
+}
+
+impl KnownPathDetectionSource {
+    pub fn new(source_id: impl Into<String>, confidence: u8) -> Self {
+        Self {
+            source_id: source_id.into(),
+            confidence: confidence.min(100),
+        }
+    }
+}
+
+#[async_trait]
+impl DetectionSource for KnownPathDetectionSource {
+    async fn scan(&self, request: &ScanRequest) -> io::Result<Vec<AppInstallation>> {
+        let mut found = Vec::new();
+        let user = std::env::var("USERNAME")
+            .or_else(|_| std::env::var("USER"))
+            .unwrap_or_default();
+        for pattern in &request.known_paths {
+            let expanded = pattern.replace("{user}", &user);
+            let Ok(entries) = glob::glob(&expanded) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                if entry.is_file() {
+                    found.push(AppInstallation {
+                        version: infer_version(&entry).unwrap_or_else(|| Version::new(0, 0, 0)),
+                        executable: entry.clone(),
+                        state: AppState::NewDetected,
+                        evidence: vec![DetectionEvidence {
+                            source: self.source_id.clone(),
+                            detail: entry.display().to_string(),
+                            confidence: self.confidence,
+                        }],
+                    });
+                }
+            }
+        }
+        Ok(found)
+    }
 }
 
 pub struct PathDetectionSource {
@@ -126,6 +184,7 @@ impl DetectionSource for FilesystemDetectionSource {
                 .max_depth(self.max_depth)
                 .follow_links(false)
                 .into_iter()
+                .filter_entry(|entry| !is_pruned_directory(entry))
                 .filter_map(Result::ok)
                 .filter(|entry| entry.file_type().is_file())
             {
@@ -152,6 +211,29 @@ impl DetectionSource for FilesystemDetectionSource {
         }
         Ok(found)
     }
+}
+
+/// Transient, system, or dependency directories that never contain real
+/// creative-app installations and would otherwise produce phantom detections
+/// (e.g. test fixtures unpacked in %TEMP%) or slow the scan dramatically.
+fn is_pruned_directory(entry: &walkdir::DirEntry) -> bool {
+    if !entry.file_type().is_dir() {
+        return false;
+    }
+    const PRUNED: &[&str] = &[
+        "Temp",
+        "tmp",
+        "Cache",
+        "Caches",
+        "$Recycle.Bin",
+        "node_modules",
+        ".git",
+        "WinSxS",
+        "Windows.old",
+        "Installer",
+    ];
+    let name = entry.file_name().to_string_lossy();
+    PRUNED.iter().any(|skip| name.eq_ignore_ascii_case(skip))
 }
 
 #[derive(Debug, Clone)]

@@ -182,16 +182,19 @@ export function App() {
           <section className="app-category" key={category}>
             <h2 className="app-category-title">{APP_CATEGORY_LABELS[category] ?? category}</h2>
             <div className="card-grid">{managedApps.filter((app) => app.category === category).map((app) => {
-              const primary = app.installations[0];
+              const iconInstall = app.installations.find((item) => item.runnable) ?? app.installations[0];
+              const launchTarget = app.installations.find((item) => item.runnable);
+              const hasIncompatible = app.installations.some((item) => !item.runnable);
               return (
                 <article className="management-card" key={app.id}>
-                  <span className="app-glyph"><AppIcon executable={primary?.executable} size={26} /></span>
+                  <span className="app-glyph"><AppIcon executable={iconInstall?.executable} size={26} /></span>
                   <div>
                     <h3>{app.name}</h3>
-                    <p>{app.installations.length ? app.installations.map((item) => formatVersion(item.version)).join(", ") : "Not detected"}</p>
+                    <p>{app.installations.length ? app.installations.map((item) => `${formatVersion(item.version)}${item.runnable ? "" : " — incompatible"}`).join(", ") : "Not detected"}</p>
                     {!app.launchable && app.installations.length ? <small className="vcs-note">Detected — used for project version control</small> : null}
+                    {app.launchable && hasIncompatible ? <small className="vcs-note">Some versions are built for another architecture and are skipped on launch.</small> : null}
                   </div>
-                  {app.launchable && primary ? <button className="outline-button" onClick={() => { if (window.confirm(`Launch ${app.name}?`)) void run(`Launching ${app.name}`, () => desktopApi.launchApp(app.id, primary.executable)); }}>Launch</button> : null}
+                  {app.launchable && launchTarget ? <button className="outline-button" onClick={() => { if (window.confirm(`Launch ${app.name} ${formatVersion(launchTarget.version)}?`)) void run(`Launching ${app.name}`, () => desktopApi.launchApp(app.id, launchTarget.executable)); }}>Launch</button> : null}
                 </article>
               );
             })}</div>

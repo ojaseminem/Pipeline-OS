@@ -50,12 +50,34 @@ struct DesktopProject {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct DesktopInstallation {
+    version: String,
+    executable: String,
+    state: String,
+    /// Whether this binary's architecture can run on the current machine.
+    runnable: bool,
+}
+
+impl From<AppInstallation> for DesktopInstallation {
+    fn from(installation: AppInstallation) -> Self {
+        let runnable = vantadeck_launcher::ensure_runnable(&installation.executable).is_ok();
+        DesktopInstallation {
+            version: installation.version.to_string(),
+            executable: installation.executable.display().to_string(),
+            state: format!("{:?}", installation.state).to_lowercase(),
+            runnable,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DesktopApp {
     id: String,
     name: String,
     category: String,
     launchable: bool,
-    installations: Vec<AppInstallation>,
+    installations: Vec<DesktopInstallation>,
 }
 
 #[derive(Serialize)]
@@ -104,7 +126,10 @@ async fn apps(service: &ApplicationService) -> Result<Vec<DesktopApp>, String> {
             installations: service
                 .detected_installations(id)
                 .await
-                .map_err(|e| e.to_string())?,
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(DesktopInstallation::from)
+                .collect(),
         });
     }
     Ok(result)
@@ -155,11 +180,7 @@ async fn dashboard_snapshot(state: State<'_, DesktopState>) -> Result<DesktopDas
                 id: app.id,
                 name: app.name,
                 category: app.category,
-                versions: app
-                    .installations
-                    .into_iter()
-                    .map(|i| i.version.to_string())
-                    .collect(),
+                versions: app.installations.into_iter().map(|i| i.version).collect(),
             })
             .collect(),
         health,
