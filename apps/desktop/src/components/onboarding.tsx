@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Boxes, Code2, Palette, Rocket, Box, Wrench } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PathInput } from "./path-input";
 import { cn } from "@/lib/utils";
 import type { ThemePreference } from "../theme";
 
@@ -76,10 +76,10 @@ export function Onboarding({ open, onComplete, onSkip }: { open: boolean; onComp
 
         {step === 2 ? (
           <div className="space-y-4 py-2">
-            <label className="block space-y-1.5 text-sm"><span className="font-medium">Scan locations</span>
-              <Input placeholder="Blank = all drives, or e.g. D:/Tools; E:/Apps" value={scanRoots} onChange={(event) => setScanRoots(event.target.value)} />
+            <div className="space-y-1.5 text-sm"><span className="font-medium">Scan locations</span>
+              <PathInput ariaLabel="Scan locations" directory multi className="min-w-0" placeholder="Blank = all drives, or e.g. D:/Tools; E:/Apps" value={scanRoots} onChange={setScanRoots} />
               <span className="text-xs text-muted-foreground">Leave blank to auto-scan standard install folders on every drive.</span>
-            </label>
+            </div>
             <label className="flex items-center gap-3 text-sm"><span className="font-medium">Appearance</span>
               <select value={theme} onChange={(event) => setTheme(event.target.value as ThemePreference)} className="h-8 rounded-md border border-border bg-secondary px-2 text-sm">
                 <option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option>

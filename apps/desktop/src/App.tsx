@@ -32,6 +32,7 @@ import { APP_CATEGORY_LABELS, desktopApi, formatVersion, isDemoMode, isNativeRun
 import { createQueryClient, useApps, useInvalidate, useProjects, useTools } from "./lib/queries";
 import { type ThemePreference, useTheme } from "./theme";
 import { Onboarding, type OnboardingPrefs } from "./components/onboarding";
+import { PathInput } from "./components/path-input";
 import voidlineImage from "./assets/voidline-reactor.png";
 
 type UndoEntry = { label: string; undo: () => Promise<void>; redo: () => Promise<void> };
@@ -272,15 +273,15 @@ function AppShell() {
 
       {activeScreen === "Projects" ? <div className="space-y-4">
         <form onSubmit={submitImport}><Panel title="Import a local project" description="Creates a .vantadeck/project.toml file and registers the project in local storage.">
-          <div className="flex flex-wrap gap-2">
-            <Input aria-label="Project path" required placeholder="D:/Projects/MyGame" value={rootInput} onChange={(e) => setRootInput(e.target.value)} className="flex-1 min-w-48" />
+          <div className="flex flex-wrap items-start gap-2">
+            <PathInput ariaLabel="Project path" required directory placeholder="D:/Projects/MyGame" value={rootInput} onChange={setRootInput} />
             <Input aria-label="Project name" placeholder="Optional display name" value={nameInput} onChange={(e) => setNameInput(e.target.value)} className="flex-1 min-w-48" />
             <Button type="submit">Import project</Button>
           </div>
         </Panel></form>
         <Panel title="Launch a project profile" description="Profiles come from the portable project file; executable selection remains machine-local.">
-          <div className="flex flex-wrap gap-2">
-            <Input aria-label="Launch project path" placeholder="Project root" value={rootInput} onChange={(e) => setRootInput(e.target.value)} className="flex-1 min-w-48" />
+          <div className="flex flex-wrap items-start gap-2">
+            <PathInput ariaLabel="Launch project path" directory placeholder="Project root" value={rootInput} onChange={setRootInput} />
             <Input aria-label="Launch profile ID" placeholder="editor" value={profileInput} onChange={(e) => setProfileInput(e.target.value)} className="w-40" />
             <Button onClick={() => void run("Launching profile", () => desktopApi.launchProjectProfile(rootInput, profileInput))}>Launch profile</Button>
           </div>
@@ -310,8 +311,8 @@ function AppShell() {
 
       {activeScreen === "Applications" ? <div className="space-y-5">
         <Panel title="Detect installed applications" description="Leave roots blank to auto-scan standard install folders on every drive, or provide semicolon-separated roots. Detection uses bundled, auditable manifests.">
-          <div className="flex flex-wrap gap-2">
-            <Input aria-label="Scan roots" placeholder="Blank = all drives, or e.g. D:/Tools; E:/Apps" value={scanRoots} disabled={scanning} onChange={(e) => setScanRoots(e.target.value)} className="flex-1 min-w-56" />
+          <div className="flex flex-wrap items-start gap-2">
+            <PathInput ariaLabel="Scan roots" directory multi disabled={scanning} placeholder="Blank = all drives, or e.g. D:/Tools; E:/Apps" value={scanRoots} onChange={setScanRoots} />
             <Button disabled={scanning} aria-busy={scanning} onClick={() => void runScan()}>{scanning ? <><RefreshCw size={15} className="animate-spin" /> Scanning…</> : "Scan now"}</Button>
           </div>
           {scanning ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><RefreshCw size={14} className="animate-spin" /> Scanning installed applications across your drives — this can take a moment.</p> : null}
@@ -340,10 +341,10 @@ function AppShell() {
         {managedApps.length && managedApps.every((app) => app.installations.length === 0) ? <EmptyState text="No applications detected yet. Click Scan now to discover installed creative tools across your drives." /> : null}
         <form onSubmit={(event) => { event.preventDefault(); if (window.confirm(`Set a manual executable override for ${overrideApp} ${overrideVersion}?`)) void run("Saving override", async () => { await desktopApi.setManualOverride(overrideApp, overrideVersion, overrideExecutable); await invalidate.apps(); }); }}>
           <Panel title="Manual override">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-start gap-2">
               <Input aria-label="Application ID" value={overrideApp} onChange={(e) => setOverrideApp(e.target.value)} className="w-40" />
               <Input aria-label="Version" required placeholder="2022.3.18" value={overrideVersion} onChange={(e) => setOverrideVersion(e.target.value)} className="w-40" />
-              <Input aria-label="Executable path" required placeholder="C:/Tools/app.exe" value={overrideExecutable} onChange={(e) => setOverrideExecutable(e.target.value)} className="flex-1 min-w-48" />
+              <PathInput ariaLabel="Executable path" required directory={false} placeholder="C:/Tools/app.exe" value={overrideExecutable} onChange={setOverrideExecutable} />
               <Button type="submit">Save override</Button>
             </div>
           </Panel>
@@ -352,7 +353,7 @@ function AppShell() {
 
       {activeScreen === "Health" ? <div className="space-y-4">
         <Panel title="Run project diagnostics">
-          <div className="flex flex-wrap gap-2"><Input aria-label="Health project path" placeholder="Project root" value={rootInput} onChange={(e) => setRootInput(e.target.value)} className="flex-1 min-w-48" /><Button onClick={() => void run("Running health checks", async () => setHealth(await desktopApi.projectHealth(rootInput)))}>Run checks</Button></div>
+          <div className="flex flex-wrap items-start gap-2"><PathInput ariaLabel="Health project path" directory placeholder="Project root" value={rootInput} onChange={setRootInput} /><Button onClick={() => void run("Running health checks", async () => setHealth(await desktopApi.projectHealth(rootInput)))}>Run checks</Button></div>
         </Panel>
         <div className="grid gap-3 sm:grid-cols-2">{health.length ? health.map((issue) => (
           <Card key={issue.code} className={cn("border-l-4", issue.severity === "error" ? "border-l-destructive" : "border-l-primary")}><CardContent className="flex items-start gap-3 p-4">

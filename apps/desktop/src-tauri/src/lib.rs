@@ -577,11 +577,32 @@ fn suppress_windows_error_dialogs() {
 #[cfg(not(windows))]
 fn suppress_windows_error_dialogs() {}
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PathInfo {
+    exists: bool,
+    is_dir: bool,
+    is_file: bool,
+}
+
+/// Reports whether a (pasted) path exists and whether it is a directory or file,
+/// so the UI can validate manually entered paths.
+#[tauri::command(rename_all = "camelCase")]
+async fn path_info(path: String) -> Result<PathInfo, String> {
+    let path = PathBuf::from(path);
+    Ok(PathInfo {
+        exists: path.exists(),
+        is_dir: path.is_dir(),
+        is_file: path.is_file(),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     suppress_windows_error_dialogs();
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let storage = tauri::async_runtime::block_on(Storage::connect_path(
@@ -615,6 +636,7 @@ pub fn run() {
             launch_project_profile,
             check_for_update,
             install_update,
+            path_info,
             git_sync,
             git_commit,
             git_push,

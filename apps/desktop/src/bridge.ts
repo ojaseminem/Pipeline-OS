@@ -5,6 +5,15 @@ export type AppInstallation = { version: string; executable: string; state: stri
 export type ManagedApp = { id: string; name: string; category: string; launchable: boolean; installations: AppInstallation[] };
 export type RegisteredProject = { name: string; path: string; pinned: boolean };
 export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null };
+export type PathInfo = { exists: boolean; isDir: boolean; isFile: boolean };
+
+/** Opens a native folder or file picker; returns the chosen path, or null. */
+export async function browsePath(opts: { directory?: boolean; title?: string }): Promise<string | null> {
+  if (!isNativeRuntime()) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const result = await open({ directory: opts.directory ?? false, multiple: false, title: opts.title });
+  return typeof result === "string" ? result : null;
+}
 
 export const APP_CATEGORY_LABELS: Record<string, string> = {
   "game-engine": "Game Engines",
@@ -84,6 +93,7 @@ export const desktopApi = {
   appIcon: (executable: string) => invokeDesktop<string | null>("app_icon", { executable }),
   checkForUpdate: () => invokeDesktop<UpdateInfo>("check_for_update"),
   installUpdate: () => invokeDesktop<void>("install_update"),
+  pathInfo: (path: string) => invokeDesktop<PathInfo>("path_info", { path }),
   listTools: () => invokeDesktop<ToolManifest[]>("list_tools"),
   pinProject: (root: string, pinned: boolean) => invokeDesktop<void>("set_project_pinned", { root, pinned }),
   launchProjectProfile: (root: string, profileId: string) => invokeDesktop<{ processId?: number; executable: string }>("launch_project_profile", { root, profileId }),

@@ -17,6 +17,7 @@ tauri-build = { version = "=2.6.3", features = [] }
 serde.workspace = true
 tauri = { version = "=2.11.3", features = [] }
 tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
 vantadeck-application = { path = "../../../crates/application" }
 vantadeck-domain = { path = "../../../crates/domain" }
 vantadeck-launcher = { path = "../../../crates/launcher" }
