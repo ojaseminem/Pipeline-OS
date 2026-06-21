@@ -77,7 +77,11 @@ impl RegistryDetectionSource {
 
     #[cfg(windows)]
     pub fn system() -> Self {
-        Self { records: None }
+        // Query the registry once at construction and cache the result, so a
+        // multi-app scan does not re-run `reg query` for every manifest.
+        Self {
+            records: Some(query_windows_uninstall_registry().unwrap_or_default()),
+        }
     }
 
     fn records(&self) -> io::Result<Vec<UninstallRegistryRecord>> {
@@ -95,7 +99,10 @@ impl RegistryDetectionSource {
 
 #[cfg(windows)]
 fn query_windows_uninstall_registry() -> io::Result<Vec<UninstallRegistryRecord>> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+    // Run the helper without flashing a console window.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let reg_executable = std::env::var_os("WINDIR")
         .map(PathBuf::from)
@@ -110,6 +117,7 @@ fn query_windows_uninstall_registry() -> io::Result<Vec<UninstallRegistryRecord>
         for view in ["/reg:64", "/reg:32"] {
             let output = Command::new(&reg_executable)
                 .args(["query", key, "/s", view])
+                .creation_flags(CREATE_NO_WINDOW)
                 .output()?;
             if output.status.success() {
                 records.extend(parse_registry_query(&String::from_utf8_lossy(

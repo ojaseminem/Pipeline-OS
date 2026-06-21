@@ -211,10 +211,13 @@ impl ApplicationService {
             .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
             .collect::<Vec<_>>();
         manifest_paths.sort();
+        // Build the detection engine once and reuse it across every manifest, so
+        // expensive system sources (registry query, hub probes) run a single
+        // time per scan rather than once per application.
+        let engine = system_detection_engine(roots);
         let mut applications = Vec::new();
         for path in manifest_paths {
             let manifest = AppManifest::from_json(&fs::read_to_string(path)?)?;
-            let engine = system_detection_engine(roots);
             let mut application = engine
                 .scan_app(
                     &ScanRequest::new(

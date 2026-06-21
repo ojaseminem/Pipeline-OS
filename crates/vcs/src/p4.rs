@@ -652,6 +652,9 @@ fn command_from_spec(spec: &P4CommandSpec) -> Command {
         .current_dir(&spec.working_directory)
         .args(&spec.arguments)
         .kill_on_drop(true);
+    // Run p4 without flashing a console window on Windows.
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
     command
 }
 

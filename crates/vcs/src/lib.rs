@@ -187,11 +187,12 @@ impl GitProvider {
     }
 
     async fn run_raw(&self, root: &Path, arguments: &[&str]) -> io::Result<Output> {
-        Command::new(&self.binary)
-            .current_dir(root)
-            .args(arguments)
-            .output()
-            .await
+        let mut command = Command::new(&self.binary);
+        command.current_dir(root).args(arguments);
+        // Run git without flashing a console window on Windows.
+        #[cfg(windows)]
+        command.creation_flags(0x0800_0000);
+        command.output().await
     }
 }
 

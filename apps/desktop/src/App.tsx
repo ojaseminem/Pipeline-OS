@@ -109,6 +109,7 @@ export function App() {
   const [overrideExecutable, setOverrideExecutable] = useState("");
   const [status, setStatus] = useState("");
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [scanning, setScanning] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const { preference, setPreference } = useTheme();
   const projects = projectView === "pinned" ? pinnedProjects : recentProjects;
@@ -152,6 +153,19 @@ export function App() {
   async function refreshProjects() { setRegisteredProjects(await desktopApi.listProjects()); }
   async function refreshApps() { setManagedApps(await desktopApi.listApps()); }
 
+  async function runScan() {
+    if (scanning) return;
+    setScanning(true);
+    try {
+      await run("Scanning applications", async () => {
+        await desktopApi.scanApps(scanRoots.split(";").map((value) => value.trim()).filter(Boolean));
+        await refreshApps();
+      });
+    } finally {
+      setScanning(false);
+    }
+  }
+
   function openScreen(screen: (typeof navigation)[number][0]) {
     setActiveScreen(screen);
     setStatus("");
@@ -177,7 +191,7 @@ export function App() {
         <div className="card-grid">{registeredProjects.length ? registeredProjects.map((project) => <article className="management-card" key={project.path}><Folder /><div><h3>{project.name}</h3><p>{project.path}</p></div><span className="card-actions"><button className="outline-button" onClick={() => void run(project.pinned ? "Unpinning project" : "Pinning project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await refreshProjects(); })}>{project.pinned ? "Unpin" : "Pin"}</button><button className="outline-button" onClick={() => void run("Reading Git status", async () => { const result = await desktopApi.gitStatus(project.path); setStatus(`Branch ${result.branch ?? "detached"}; ${result.changedFiles.length} changed files.`); })}>Git status</button></span></article>) : <EmptyState text="No durable projects registered yet." />}</div>
       </> : null}
       {activeScreen === "Applications" ? <>
-        <div className="action-panel"><h2>Detect installed applications</h2><p>Leave roots blank to auto-scan standard install folders on every drive, or provide semicolon-separated roots. Detection uses bundled, auditable manifests.</p><div className="form-row"><input aria-label="Scan roots" placeholder="Blank = all drives, or e.g. D:/Tools; E:/Apps" value={scanRoots} onChange={(e) => setScanRoots(e.target.value)} /><button className="primary-button" onClick={() => void run("Scanning applications", async () => { await desktopApi.scanApps(scanRoots.split(";").map((v) => v.trim()).filter(Boolean)); await refreshApps(); })}>Scan now</button></div></div>
+        <div className="action-panel"><h2>Detect installed applications</h2><p>Leave roots blank to auto-scan standard install folders on every drive, or provide semicolon-separated roots. Detection uses bundled, auditable manifests.</p><div className="form-row"><input aria-label="Scan roots" placeholder="Blank = all drives, or e.g. D:/Tools; E:/Apps" value={scanRoots} disabled={scanning} onChange={(e) => setScanRoots(e.target.value)} /><button className="primary-button" disabled={scanning} aria-busy={scanning} onClick={() => void runScan()}>{scanning ? <><RefreshCw size={15} className="spin" /> Scanning…</> : "Scan now"}</button></div>{scanning ? <div className="scan-progress"><RefreshCw size={14} className="spin" /><span>Scanning installed applications across your drives — this can take a moment.</span></div> : null}</div>
         {CATEGORY_ORDER.filter((category) => managedApps.some((app) => app.category === category)).map((category) => (
           <section className="app-category" key={category}>
             <h2 className="app-category-title">{APP_CATEGORY_LABELS[category] ?? category}</h2>
