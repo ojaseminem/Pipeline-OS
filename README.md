@@ -24,7 +24,7 @@ Manage projects, creative applications, health checks, launch profiles, and sour
 ![Vantadeck dashboard](docs/design/vantadeck-dashboard-reference.png)
 
 > [!IMPORTANT]
-> Vantadeck is **pre-alpha software**. The repository does not currently provide a public V1 release. Windows development builds are testable; signed installers and fully validated macOS/Linux releases remain roadmap gates.
+> Vantadeck is at **Windows release-candidate** stage. The Rust backend and CLI are feature-complete and tested, the Tauri 2 + React desktop app is functional, and an unsigned Windows build is the current validated target. The repository does not yet provide a published cross-platform V1: signed installers and fully validated macOS/Linux releases remain roadmap gates. See [docs/release/BLOCKERS.md](docs/release/BLOCKERS.md) for the exact remaining gates.
 
 ## Why Vantadeck?
 
