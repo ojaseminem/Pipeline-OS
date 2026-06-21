@@ -20,7 +20,9 @@ import {
   Wrench,
 } from "lucide-react";
 import { installedApps as defaultApps, pinnedProjects as defaultPinned, recentProjects as defaultRecent, type Project } from "./data";
-import { APP_CATEGORY_LABELS, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, type HealthIssue, type ManagedApp, type RegisteredProject, type ToolManifest, type UpdateInfo } from "./bridge";
+import { APP_CATEGORY_LABELS, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, type HealthIssue, type UpdateInfo } from "./bridge";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient, useApps, useInvalidate, useProjects, useTools } from "./lib/queries";
 import { type ThemePreference, useTheme } from "./theme";
 import voidlineImage from "./assets/voidline-reactor.png";
 import "./styles.css";
@@ -82,7 +84,7 @@ function AppIcon({ executable, size = 22 }: { executable?: string; size?: number
   return src ? <img className="app-icon-img" src={src} alt="" width={size} height={size} /> : <AppWindow size={size} />;
 }
 
-export function App() {
+function AppShell() {
   const [activeScreen, setActiveScreen] = useState<(typeof navigation)[number][0]>("Home");
   const [projectView, setProjectView] = useState<"pinned" | "recent">("pinned");
   const [query, setQuery] = useState("");
@@ -94,10 +96,14 @@ export function App() {
       ? defaultApps.map((app) => ({ id: app.name.toLowerCase().replaceAll(" ", "-"), ...app }))
       : [],
   );
-  const [registeredProjects, setRegisteredProjects] = useState<RegisteredProject[]>([]);
-  const [managedApps, setManagedApps] = useState<ManagedApp[]>([]);
   const [health, setHealth] = useState<HealthIssue[]>([]);
-  const [tools, setTools] = useState<ToolManifest[]>([]);
+  const projectsQuery = useProjects(activeScreen === "Projects");
+  const appsQuery = useApps(activeScreen === "Applications");
+  const toolsQuery = useTools(activeScreen === "Tools");
+  const registeredProjects = projectsQuery.data ?? [];
+  const managedApps = appsQuery.data ?? [];
+  const tools = toolsQuery.data ?? [];
+  const invalidate = useInvalidate();
   const [rootInput, setRootInput] = useState("");
   const [nameInput, setNameInput] = useState("");
   const [profileInput, setProfileInput] = useState("editor");
@@ -150,16 +156,13 @@ export function App() {
     catch (error) { setStatus(error instanceof Error ? error.message : String(error)); }
   }
 
-  async function refreshProjects() { setRegisteredProjects(await desktopApi.listProjects()); }
-  async function refreshApps() { setManagedApps(await desktopApi.listApps()); }
-
   async function runScan() {
     if (scanning) return;
     setScanning(true);
     try {
       await run("Scanning applications", async () => {
         await desktopApi.scanApps(scanRoots.split(";").map((value) => value.trim()).filter(Boolean));
-        await refreshApps();
+        await invalidate.apps();
       });
     } finally {
       setScanning(false);
@@ -169,15 +172,12 @@ export function App() {
   function openScreen(screen: (typeof navigation)[number][0]) {
     setActiveScreen(screen);
     setStatus("");
-    if (isNativeRuntime() && screen === "Projects") void run("Refreshing projects", refreshProjects);
-    if (isNativeRuntime() && screen === "Applications") void run("Refreshing applications", refreshApps);
-    if (isNativeRuntime() && screen === "Tools") void run("Loading cached tool index", async () => setTools(await desktopApi.listTools()));
   }
 
   async function submitImport(event: FormEvent) {
     event.preventDefault();
     if (!window.confirm(`Import ${rootInput} and create its local Vantadeck metadata?`)) return;
-    await run("Importing project", async () => { await desktopApi.importProject(rootInput, nameInput); await refreshProjects(); });
+    await run("Importing project", async () => { await desktopApi.importProject(rootInput, nameInput); await invalidate.projects(); });
   }
 
   const runtimeLabel = isNativeRuntime() ? "Native desktop" : isDemoMode() ? "Browser demo" : "Browser preview";
@@ -188,7 +188,7 @@ export function App() {
         <form className="action-panel" onSubmit={submitImport}><h2>Import a local project</h2><p>Creates a `.vantadeck/project.toml` file and registers the project in local storage.</p><div className="form-row"><input aria-label="Project path" required placeholder="D:/Projects/MyGame" value={rootInput} onChange={(e) => setRootInput(e.target.value)} /><input aria-label="Project name" placeholder="Optional display name" value={nameInput} onChange={(e) => setNameInput(e.target.value)} /><button className="primary-button">Import project</button></div></form>
         <div className="action-panel"><h2>Launch a project profile</h2><p>Profiles come from the portable project file; executable selection remains machine-local.</p><div className="form-row"><input aria-label="Launch project path" placeholder="Project root" value={rootInput} onChange={(e) => setRootInput(e.target.value)} /><input aria-label="Launch profile ID" placeholder="editor" value={profileInput} onChange={(e) => setProfileInput(e.target.value)} /><button className="primary-button" onClick={() => void run("Launching profile", () => desktopApi.launchProjectProfile(rootInput, profileInput))}>Launch profile</button></div></div>
         <div className="action-panel"><h2>Git workflow</h2><p>Status is read-only. Sync, commit, push, and branch switching always ask for confirmation.</p><div className="form-row"><input aria-label="Git branch" placeholder="Branch" value={branchInput} onChange={(e) => setBranchInput(e.target.value)} /><input aria-label="Git commit message" placeholder="Commit message" value={commitInput} onChange={(e) => setCommitInput(e.target.value)} /><button className="outline-button" onClick={() => { if (window.confirm(`Switch ${rootInput} to ${branchInput}?`)) void run("Switching branch", () => desktopApi.gitSwitch(rootInput, branchInput, true)); }}>Switch</button><button className="outline-button" onClick={() => { if (window.confirm(`Pull changes into ${rootInput}?`)) void run("Syncing repository", () => desktopApi.gitSync(rootInput, true)); }}>Sync</button><button className="outline-button" onClick={() => { if (window.confirm(`Commit all changes in ${rootInput}?`)) void run("Committing changes", () => desktopApi.gitCommit(rootInput, commitInput, true)); }}>Commit</button><button className="outline-button" onClick={() => { if (window.confirm(`Push ${rootInput} to its configured remote?`)) void run("Pushing repository", () => desktopApi.gitPush(rootInput, true)); }}>Push</button></div></div>
-        <div className="card-grid">{registeredProjects.length ? registeredProjects.map((project) => <article className="management-card" key={project.path}><Folder /><div><h3>{project.name}</h3><p>{project.path}</p></div><span className="card-actions"><button className="outline-button" onClick={() => void run(project.pinned ? "Unpinning project" : "Pinning project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await refreshProjects(); })}>{project.pinned ? "Unpin" : "Pin"}</button><button className="outline-button" onClick={() => void run("Reading Git status", async () => { const result = await desktopApi.gitStatus(project.path); setStatus(`Branch ${result.branch ?? "detached"}; ${result.changedFiles.length} changed files.`); })}>Git status</button></span></article>) : <EmptyState text="No durable projects registered yet." />}</div>
+        <div className="card-grid">{registeredProjects.length ? registeredProjects.map((project) => <article className="management-card" key={project.path}><Folder /><div><h3>{project.name}</h3><p>{project.path}</p></div><span className="card-actions"><button className="outline-button" onClick={() => void run(project.pinned ? "Unpinning project" : "Pinning project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await invalidate.projects(); })}>{project.pinned ? "Unpin" : "Pin"}</button><button className="outline-button" onClick={() => void run("Reading Git status", async () => { const result = await desktopApi.gitStatus(project.path); setStatus(`Branch ${result.branch ?? "detached"}; ${result.changedFiles.length} changed files.`); })}>Git status</button></span></article>) : <EmptyState text="No durable projects registered yet." />}</div>
       </> : null}
       {activeScreen === "Applications" ? <>
         <div className="action-panel"><h2>Detect installed applications</h2><p>Leave roots blank to auto-scan standard install folders on every drive, or provide semicolon-separated roots. Detection uses bundled, auditable manifests.</p><div className="form-row"><input aria-label="Scan roots" placeholder="Blank = all drives, or e.g. D:/Tools; E:/Apps" value={scanRoots} disabled={scanning} onChange={(e) => setScanRoots(e.target.value)} /><button className="primary-button" disabled={scanning} aria-busy={scanning} onClick={() => void runScan()}>{scanning ? <><RefreshCw size={15} className="spin" /> Scanning…</> : "Scan now"}</button></div>{scanning ? <div className="scan-progress"><RefreshCw size={14} className="spin" /><span>Scanning installed applications across your drives — this can take a moment.</span></div> : null}</div>
@@ -215,7 +215,7 @@ export function App() {
           </section>
         ))}
         {managedApps.length && managedApps.every((app) => app.installations.length === 0) ? <EmptyState text="No applications detected yet. Click Scan now to discover installed creative tools across your drives." /> : null}
-        <form className="action-panel" onSubmit={(event) => { event.preventDefault(); if (window.confirm(`Set a manual executable override for ${overrideApp} ${overrideVersion}?`)) void run("Saving override", async () => { await desktopApi.setManualOverride(overrideApp, overrideVersion, overrideExecutable); await refreshApps(); }); }}><h2>Manual override</h2><div className="form-row"><input aria-label="Application ID" value={overrideApp} onChange={(e) => setOverrideApp(e.target.value)} /><input aria-label="Version" required placeholder="2022.3.18" value={overrideVersion} onChange={(e) => setOverrideVersion(e.target.value)} /><input aria-label="Executable path" required placeholder="C:/Tools/app.exe" value={overrideExecutable} onChange={(e) => setOverrideExecutable(e.target.value)} /><button className="primary-button">Save override</button></div></form>
+        <form className="action-panel" onSubmit={(event) => { event.preventDefault(); if (window.confirm(`Set a manual executable override for ${overrideApp} ${overrideVersion}?`)) void run("Saving override", async () => { await desktopApi.setManualOverride(overrideApp, overrideVersion, overrideExecutable); await invalidate.apps(); }); }}><h2>Manual override</h2><div className="form-row"><input aria-label="Application ID" value={overrideApp} onChange={(e) => setOverrideApp(e.target.value)} /><input aria-label="Version" required placeholder="2022.3.18" value={overrideVersion} onChange={(e) => setOverrideVersion(e.target.value)} /><input aria-label="Executable path" required placeholder="C:/Tools/app.exe" value={overrideExecutable} onChange={(e) => setOverrideExecutable(e.target.value)} /><button className="primary-button">Save override</button></div></form>
       </> : null}
       {activeScreen === "Health" ? <><div className="action-panel"><h2>Run project diagnostics</h2><div className="form-row"><input aria-label="Health project path" placeholder="Project root" value={rootInput} onChange={(e) => setRootInput(e.target.value)} /><button className="primary-button" onClick={() => void run("Running health checks", async () => setHealth(await desktopApi.projectHealth(rootInput)))}>Run checks</button></div></div><div className="issue-grid">{health.length ? health.map((issue) => <article className={`issue-card ${issue.severity}`} key={issue.code}><CircleAlert /><div><h3>{issue.title}</h3><p>{issue.detail}</p><small>{issue.code}</small></div></article>) : <EmptyState text="No health issues reported. Run checks for a registered project." />}</div></> : null}
       {activeScreen === "Tools" ? <><div className="action-panel"><h2>Curated Tools Hub</h2><p>Vantadeck shows validated, locally cached community metadata. It never executes downloaded installers or scripts automatically.</p>{!isNativeRuntime() ? <p>Open the native desktop app to read your local cache. Network access remains independently opt-in.</p> : null}</div><div className="card-grid">{tools.length ? tools.filter((tool) => tool.reviewState !== "withdrawn").map((tool) => <article className="management-card tool-card" key={tool.id}><Wrench /><div><h3>{tool.name}</h3><p>{tool.description}</p><small>{tool.reviewState} · {tool.license} · checked {tool.lastVerifiedAt}</small></div><button className="outline-button" onClick={() => setStatus(`${tool.sourceUrl} — open this reviewed source in your browser.`)}>Source</button></article>) : <EmptyState text="No validated tool index is cached. Use the CLI cache command after reviewing an index source." />}</div></> : null}
@@ -271,5 +271,15 @@ export function App() {
         <footer className="quick-launch"><span className="quick-title">Quick Launch</span>{installedApps.slice(0, 5).map((app) => <button key={app.id} onClick={() => openScreen("Applications")}><AppWindow size={22} /><span>{app.name}</span></button>)}{installedApps.length === 0 ? <button onClick={() => openScreen("Applications")}><Search size={22} /><span>Detect applications</span></button> : null}<label className="theme-control"><Settings size={16} /><span>Theme</span><select aria-label="Theme" value={preference} onChange={(event) => setPreference(event.target.value as ThemePreference)}><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label></footer>
       </main>
     </div>
+  );
+}
+
+const queryClient = createQueryClient();
+
+export function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppShell />
+    </QueryClientProvider>
   );
 }

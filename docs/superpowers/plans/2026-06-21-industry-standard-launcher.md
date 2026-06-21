@@ -88,9 +88,10 @@ elevated.
 **Design system**
 - **Tokens.** Formalize color/spacing/radius/typography/elevation as CSS variables (light/
   dark/system + high-contrast). One source of truth in `styles/tokens.css`.
-- **Components.** Build a small in-house library on **Radix UI primitives** (MIT, no
-  network) for accessibility: Button, Card, Dialog, Tooltip, Tabs, Select, Toast, Command
-  palette, Skeleton, Progress, Badge, Toggle. Document in a lightweight Storybook/Ladle.
+- **Components.** Use **Tailwind CSS + shadcn/ui** (Radix under the hood, MIT) generated
+  into the repo via the shadcn CLI and themed on-brand: Button, Card, Dialog, Tooltip,
+  Tabs, Select, Toast/Sonner, Command palette, Skeleton, Progress, Badge, Switch. Owned
+  locally and editable.
 - **Motion.** Subtle, purposeful transitions (Framer Motion or CSS) — list reordering,
   panel open, scan progress.
 
