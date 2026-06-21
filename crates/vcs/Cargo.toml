@@ -1,0 +1,19 @@
+[package]
+name = "vantadeck-vcs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "sync"] }
+vantadeck-domain = { path = "../domain" }
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

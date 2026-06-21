@@ -1,0 +1,17 @@
+[package]
+name = "vantadeck-projects"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+toml.workspace = true
+thiserror.workspace = true
+vantadeck-domain = { path = "../domain" }
+vantadeck-security = { path = "../security" }
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

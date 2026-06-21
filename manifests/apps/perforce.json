@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"perforce","name":"Perforce CLI","category":"version-control","platforms":["windows","macos","linux"],"executables":["p4.exe","p4"],"knownPaths":["C:/Program Files/Perforce/p4.exe","/usr/local/bin/p4"],"fileTypes":[],"launchTemplates":[]}

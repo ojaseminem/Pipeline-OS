@@ -1,0 +1,17 @@
+[package]
+name = "vantadeck-launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+semver.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+vantadeck-domain = { path = "../domain" }
+vantadeck-security = { path = "../security" }
+
+[dev-dependencies]
+tempfile.workspace = true

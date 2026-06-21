@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"unity","name":"Unity","category":"game-engine","platforms":["windows","macos","linux"],"executables":["Unity.exe","Unity"],"knownPaths":["C:/Program Files/Unity/Hub/Editor/*/Editor/Unity.exe","/Applications/Unity/Hub/Editor/*/Unity.app"],"fileTypes":[],"launchTemplates":[{"id":"editor","name":"Unity Editor","arguments":["-projectPath","{projectRoot}"]}]}

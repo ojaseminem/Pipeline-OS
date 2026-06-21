@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"rider","name":"JetBrains Rider","category":"code","platforms":["windows","macos","linux"],"executables":["rider64.exe","rider"],"knownPaths":["C:/Program Files/JetBrains/JetBrains Rider */bin/rider64.exe"],"fileTypes":[".sln"],"launchTemplates":[{"id":"project","name":"Open Project","arguments":["{projectRoot}"]}]}

@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"git-lfs","name":"Git LFS","category":"version-control","platforms":["windows","macos","linux"],"executables":["git-lfs.exe","git-lfs"],"knownPaths":["C:/Program Files/Git/mingw64/bin/git-lfs.exe","/usr/bin/git-lfs"],"fileTypes":[],"launchTemplates":[]}

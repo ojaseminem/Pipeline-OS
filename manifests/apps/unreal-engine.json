@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"unreal-engine","name":"Unreal Engine","category":"game-engine","platforms":["windows","macos","linux"],"executables":["UnrealEditor.exe","UnrealEditor"],"knownPaths":["C:/Program Files/Epic Games/UE_*/Engine/Binaries/Win64/UnrealEditor.exe"],"fileTypes":[".uproject"],"launchTemplates":[{"id":"editor","name":"Unreal Editor","arguments":["{projectFile}"]}]}
