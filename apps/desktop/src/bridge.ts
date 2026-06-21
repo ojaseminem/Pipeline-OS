@@ -2,8 +2,23 @@ import { installedApps, pinnedProjects, recentProjects, type Project } from "./d
 
 export type HealthIssue = { code: string; title: string; detail: string; severity: string; remediation?: string };
 export type AppInstallation = { version: string; executable: string; state: string; evidence: Array<{ source: string; detail: string; confidence: number }> };
-export type ManagedApp = { id: string; name: string; installations: AppInstallation[] };
+export type ManagedApp = { id: string; name: string; category: string; launchable: boolean; installations: AppInstallation[] };
 export type RegisteredProject = { name: string; path: string; pinned: boolean };
+export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null };
+
+export const APP_CATEGORY_LABELS: Record<string, string> = {
+  "game-engine": "Game Engines",
+  dcc: "DCC & Animation",
+  art: "Art & Texturing",
+  code: "Code & IDEs",
+  "version-control": "Version Control",
+  utility: "Utilities",
+};
+
+/** Formats a detected version, presenting the unknown 0.0.0 sentinel clearly. */
+export function formatVersion(version: string): string {
+  return version === "0.0.0" ? "Unknown version" : version;
+}
 export type GitStatus = { branch?: string; changedFiles: Array<{ path: string; status: string }> };
 export type ToolManifest = {
   id: string;
@@ -24,7 +39,7 @@ export type DashboardSnapshot = {
   continueProject: Project | null;
   pinnedProjects: Project[];
   recentProjects: Project[];
-  apps: Array<{ id: string; name: string; versions: string[] }>;
+  apps: Array<{ id: string; name: string; category: string; versions: string[] }>;
   health: HealthIssue[];
 };
 
@@ -66,6 +81,9 @@ export const desktopApi = {
   scanApps: (roots: string[]) => invokeDesktop<unknown[]>("scan_apps", { roots }),
   setManualOverride: (appId: string, version: string, executable: string) => invokeDesktop<void>("set_manual_override", { appId, version, executable }),
   launchApp: (appId: string, executable: string) => invokeDesktop<void>("launch_app", { appId, executable }),
+  appIcon: (executable: string) => invokeDesktop<string | null>("app_icon", { executable }),
+  checkForUpdate: () => invokeDesktop<UpdateInfo>("check_for_update"),
+  installUpdate: () => invokeDesktop<void>("install_update"),
   listTools: () => invokeDesktop<ToolManifest[]>("list_tools"),
   pinProject: (root: string, pinned: boolean) => invokeDesktop<void>("set_project_pinned", { root, pinned }),
   launchProjectProfile: (root: string, profileId: string) => invokeDesktop<{ processId?: number; executable: string }>("launch_project_profile", { root, profileId }),

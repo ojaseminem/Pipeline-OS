@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { desktopApi, invokeDesktop, loadDashboard } from "./bridge";
+import { APP_CATEGORY_LABELS, desktopApi, formatVersion, invokeDesktop, loadDashboard } from "./bridge";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (command: string) => ({ command })),
@@ -37,5 +37,21 @@ describe("desktop bridge", () => {
     window.__TAURI_INTERNALS__ = {};
     await expect(desktopApi.gitSync("D:/Projects/Voidline", true)).resolves.toEqual({ command: "git_sync" });
     await expect(desktopApi.gitSwitch("D:/Projects/Voidline", "develop", true)).resolves.toEqual({ command: "git_switch" });
+  });
+
+  it("routes icon and update operations through native commands", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    await expect(desktopApi.appIcon("C:/Apps/Blender/blender.exe")).resolves.toEqual({ command: "app_icon" });
+    await expect(desktopApi.checkForUpdate()).resolves.toEqual({ command: "check_for_update" });
+  });
+
+  it("presents the unknown-version sentinel as readable text", () => {
+    expect(formatVersion("0.0.0")).toBe("Unknown version");
+    expect(formatVersion("2022.3.18")).toBe("2022.3.18");
+  });
+
+  it("labels every known application category", () => {
+    expect(APP_CATEGORY_LABELS["game-engine"]).toBe("Game Engines");
+    expect(APP_CATEGORY_LABELS["version-control"]).toBe("Version Control");
   });
 });

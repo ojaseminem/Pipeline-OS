@@ -18,6 +18,18 @@ The following external and infrastructure gates must be satisfied before a publi
 
 - **Live Perforce server integration** — Current Perforce support includes mutation, timeout, and cancellation contracts tested against command construction and parsing. Integration testing against a live Perforce server is required.
 
+## Auto-update signing
+
+The in-app auto-updater is implemented (it checks the GitHub releases feed and
+verifies downloads against the public key in `tauri.conf.json`). To publish
+working updates, the release pipeline must sign the updater artifacts:
+
+- Generate the keypair locally with `npm run tauri --workspace @vantadeck/desktop -- signer generate -w apps/desktop/.tauri/updater.key` (the public key is already embedded in `tauri.conf.json`; the private key is gitignored and must never be committed).
+- Add two repository secrets used by `release.yml`:
+  - `TAURI_SIGNING_PRIVATE_KEY` — contents of `apps/desktop/.tauri/updater.key`.
+  - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the key password (empty if none).
+- A tagged `release.yml` run then emits signed updater artifacts and `latest.json`, which the app's updater consumes from the latest release.
+
 ## Community infrastructure
 
 - **Separately-governed Tools Hub index repository** — The Tools Hub catalog must be separated into a publicly-governed index repository independent of the main project.

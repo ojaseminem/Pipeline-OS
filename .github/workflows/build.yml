@@ -1,0 +1,58 @@
+name: Build
+
+# Continuous, unsigned native builds so every change produces downloadable
+# installers for testing. Signed, evidence-bearing releases are produced
+# separately by release.yml on a signed tag.
+
+on:
+  push:
+    branches: [main, "codex/**", "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Desktop build (${{ matrix.os }})
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: "--bundles nsis,msi"
+          - os: macos-latest
+            args: "--bundles app,dmg"
+          - os: ubuntu-24.04
+            args: "--bundles appimage,deb"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: 1.96.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - run: npm run build
+      - name: Build native bundles
+        run: npm run tauri --workspace @vantadeck/desktop -- build ${{ matrix.args }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vantadeck-${{ runner.os }}
+          path: target/release/bundle/**
+          if-no-files-found: error
+          retention-days: 14

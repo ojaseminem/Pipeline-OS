@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Minimal capability set for the local Vantadeck dashboard.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "updater:default"]
 }

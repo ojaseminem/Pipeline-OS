@@ -64,6 +64,7 @@ pub struct ProjectSummary {
 pub struct AppSummary {
     pub id: String,
     pub name: String,
+    pub category: String,
     pub versions: Vec<String>,
 }
 
@@ -107,21 +108,25 @@ impl DashboardSnapshot {
                 AppSummary {
                     id: "blender".into(),
                     name: "Blender".into(),
+                    category: "dcc".into(),
                     versions: vec!["4.1.1 LTS".into(), "3.6.5 LTS".into()],
                 },
                 AppSummary {
                     id: "unreal-engine".into(),
                     name: "Unreal Engine".into(),
+                    category: "game-engine".into(),
                     versions: vec!["5.3.2".into(), "5.2.1".into()],
                 },
                 AppSummary {
                     id: "unity".into(),
                     name: "Unity".into(),
+                    category: "game-engine".into(),
                     versions: vec!["2022.3.18f1".into()],
                 },
                 AppSummary {
                     id: "vscode".into(),
                     name: "Visual Studio Code".into(),
+                    category: "code".into(),
                     versions: vec!["1.87.2".into()],
                 },
             ],
@@ -600,16 +605,73 @@ fn system_detection_engine(roots: &[PathBuf]) -> DetectionEngine {
 
 fn default_detection_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
-    for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+    // Standard, environment-provided locations (these may live on any drive).
+    for variable in [
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "LOCALAPPDATA",
+        "APPDATA",
+    ] {
         if let Some(value) = std::env::var_os(variable) {
             roots.push(PathBuf::from(value));
         }
     }
+    // PATH entries frequently contain command-line tools (git, p4, etc.).
     if let Some(path) = std::env::var_os("PATH") {
         roots.extend(std::env::split_paths(&path));
     }
+    roots.extend(platform_detection_roots());
     roots.sort();
     roots.dedup();
     roots.retain(|root| root.is_dir());
+    roots
+}
+
+/// Curated application install folders on every available drive. Creative tools
+/// are routinely installed off the system drive, so we probe well-known
+/// subdirectories on each fixed drive rather than walking entire volumes.
+#[cfg(windows)]
+fn platform_detection_roots() -> Vec<PathBuf> {
+    const COMMON_SUBDIRS: &[&str] = &[
+        "Program Files",
+        "Program Files (x86)",
+        "Apps",
+        "Applications",
+        "Tools",
+        "Games",
+        "Epic Games",
+        "Steam/steamapps/common",
+        "Program Files/Epic Games",
+        "Unity",
+        "Unity/Hub/Editor",
+        "Program Files/Unity/Hub/Editor",
+    ];
+    let mut roots = Vec::new();
+    for letter in b'A'..=b'Z' {
+        let drive = PathBuf::from(format!("{}:\\", letter as char));
+        if !drive.is_dir() {
+            continue;
+        }
+        for subdir in COMMON_SUBDIRS {
+            roots.push(drive.join(subdir));
+        }
+    }
+    roots
+}
+
+#[cfg(not(windows))]
+fn platform_detection_roots() -> Vec<PathBuf> {
+    let mut roots = vec![
+        PathBuf::from("/opt"),
+        PathBuf::from("/usr/local"),
+        PathBuf::from("/Applications"),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        roots.push(home.join("Applications"));
+        roots.push(home.join(".local/bin"));
+        roots.push(home.join(".local/share/applications"));
+    }
     roots
 }

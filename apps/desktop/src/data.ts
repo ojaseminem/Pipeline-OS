@@ -21,8 +21,8 @@ export const recentProjects: Project[] = [
 ];
 
 export const installedApps = [
-  { name: "Blender", versions: ["4.1.1 LTS (Default)", "3.6.5 LTS", "2.93.18 LTS"] },
-  { name: "Unreal Engine", versions: ["5.3.2 (Default)", "5.2.1", "5.1.1"] },
-  { name: "Unity", versions: ["2022.3.18f1 (Default)"] },
-  { name: "Visual Studio Code", versions: ["1.87.2 (Default)"] },
+  { name: "Blender", category: "dcc", versions: ["4.1.1 LTS (Default)", "3.6.5 LTS", "2.93.18 LTS"] },
+  { name: "Unreal Engine", category: "game-engine", versions: ["5.3.2 (Default)", "5.2.1", "5.1.1"] },
+  { name: "Unity", category: "game-engine", versions: ["2022.3.18f1 (Default)"] },
+  { name: "Visual Studio Code", category: "code", versions: ["1.87.2 (Default)"] },
 ];

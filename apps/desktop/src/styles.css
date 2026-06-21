@@ -167,3 +167,12 @@ main { grid-column: 2; min-width: 0; padding-bottom: 86px; }
 .tool-card small { display: block; margin-top: 7px; color: var(--accent); font-size: 9px; text-transform: capitalize; }
 .empty-continue { grid-template-columns: 1fr; }
 .card-actions { display: flex; gap: 6px; }
+
+/* Categorized applications, real icons, update banner */
+.app-category { margin-bottom: 22px; }
+.app-category-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted, #8a93a6); margin: 0 0 10px; }
+.app-icon-img { width: 26px; height: 26px; object-fit: contain; border-radius: 6px; }
+.management-card .app-glyph { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: var(--surface-2, rgba(255,255,255,0.04)); flex: none; }
+.vcs-note { display: inline-block; margin-top: 4px; color: var(--accent, #36d1b7); font-size: 12px; }
+.update-banner { display: flex; align-items: center; gap: 10px; padding: 10px 18px; background: var(--accent-soft, rgba(54,209,183,0.12)); border-bottom: 1px solid var(--border, rgba(255,255,255,0.08)); color: var(--text, #e7ecf3); font-size: 14px; }
+.update-banner .text-link { margin-left: auto; }

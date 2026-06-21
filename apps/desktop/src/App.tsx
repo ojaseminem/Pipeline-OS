@@ -7,18 +7,20 @@ import {
   ChevronRight,
   CircleAlert,
   Code2,
+  Download,
   FileCode2,
   Folder,
   GitBranch,
   Home,
   Laptop,
   MoreHorizontal,
+  RefreshCw,
   Search,
   Settings,
   Wrench,
 } from "lucide-react";
 import { installedApps as defaultApps, pinnedProjects as defaultPinned, recentProjects as defaultRecent, type Project } from "./data";
-import { desktopApi, isDemoMode, isNativeRuntime, loadDashboard, type HealthIssue, type ManagedApp, type RegisteredProject, type ToolManifest } from "./bridge";
+import { APP_CATEGORY_LABELS, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, type HealthIssue, type ManagedApp, type RegisteredProject, type ToolManifest, type UpdateInfo } from "./bridge";
 import { type ThemePreference, useTheme } from "./theme";
 import voidlineImage from "./assets/voidline-reactor.png";
 import "./styles.css";
@@ -64,6 +66,22 @@ function EmptyState({ text }: { text: string }) {
   return <div className="empty-state"><CircleAlert size={20} /><span>{text}</span></div>;
 }
 
+const CATEGORY_ORDER = ["game-engine", "dcc", "art", "code", "version-control", "utility"];
+
+function AppIcon({ executable, size = 22 }: { executable?: string; size?: number }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (executable && isNativeRuntime()) {
+      desktopApi.appIcon(executable).then((value) => { if (active) setSrc(value ?? null); }).catch(() => undefined);
+    } else {
+      setSrc(null);
+    }
+    return () => { active = false; };
+  }, [executable]);
+  return src ? <img className="app-icon-img" src={src} alt="" width={size} height={size} /> : <AppWindow size={size} />;
+}
+
 export function App() {
   const [activeScreen, setActiveScreen] = useState<(typeof navigation)[number][0]>("Home");
   const [projectView, setProjectView] = useState<"pinned" | "recent">("pinned");
@@ -90,6 +108,7 @@ export function App() {
   const [overrideVersion, setOverrideVersion] = useState("");
   const [overrideExecutable, setOverrideExecutable] = useState("");
   const [status, setStatus] = useState("");
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const { preference, setPreference } = useTheme();
   const projects = projectView === "pinned" ? pinnedProjects : recentProjects;
@@ -106,6 +125,11 @@ export function App() {
       setInstalledApps(snapshot.apps);
       setHealth(snapshot.health);
     });
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeRuntime()) return;
+    desktopApi.checkForUpdate().then((info) => { if (info.available) setUpdate(info); }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -153,13 +177,34 @@ export function App() {
         <div className="card-grid">{registeredProjects.length ? registeredProjects.map((project) => <article className="management-card" key={project.path}><Folder /><div><h3>{project.name}</h3><p>{project.path}</p></div><span className="card-actions"><button className="outline-button" onClick={() => void run(project.pinned ? "Unpinning project" : "Pinning project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await refreshProjects(); })}>{project.pinned ? "Unpin" : "Pin"}</button><button className="outline-button" onClick={() => void run("Reading Git status", async () => { const result = await desktopApi.gitStatus(project.path); setStatus(`Branch ${result.branch ?? "detached"}; ${result.changedFiles.length} changed files.`); })}>Git status</button></span></article>) : <EmptyState text="No durable projects registered yet." />}</div>
       </> : null}
       {activeScreen === "Applications" ? <>
-        <div className="action-panel"><h2>Detect installed applications</h2><p>Semicolon-separated roots are scanned against bundled, auditable manifests.</p><div className="form-row"><input aria-label="Scan roots" placeholder="C:/Program Files; D:/Tools" value={scanRoots} onChange={(e) => setScanRoots(e.target.value)} /><button className="primary-button" onClick={() => void run("Scanning applications", async () => { await desktopApi.scanApps(scanRoots.split(";").map((v) => v.trim()).filter(Boolean)); await refreshApps(); })}>Scan now</button></div></div>
-        <div className="card-grid">{managedApps.map((app) => <article className="management-card" key={app.id}><AppWindow /><div><h3>{app.name}</h3><p>{app.installations.length ? app.installations.map((item) => item.version).join(", ") : "Not detected"}</p></div>{app.installations[0] ? <button className="outline-button" onClick={() => { if (window.confirm(`Launch ${app.name}?`)) void run(`Launching ${app.name}`, () => desktopApi.launchApp(app.id, app.installations[0].executable)); }}>Launch</button> : null}</article>)}</div>
+        <div className="action-panel"><h2>Detect installed applications</h2><p>Leave roots blank to auto-scan standard install folders on every drive, or provide semicolon-separated roots. Detection uses bundled, auditable manifests.</p><div className="form-row"><input aria-label="Scan roots" placeholder="Blank = all drives, or e.g. D:/Tools; E:/Apps" value={scanRoots} onChange={(e) => setScanRoots(e.target.value)} /><button className="primary-button" onClick={() => void run("Scanning applications", async () => { await desktopApi.scanApps(scanRoots.split(";").map((v) => v.trim()).filter(Boolean)); await refreshApps(); })}>Scan now</button></div></div>
+        {CATEGORY_ORDER.filter((category) => managedApps.some((app) => app.category === category)).map((category) => (
+          <section className="app-category" key={category}>
+            <h2 className="app-category-title">{APP_CATEGORY_LABELS[category] ?? category}</h2>
+            <div className="card-grid">{managedApps.filter((app) => app.category === category).map((app) => {
+              const primary = app.installations[0];
+              return (
+                <article className="management-card" key={app.id}>
+                  <span className="app-glyph"><AppIcon executable={primary?.executable} size={26} /></span>
+                  <div>
+                    <h3>{app.name}</h3>
+                    <p>{app.installations.length ? app.installations.map((item) => formatVersion(item.version)).join(", ") : "Not detected"}</p>
+                    {!app.launchable && app.installations.length ? <small className="vcs-note">Detected — used for project version control</small> : null}
+                  </div>
+                  {app.launchable && primary ? <button className="outline-button" onClick={() => { if (window.confirm(`Launch ${app.name}?`)) void run(`Launching ${app.name}`, () => desktopApi.launchApp(app.id, primary.executable)); }}>Launch</button> : null}
+                </article>
+              );
+            })}</div>
+          </section>
+        ))}
+        {managedApps.length && managedApps.every((app) => app.installations.length === 0) ? <EmptyState text="No applications detected yet. Click Scan now to discover installed creative tools across your drives." /> : null}
         <form className="action-panel" onSubmit={(event) => { event.preventDefault(); if (window.confirm(`Set a manual executable override for ${overrideApp} ${overrideVersion}?`)) void run("Saving override", async () => { await desktopApi.setManualOverride(overrideApp, overrideVersion, overrideExecutable); await refreshApps(); }); }}><h2>Manual override</h2><div className="form-row"><input aria-label="Application ID" value={overrideApp} onChange={(e) => setOverrideApp(e.target.value)} /><input aria-label="Version" required placeholder="2022.3.18" value={overrideVersion} onChange={(e) => setOverrideVersion(e.target.value)} /><input aria-label="Executable path" required placeholder="C:/Tools/app.exe" value={overrideExecutable} onChange={(e) => setOverrideExecutable(e.target.value)} /><button className="primary-button">Save override</button></div></form>
       </> : null}
       {activeScreen === "Health" ? <><div className="action-panel"><h2>Run project diagnostics</h2><div className="form-row"><input aria-label="Health project path" placeholder="Project root" value={rootInput} onChange={(e) => setRootInput(e.target.value)} /><button className="primary-button" onClick={() => void run("Running health checks", async () => setHealth(await desktopApi.projectHealth(rootInput)))}>Run checks</button></div></div><div className="issue-grid">{health.length ? health.map((issue) => <article className={`issue-card ${issue.severity}`} key={issue.code}><CircleAlert /><div><h3>{issue.title}</h3><p>{issue.detail}</p><small>{issue.code}</small></div></article>) : <EmptyState text="No health issues reported. Run checks for a registered project." />}</div></> : null}
       {activeScreen === "Tools" ? <><div className="action-panel"><h2>Curated Tools Hub</h2><p>Vantadeck shows validated, locally cached community metadata. It never executes downloaded installers or scripts automatically.</p>{!isNativeRuntime() ? <p>Open the native desktop app to read your local cache. Network access remains independently opt-in.</p> : null}</div><div className="card-grid">{tools.length ? tools.filter((tool) => tool.reviewState !== "withdrawn").map((tool) => <article className="management-card tool-card" key={tool.id}><Wrench /><div><h3>{tool.name}</h3><p>{tool.description}</p><small>{tool.reviewState} · {tool.license} · checked {tool.lastVerifiedAt}</small></div><button className="outline-button" onClick={() => setStatus(`${tool.sourceUrl} — open this reviewed source in your browser.`)}>Source</button></article>) : <EmptyState text="No validated tool index is cached. Use the CLI cache command after reviewing an index source." />}</div></> : null}
-      {activeScreen === "Settings" ? <div className="settings-grid"><div className="action-panel"><h2>Appearance</h2><label>Theme<select aria-label="Settings theme" value={preference} onChange={(event) => setPreference(event.target.value as ThemePreference)}><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label></div><div className="action-panel"><h2>Runtime</h2><p>{runtimeLabel}. Network operations are disabled by default; all indexed data is stored locally.</p></div></div> : null}
+      {activeScreen === "Settings" ? <div className="settings-grid"><div className="action-panel"><h2>Appearance</h2><label>Theme<select aria-label="Settings theme" value={preference} onChange={(event) => setPreference(event.target.value as ThemePreference)}><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label></div>
+        <div className="action-panel"><h2>Updates</h2>{update?.available ? <p>Version <strong>{update.version}</strong> is available (you have {update.currentVersion}).{update.notes ? <><br /><small>{update.notes}</small></> : null}</p> : <p>{update ? `You are on the latest version (${update.currentVersion}).` : "Check for a newer signed release. Updates are verified against Vantadeck's signing key before installation."}</p>}<div className="form-row"><button className="outline-button" onClick={() => void run("Checking for updates", async () => { const info = await desktopApi.checkForUpdate(); setUpdate(info); setStatus(info.available ? `Update ${info.version} is available.` : "You are on the latest version."); })}><RefreshCw size={15} /> Check for updates</button>{update?.available ? <button className="primary-button" onClick={() => { if (window.confirm(`Download and install version ${update.version} now? Vantadeck will restart.`)) void run("Installing update", () => desktopApi.installUpdate()); }}><Download size={15} /> Install &amp; restart</button> : null}</div></div>
+        <div className="action-panel"><h2>Runtime</h2><p>{runtimeLabel}. Network operations are disabled by default; all indexed data is stored locally.</p></div></div> : null}
       {status ? <output className="operation-status">{status}</output> : null}
     </section>
   );
@@ -180,6 +225,8 @@ export function App() {
           <label className="search"><Search size={19} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects, apps, tools, docs..." /><kbd>Ctrl K</kbd></label>
           <div className="local-state"><Laptop size={16} /> Offline • Local mode</div>
         </header>
+
+        {update?.available ? <div className="update-banner"><Download size={16} /><span>Vantadeck {update.version} is available.</span><button className="text-link" onClick={() => openScreen("Settings")}>View update</button></div> : null}
 
         <div className="content">
           {activeScreen === "Home" ? <><section className="continue-section" aria-labelledby="continue-title">

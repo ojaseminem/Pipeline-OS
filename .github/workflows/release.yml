@@ -76,7 +76,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Build native bundles
-        run: npm run tauri --workspace @vantadeck/desktop -- build ${{ matrix.args }}
+        env:
+          # Signs the auto-updater artifacts. Configure these repository secrets
+          # from the keypair in apps/desktop/.tauri/ (see docs/release/BLOCKERS.md).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri --workspace @vantadeck/desktop -- build ${{ matrix.args }} --config src-tauri/tauri.updater.conf.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: vantadeck-${{ runner.os }}
@@ -141,6 +146,11 @@ jobs:
             printf 'workflow_run=%s/actions/runs/%s\n' "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
             find release-assets -maxdepth 1 -type f -printf '%s %f\n' | sort -k2
           } > ARTIFACTS.txt
+      - name: Generate auto-updater feed (latest.json)
+        shell: bash
+        env:
+          VALIDATED_TAG: ${{ needs.validate-ref.outputs.tag }}
+        run: node source/scripts/generate-latest-json.mjs artifacts release-assets "${VALIDATED_TAG}"
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - name: Keyless-sign artifacts and release evidence
         shell: bash
