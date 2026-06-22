@@ -6,6 +6,19 @@ export type ManagedApp = { id: string; name: string; category: string; launchabl
 export type RegisteredProject = { name: string; path: string; pinned: boolean };
 export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null };
 export type PathInfo = { exists: boolean; isDir: boolean; isFile: boolean };
+export type LaunchProfile = { id: string; name: string; app_id: string; arguments: string[]; working_directory?: string | null; preferred_version?: string | null; fallback_version?: string | null };
+export type LinkedApp = { app_id: string; preferred_version?: string | null; project_file?: string | null; folder?: string | null };
+export type ProjectConfig = {
+  schema_version: number;
+  name: string;
+  project_type: string;
+  linked_apps: LinkedApp[];
+  launch_profiles: LaunchProfile[];
+  shortcuts: Array<{ name: string; kind: string; path: string }>;
+  version_control?: { provider: string; root: string } | null;
+  enabled_health_checks: string[];
+};
+export type RecentFile = { path: string; name: string; modified: number };
 
 /** Opens a native folder or file picker; returns the chosen path, or null. */
 export async function browsePath(opts: { directory?: boolean; title?: string }): Promise<string | null> {
@@ -94,6 +107,10 @@ export const desktopApi = {
   checkForUpdate: () => invokeDesktop<UpdateInfo>("check_for_update"),
   installUpdate: () => invokeDesktop<void>("install_update"),
   pathInfo: (path: string) => invokeDesktop<PathInfo>("path_info", { path }),
+  projectConfig: (root: string) => invokeDesktop<ProjectConfig>("project_config", { root }),
+  recentFiles: (root: string, limit: number) => invokeDesktop<RecentFile[]>("recent_files", { root, limit }),
+  openPath: (path: string) => invokeDesktop<void>("open_path", { path }),
+  launchExecutable: (executable: string) => invokeDesktop<void>("launch_executable", { executable }),
   listTools: () => invokeDesktop<ToolManifest[]>("list_tools"),
   pinProject: (root: string, pinned: boolean) => invokeDesktop<void>("set_project_pinned", { root, pinned }),
   launchProjectProfile: (root: string, profileId: string) => invokeDesktop<{ processId?: number; executable: string }>("launch_project_profile", { root, profileId }),

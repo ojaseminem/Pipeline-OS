@@ -597,6 +597,151 @@ async fn path_info(path: String) -> Result<PathInfo, String> {
     })
 }
 
+#[tauri::command(rename_all = "camelCase")]
+async fn project_config(
+    root: String,
+    state: State<'_, DesktopState>,
+) -> Result<ProjectConfig, String> {
+    state
+        .service
+        .project_config(Path::new(&root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecentFile {
+    path: String,
+    name: String,
+    modified: u64,
+}
+
+// Directories that never hold meaningful "recent files" for creative projects
+// (engine caches, build output, dependencies) — pruned for signal and speed.
+fn is_pruned_project_dir(name: &str) -> bool {
+    matches!(
+        name,
+        ".git"
+            | "node_modules"
+            | "Library"
+            | "Temp"
+            | "Logs"
+            | "obj"
+            | "bin"
+            | ".vs"
+            | "Intermediate"
+            | "Saved"
+            | "Binaries"
+            | "DerivedDataCache"
+            | "__pycache__"
+    )
+}
+
+fn collect_recent(dir: &Path, depth: usize, out: &mut Vec<(PathBuf, std::time::SystemTime)>) {
+    if depth == 0 || out.len() > 5000 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if file_type.is_dir() && !is_pruned_project_dir(name.as_ref()) {
+            collect_recent(&entry.path(), depth - 1, out);
+        } else if file_type.is_file()
+            && let Ok(modified) = entry.metadata().and_then(|meta| meta.modified())
+        {
+            out.push((entry.path(), modified));
+        }
+    }
+}
+
+/// Most-recently-modified files in a project, generic across engines.
+#[tauri::command(rename_all = "camelCase")]
+async fn recent_files(root: String, limit: usize) -> Result<Vec<RecentFile>, String> {
+    let root = PathBuf::from(root);
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+    let files = tauri::async_runtime::spawn_blocking(move || {
+        let mut out = Vec::new();
+        collect_recent(&root, 4, &mut out);
+        out.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+        out.into_iter()
+            .take(limit.clamp(1, 100))
+            .map(|(path, modified)| RecentFile {
+                name: path
+                    .file_name()
+                    .map(|value| value.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                modified: modified
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+                path: path.display().to_string(),
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(files)
+}
+
+fn open_with_os(path: &str) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", path])
+            .creation_flags(0x0800_0000)
+            .spawn()?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(path).spawn()?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(path).spawn()?;
+    }
+    Ok(())
+}
+
+/// Opens a file or folder with the operating system's default handler.
+#[tauri::command(rename_all = "camelCase")]
+async fn open_path(path: String) -> Result<(), String> {
+    if !Path::new(&path).exists() {
+        return Err("Path does not exist.".into());
+    }
+    open_with_os(&path).map_err(|e| e.to_string())
+}
+
+/// Launches an arbitrary user-provided executable (custom apps not in the
+/// bundled catalog), with the same architecture safety as catalog launches.
+#[tauri::command(rename_all = "camelCase")]
+async fn launch_executable(executable: String) -> Result<(), String> {
+    let exe = PathBuf::from(&executable);
+    if !exe.is_file() {
+        return Err("Executable not found.".into());
+    }
+    vantadeck_launcher::ensure_runnable(&exe).map_err(|e| e.to_string())?;
+    let working_directory = exe
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    LaunchSpec::new(exe, vec![], working_directory)
+        .map_err(|e| e.to_string())?
+        .command()
+        .spawn()
+        .map_err(|e| format!("Could not start the application: {e}"))?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     suppress_windows_error_dialogs();
@@ -637,6 +782,10 @@ pub fn run() {
             check_for_update,
             install_update,
             path_info,
+            project_config,
+            recent_files,
+            open_path,
+            launch_executable,
             git_sync,
             git_commit,
             git_push,

@@ -33,6 +33,8 @@ import { createQueryClient, useApps, useInvalidate, useProjects, useTools } from
 import { type ThemePreference, useTheme } from "./theme";
 import { Onboarding, type OnboardingPrefs } from "./components/onboarding";
 import { PathInput } from "./components/path-input";
+import { ProjectDetail } from "./components/project-detail";
+import { loadCustomApps, newId, saveCustomApps, type CustomApp } from "./lib/local-store";
 import voidlineImage from "./assets/voidline-reactor.png";
 
 type UndoEntry = { label: string; undo: () => Promise<void>; redo: () => Promise<void> };
@@ -46,7 +48,7 @@ const navigation = [
   ["Settings", Settings],
 ] as const;
 
-type Screen = (typeof navigation)[number][0];
+type Screen = (typeof navigation)[number][0] | "Project";
 
 const sampleContinueProject: Project = {
   name: "Voidline",
@@ -140,16 +142,15 @@ function AppShell() {
   const invalidate = useInvalidate();
   const [rootInput, setRootInput] = useState("");
   const [nameInput, setNameInput] = useState("");
-  const [profileInput, setProfileInput] = useState("editor");
-  const [branchInput, setBranchInput] = useState("main");
-  const [commitInput, setCommitInput] = useState("");
   const [scanRoots, setScanRoots] = useState("");
-  const [overrideApp, setOverrideApp] = useState("unity");
-  const [overrideVersion, setOverrideVersion] = useState("");
-  const [overrideExecutable, setOverrideExecutable] = useState("");
+  const [customApps, setCustomApps] = useState<CustomApp[]>(() => loadCustomApps());
+  const [customName, setCustomName] = useState("");
+  const [customExe, setCustomExe] = useState("");
+  const [customCategory, setCustomCategory] = useState("dcc");
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [scanning, setScanning] = useState(false);
   const [onboarding, setOnboarding] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<{ path: string; name: string } | null>(null);
   const undoStack = useRef<UndoEntry[]>([]);
   const redoStack = useRef<UndoEntry[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -251,6 +252,27 @@ function AppShell() {
     setActiveScreen(screen);
   }
 
+  function openProject(target: { path: string; name: string }) {
+    setSelectedProject(target);
+    setActiveScreen("Project");
+  }
+
+  function addCustomApp(event: FormEvent) {
+    event.preventDefault();
+    if (!customName.trim() || !customExe.trim()) return;
+    const next = [...customApps, { id: newId(), name: customName.trim(), category: customCategory, executable: customExe.trim() }];
+    setCustomApps(next);
+    saveCustomApps(next);
+    setCustomName("");
+    setCustomExe("");
+    toast.success(`Added ${next[next.length - 1].name}.`);
+  }
+  function removeCustomApp(id: string) {
+    const next = customApps.filter((app) => app.id !== id);
+    setCustomApps(next);
+    saveCustomApps(next);
+  }
+
   function launchInstalled(app: { id: string; name: string; executable?: string | null }) {
     if (app.executable) void run(`Launching ${app.name}`, () => desktopApi.launchApp(app.id, app.executable!));
     else openScreen("Applications");
@@ -279,34 +301,19 @@ function AppShell() {
             <Button type="submit">Import project</Button>
           </div>
         </Panel></form>
-        <Panel title="Launch a project profile" description="Profiles come from the portable project file; executable selection remains machine-local.">
-          <div className="flex flex-wrap items-start gap-2">
-            <PathInput ariaLabel="Launch project path" directory placeholder="Project root" value={rootInput} onChange={setRootInput} />
-            <Input aria-label="Launch profile ID" placeholder="editor" value={profileInput} onChange={(e) => setProfileInput(e.target.value)} className="w-40" />
-            <Button onClick={() => void run("Launching profile", () => desktopApi.launchProjectProfile(rootInput, profileInput))}>Launch profile</Button>
-          </div>
-        </Panel>
-        <Panel title="Git workflow" description="Status is read-only. Sync, commit, push, and branch switching always ask for confirmation.">
-          <div className="flex flex-wrap gap-2">
-            <Input aria-label="Git branch" placeholder="Branch" value={branchInput} onChange={(e) => setBranchInput(e.target.value)} className="w-40" />
-            <Input aria-label="Git commit message" placeholder="Commit message" value={commitInput} onChange={(e) => setCommitInput(e.target.value)} className="flex-1 min-w-48" />
-            <Button variant="outline" onClick={() => { if (window.confirm(`Switch ${rootInput} to ${branchInput}?`)) void run("Switching branch", () => desktopApi.gitSwitch(rootInput, branchInput, true)); }}>Switch</Button>
-            <Button variant="outline" onClick={() => { if (window.confirm(`Pull changes into ${rootInput}?`)) void run("Syncing repository", () => desktopApi.gitSync(rootInput, true)); }}>Sync</Button>
-            <Button variant="outline" onClick={() => { if (window.confirm(`Commit all changes in ${rootInput}?`)) void run("Committing changes", () => desktopApi.gitCommit(rootInput, commitInput, true)); }}>Commit</Button>
-            <Button variant="outline" onClick={() => { if (window.confirm(`Push ${rootInput} to its configured remote?`)) void run("Pushing repository", () => desktopApi.gitPush(rootInput, true)); }}>Push</Button>
-          </div>
-        </Panel>
+        <SectionLabel>Your projects</SectionLabel>
         <div className="grid gap-3 sm:grid-cols-2">{registeredProjects.length ? registeredProjects.map((project) => (
-          <Card key={project.path}><CardContent className="flex items-start gap-3 p-4">
-            <Folder className="mt-0.5 text-primary" />
-            <div className="min-w-0 flex-1"><h3 className="truncate font-medium">{project.name}</h3><p className="truncate text-sm text-muted-foreground">{project.path}</p>
-              <div className="mt-3 flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => void performUndoable(project.pinned ? "Unpinned project" : "Pinned project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await invalidate.projects(); }, async () => { await desktopApi.pinProject(project.path, project.pinned); await invalidate.projects(); })}>{project.pinned ? "Unpin" : "Pin"}</Button>
-                <Button variant="outline" size="sm" onClick={() => void run("Reading Git status", async () => { const result = await desktopApi.gitStatus(project.path); toast.message(`Branch ${result.branch ?? "detached"}`, { description: `${result.changedFiles.length} changed files.` }); })}>Git status</Button>
+          <Card key={project.path} className="cursor-pointer transition-colors hover:border-primary/50" onClick={() => openProject({ path: project.path, name: project.name })}>
+            <CardContent className="flex items-start gap-3 p-4">
+              <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary"><Folder size={18} /></span>
+              <div className="min-w-0 flex-1"><h3 className="truncate font-medium">{project.name}</h3><p className="truncate text-sm text-muted-foreground">{project.path}</p>
+                <div className="mt-3 flex gap-2">
+                  <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); openProject({ path: project.path, name: project.name }); }}>Open</Button>
+                  <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); void performUndoable(project.pinned ? "Unpinned project" : "Pinned project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await invalidate.projects(); }, async () => { await desktopApi.pinProject(project.path, project.pinned); await invalidate.projects(); }); }}>{project.pinned ? "Unpin" : "Pin"}</Button>
+                </div>
               </div>
-            </div>
-          </CardContent></Card>
-        )) : <EmptyState text="No durable projects registered yet." />}</div>
+            </CardContent></Card>
+        )) : <EmptyState text="No projects registered yet. Import one above to get started." />}</div>
       </div> : null}
 
       {activeScreen === "Applications" ? <div className="space-y-5">
@@ -317,10 +324,10 @@ function AppShell() {
           </div>
           {scanning ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><RefreshCw size={14} className="animate-spin" /> Scanning installed applications across your drives — this can take a moment.</p> : null}
         </Panel>
-        {CATEGORY_ORDER.filter((category) => managedApps.some((app) => app.category === category)).map((category) => (
+        {CATEGORY_ORDER.filter((category) => managedApps.some((app) => app.category === category && app.installations.length > 0)).map((category) => (
           <section key={category} className="space-y-2">
             <SectionLabel>{APP_CATEGORY_LABELS[category] ?? category}</SectionLabel>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{managedApps.filter((app) => app.category === category).map((app) => {
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{managedApps.filter((app) => app.category === category && app.installations.length > 0).map((app) => {
               const iconInstall = app.installations.find((item) => item.runnable) ?? app.installations[0];
               const launchTarget = app.installations.find((item) => item.runnable);
               const hasIncompatible = app.installations.some((item) => !item.runnable);
@@ -329,8 +336,8 @@ function AppShell() {
                   <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary"><AppIcon executable={iconInstall?.executable} size={26} /></span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2"><h3 className="truncate font-medium">{app.name}</h3>{launchTarget ? <Button variant="outline" size="sm" onClick={() => { if (window.confirm(`Launch ${app.name} ${formatVersion(launchTarget.version)}?`)) void run(`Launching ${app.name}`, () => desktopApi.launchApp(app.id, launchTarget.executable)); }}>Launch</Button> : null}</div>
-                    <div className="mt-1.5 flex flex-wrap gap-1">{app.installations.length ? app.installations.map((item) => <Badge key={item.executable} variant={item.runnable ? "secondary" : "outline"} className={item.runnable ? "" : "text-muted-foreground line-through"}>{formatVersion(item.version)}</Badge>) : <span className="text-sm text-muted-foreground">Not detected</span>}</div>
-                    {!app.launchable && app.installations.length ? <p className="mt-1.5 text-xs text-primary">Detected — used for project version control</p> : null}
+                    <div className="mt-1.5 flex flex-wrap gap-1">{app.installations.map((item) => <Badge key={item.executable} variant={item.runnable ? "secondary" : "outline"} className={item.runnable ? "" : "text-muted-foreground line-through"}>{formatVersion(item.version)}</Badge>)}</div>
+                    {!app.launchable ? <p className="mt-1.5 text-xs text-primary">Detected — used for project version control</p> : null}
                     {app.launchable && hasIncompatible ? <p className="mt-1.5 text-xs text-muted-foreground">Some versions are built for another architecture and are skipped on launch.</p> : null}
                   </div>
                 </CardContent></Card>
@@ -338,17 +345,36 @@ function AppShell() {
             })}</div>
           </section>
         ))}
-        {managedApps.length && managedApps.every((app) => app.installations.length === 0) ? <EmptyState text="No applications detected yet. Click Scan now to discover installed creative tools across your drives." /> : null}
-        <form onSubmit={(event) => { event.preventDefault(); if (window.confirm(`Set a manual executable override for ${overrideApp} ${overrideVersion}?`)) void run("Saving override", async () => { await desktopApi.setManualOverride(overrideApp, overrideVersion, overrideExecutable); await invalidate.apps(); }); }}>
-          <Panel title="Manual override">
+        {customApps.length ? <section className="space-y-2">
+          <SectionLabel>Your apps</SectionLabel>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{customApps.map((app) => (
+            <Card key={app.id}><CardContent className="flex items-start gap-3 p-4">
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary"><AppIcon executable={app.executable} size={26} /></span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2"><h3 className="truncate font-medium">{app.name}</h3><Button variant="outline" size="sm" onClick={() => { if (window.confirm(`Launch ${app.name}?`)) void run(`Launching ${app.name}`, () => desktopApi.launchExecutable(app.executable)); }}>Launch</Button></div>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{app.executable}</p>
+                <Button variant="ghost" size="sm" className="mt-1 h-auto p-0 text-muted-foreground" onClick={() => removeCustomApp(app.id)}>Remove</Button>
+              </div>
+            </CardContent></Card>
+          ))}</div>
+        </section> : null}
+        {managedApps.every((app) => app.installations.length === 0) && !customApps.length ? <EmptyState text="No applications detected yet. Click Scan now to find installed creative tools across your drives, or add your own below." /> : null}
+        <form onSubmit={addCustomApp}>
+          <Panel title="Add an application" description="Vantadeck supports many engines and creative tools out of the box. Add anything else installed on your machine here.">
             <div className="flex flex-wrap items-start gap-2">
-              <Input aria-label="Application ID" value={overrideApp} onChange={(e) => setOverrideApp(e.target.value)} className="w-40" />
-              <Input aria-label="Version" required placeholder="2022.3.18" value={overrideVersion} onChange={(e) => setOverrideVersion(e.target.value)} className="w-40" />
-              <PathInput ariaLabel="Executable path" required directory={false} placeholder="C:/Tools/app.exe" value={overrideExecutable} onChange={setOverrideExecutable} />
-              <Button type="submit">Save override</Button>
+              <Input aria-label="App name" required placeholder="App name" value={customName} onChange={(e) => setCustomName(e.target.value)} className="w-48" />
+              <select aria-label="App category" value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} className={themeSelectClass}>
+                <option value="game-engine">Game Engine</option><option value="dcc">3D / DCC</option><option value="art">2D / Art</option><option value="code">Code / IDE</option><option value="utility">Utility</option>
+              </select>
+              <PathInput ariaLabel="App executable" required directory={false} placeholder="C:/Tools/app.exe" value={customExe} onChange={setCustomExe} />
+              <Button type="submit">Add app</Button>
             </div>
           </Panel>
         </form>
+        <details className="rounded-lg border border-border p-4 text-sm">
+          <summary className="cursor-pointer font-medium">Supported applications ({managedApps.length})</summary>
+          <div className="mt-3 flex flex-wrap gap-1.5">{managedApps.map((app) => <Badge key={app.id} variant={app.installations.length ? "secondary" : "outline"} className={app.installations.length ? "" : "text-muted-foreground"}>{app.name}</Badge>)}</div>
+        </details>
       </div> : null}
 
       {activeScreen === "Health" ? <div className="space-y-4">
@@ -425,7 +451,7 @@ function AppShell() {
                   <div className="flex flex-wrap gap-3 text-sm text-muted-foreground"><span className="flex items-center gap-1.5"><Box size={14} /> {continueProject.engine} {continueProject.version}</span><span className="flex items-center gap-1.5"><GitBranch size={13} /> {continueProject.branch}</span><span>Last opened: {continueProject.lastOpened}</span></div>
                   <ul className="space-y-1.5 text-sm text-muted-foreground"><li className="flex items-center gap-2"><Folder size={14} /> Project metadata and activity stay on this machine.</li><li className="flex items-center gap-2"><FileCode2 size={14} /> Portable settings live in .vantadeck/project.toml.</li></ul>
                 </div>
-                <div className="space-y-3 border-l border-border p-5"><Button className="w-full" onClick={() => openScreen("Projects")}>Open Project</Button>
+                <div className="space-y-3 border-l border-border p-5"><Button className="w-full" onClick={() => continueProject && openProject({ path: continueProject.path, name: continueProject.name })}>Open Project</Button>
                   <div><h2 className="mb-2 text-sm font-semibold">Health summary</h2>{health.length ? <div className="space-y-2">{health.slice(0, 3).map((issue) => <div key={issue.code} className="flex items-start gap-2 text-sm"><CircleAlert className={cn("shrink-0", issue.severity === "error" ? "text-destructive" : "text-primary")} size={16} /><span className="min-w-0" title={issue.detail}><strong className="block truncate">{issue.title}</strong><small className="line-clamp-2 text-muted-foreground">{issue.detail}</small></span></div>)}</div> : <EmptyState text="No current health issues." />}</div>
                 </div>
               </CardContent></Card> : <Card><CardContent className="p-6"><EmptyState text="Import a project to start working locally." /></CardContent></Card>}
@@ -437,7 +463,7 @@ function AppShell() {
                   <button role="tab" aria-selected={projectView === "pinned"} onClick={() => setProjectView("pinned")} className={cn("rounded-lg px-3 py-1.5 text-sm", projectView === "pinned" ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground")}>Pinned Projects</button>
                   <button role="tab" aria-selected={projectView === "recent"} onClick={() => setProjectView("recent")} className={cn("rounded-lg px-3 py-1.5 text-sm", projectView === "recent" ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground")}>Recent Projects</button>
                 </div>
-                <ProjectTable projects={filteredProjects} onOpen={() => openScreen("Projects")} />
+                <ProjectTable projects={filteredProjects} onOpen={(p) => openProject({ path: p.path, name: p.name })} />
                 <Button variant="link" className="px-0" onClick={() => openScreen("Projects")}>View all projects <ChevronRight size={16} /></Button>
               </div>
               <aside className="space-y-4">
@@ -445,7 +471,7 @@ function AppShell() {
                 <Card><CardContent className="p-4"><div className="mb-2 flex items-center justify-between text-sm font-semibold">Installed Apps <Button variant="ghost" size="sm" className="h-auto p-0 text-muted-foreground" onClick={() => openScreen("Applications")}>Manage</Button></div><div className="space-y-1">{installedApps.length ? installedApps.map((app) => <button key={app.name} onClick={() => launchInstalled(app)} title={app.executable ? `Launch ${app.name}` : "Open Applications"} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted/50"><span className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary"><AppIcon executable={app.executable ?? undefined} size={18} /></span><span className="min-w-0 flex-1"><strong className="block truncate">{app.name}</strong><small className="block truncate text-xs text-muted-foreground">{app.versions.join(", ")}</small></span><ChevronRight size={15} className="text-muted-foreground" /></button>) : <EmptyState text="No apps detected yet." />}</div></CardContent></Card>
               </aside>
             </section>
-          </div> : managementContent}
+          </div> : activeScreen === "Project" && selectedProject ? <ProjectDetail project={selectedProject} onBack={() => openScreen("Projects")} /> : managementContent}
         </div>
 
         <Onboarding open={onboarding} onComplete={completeOnboarding} onSkip={skipOnboarding} />

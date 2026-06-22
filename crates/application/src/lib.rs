@@ -299,6 +299,11 @@ impl ApplicationService {
         Ok(self.storage.registered_projects().await?)
     }
 
+    /// Loads the portable project configuration for a single project.
+    pub async fn project_config(&self, root: &Path) -> Result<ProjectConfig, ApplicationError> {
+        Ok(load_project(root)?)
+    }
+
     pub async fn search_projects(
         &self,
         query: &str,

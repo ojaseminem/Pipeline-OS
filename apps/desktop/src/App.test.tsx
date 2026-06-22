@@ -90,12 +90,13 @@ describe("dashboard projects", () => {
     }
   });
 
-  it("navigates to Projects when clicking ProjectTable 'Open Project' button", async () => {
+  it("opens the single-project detail view from a ProjectTable row", async () => {
     render(<App />);
     const openProjectButtons = screen.queryAllByRole("button", { name: /Open Project/ });
     if (openProjectButtons.length > 0) {
       await userEvent.click(openProjectButtons[0]);
-      expect(screen.getByRole("heading", { name: "Projects" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Source Control" })).toBeInTheDocument();
     }
   });
 });
