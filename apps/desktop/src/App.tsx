@@ -339,26 +339,39 @@ function AppShell() {
     navigate("Project", target);
   }
 
+  function applyCustomApps(apps: CustomApp[]) {
+    setCustomApps(apps);
+    saveCustomApps(apps);
+  }
   function addCustomApp(event: FormEvent) {
     event.preventDefault();
     if (!customName.trim() || !customExe.trim()) return;
-    const next = [...customApps, { id: newId(), name: customName.trim(), category: customCategory, executable: customExe.trim() }];
-    setCustomApps(next);
-    saveCustomApps(next);
+    const previous = customApps;
+    const next = [...previous, { id: newId(), name: customName.trim(), category: customCategory, executable: customExe.trim() }];
     setCustomName("");
     setCustomExe("");
-    toast.success(`Added ${next[next.length - 1].name}.`);
+    void performUndoable(`Added ${next[next.length - 1].name}`, async () => applyCustomApps(next), async () => applyCustomApps(previous));
   }
   function removeCustomApp(id: string) {
-    const next = customApps.filter((app) => app.id !== id);
-    setCustomApps(next);
-    saveCustomApps(next);
+    const previous = customApps;
+    const removed = previous.find((app) => app.id === id);
+    const next = previous.filter((app) => app.id !== id);
+    void performUndoable(`Removed ${removed?.name ?? "app"}`, async () => applyCustomApps(next), async () => applyCustomApps(previous));
   }
 
+  function applyQuickLaunch(ids: string[]) {
+    setQuickLaunchIds(ids);
+    saveQuickLaunch(ids);
+  }
   function toggleQuickLaunch(id: string) {
-    const next = quickLaunchIds.includes(id) ? quickLaunchIds.filter((value) => value !== id) : [...quickLaunchIds, id];
-    setQuickLaunchIds(next);
-    saveQuickLaunch(next);
+    const previous = quickLaunchIds;
+    const adding = !previous.includes(id);
+    const next = adding ? [...previous, id] : previous.filter((value) => value !== id);
+    void performUndoable(
+      adding ? "Pinned to Quick Launch" : "Removed from Quick Launch",
+      async () => applyQuickLaunch(next),
+      async () => applyQuickLaunch(previous),
+    );
   }
 
   // Resolve pinned Quick Launch apps to launchable items; fall back to the first
