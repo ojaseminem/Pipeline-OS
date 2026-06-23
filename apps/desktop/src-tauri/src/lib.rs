@@ -181,7 +181,7 @@ async fn dashboard_snapshot(state: State<'_, DesktopState>) -> Result<DesktopDas
     let health = if let Some(project) = projects.first() {
         state
             .service
-            .project_health(&project.root)
+            .project_health_quick(&project.root)
             .await
             .into_iter()
             .map(|issue| HealthSummary {

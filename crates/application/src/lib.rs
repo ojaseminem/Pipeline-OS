@@ -467,7 +467,19 @@ impl ApplicationService {
         Ok(self.git.switch_branch(root, branch).await?)
     }
 
+    /// Full project health, including Git and Git-LFS checks. Runs Git
+    /// subprocesses, so it is intended for explicit, user-initiated checks.
     pub async fn project_health(&self, root: &Path) -> Vec<HealthIssue> {
+        self.project_health_inner(root, true).await
+    }
+
+    /// Lightweight health (path, config, linked apps, launch profiles) with no
+    /// Git/LFS subprocesses — safe to run automatically, e.g. on the dashboard.
+    pub async fn project_health_quick(&self, root: &Path) -> Vec<HealthIssue> {
+        self.project_health_inner(root, false).await
+    }
+
+    async fn project_health_inner(&self, root: &Path, include_vcs: bool) -> Vec<HealthIssue> {
         let mut issues = ProjectPathCheck.run(root).await;
         if !issues.is_empty() {
             return issues;
@@ -527,7 +539,7 @@ impl ApplicationService {
                 checked_at: Utc::now(),
             }),
         }
-        if !self.git.detect(root).await {
+        if !include_vcs || !self.git.detect(root).await {
             return issues;
         }
         match self.git.status(root).await {

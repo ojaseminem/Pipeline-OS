@@ -5,19 +5,23 @@ import {
   Box,
   ChevronRight,
   CircleAlert,
+  Clipboard,
   Code2,
   Download,
   FileCode2,
   Folder,
+  FolderOpen,
   GitBranch,
   Home,
   Laptop,
   MoreHorizontal,
+  Rocket,
   RefreshCw,
   Search,
   Settings,
   Wrench,
 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
@@ -80,7 +84,14 @@ function AppIcon({ executable, size = 22 }: { executable?: string; size?: number
     : <AppWindow size={size} className="text-muted-foreground" />;
 }
 
-function ProjectTable({ projects, onOpen }: { projects: Project[]; onOpen: (project: Project) => void }) {
+type ProjectActions = {
+  onOpen: (project: Project) => void;
+  onLaunch: (project: Project) => void;
+  onOpenFolder: (project: Project) => void;
+  onCopyPath: (project: Project) => void;
+};
+
+function ProjectTable({ projects, actions }: { projects: Project[]; actions: ProjectActions }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border" role="table" aria-label="Projects">
       <div className="grid grid-cols-[2fr_1fr_1.2fr_1fr_auto] gap-3 border-b border-border bg-muted/40 px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground" role="row">
@@ -96,8 +107,20 @@ function ProjectTable({ projects, onOpen }: { projects: Project[]; onOpen: (proj
           <span className="flex items-center gap-1.5 text-muted-foreground"><Box size={14} /> {project.engine} {project.version}</span>
           <span className="flex items-center gap-1.5 text-muted-foreground"><GitBranch size={13} /> {project.branch}</span>
           <span className="flex items-center gap-1.5">
-            <Button variant="outline" size="sm" onClick={() => onOpen(project)}><Folder size={14} /> Open Project</Button>
-            <Button variant="ghost" size="icon" aria-label={`More actions for ${project.name}`} onClick={() => onOpen(project)}><MoreHorizontal size={17} /></Button>
+            <Button variant="outline" size="sm" onClick={() => actions.onOpen(project)}><Folder size={14} /> Open Project</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label={`More actions for ${project.name}`}><MoreHorizontal size={17} /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onClick={() => actions.onOpen(project)}><Folder size={14} /> Open project</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => actions.onLaunch(project)}><Rocket size={14} /> Open in {project.engine}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => actions.onOpen(project)}><GitBranch size={14} /> Source control</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => actions.onOpenFolder(project)}><FolderOpen size={14} /> Open folder</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => actions.onCopyPath(project)}><Clipboard size={14} /> Copy path</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </span>
         </div>
       ))}
@@ -463,7 +486,12 @@ function AppShell() {
                   <button role="tab" aria-selected={projectView === "pinned"} onClick={() => setProjectView("pinned")} className={cn("rounded-lg px-3 py-1.5 text-sm", projectView === "pinned" ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground")}>Pinned Projects</button>
                   <button role="tab" aria-selected={projectView === "recent"} onClick={() => setProjectView("recent")} className={cn("rounded-lg px-3 py-1.5 text-sm", projectView === "recent" ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground")}>Recent Projects</button>
                 </div>
-                <ProjectTable projects={filteredProjects} onOpen={(p) => openProject({ path: p.path, name: p.name })} />
+                <ProjectTable projects={filteredProjects} actions={{
+                  onOpen: (p) => openProject({ path: p.path, name: p.name }),
+                  onLaunch: (p) => void run(`Opening ${p.name}`, () => desktopApi.launchProjectProfile(p.path, "editor")),
+                  onOpenFolder: (p) => { if (isNativeRuntime()) void run("Opening folder", () => desktopApi.openPath(p.path)); },
+                  onCopyPath: (p) => { void navigator.clipboard?.writeText(p.path); toast.success("Path copied."); },
+                }} />
                 <Button variant="link" className="px-0" onClick={() => openScreen("Projects")}>View all projects <ChevronRight size={16} /></Button>
               </div>
               <aside className="space-y-4">

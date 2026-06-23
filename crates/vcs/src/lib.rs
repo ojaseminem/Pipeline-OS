@@ -116,23 +116,42 @@ impl GitProvider {
             .is_ok_and(|output| output.status.success());
         let initialized = std::fs::read_to_string(root.join(".gitattributes"))
             .is_ok_and(|attributes| attributes.contains("filter=lfs"));
-        let missing_objects = installed
-            && initialized
-            && self
-                .run_raw(root, &["lfs", "fsck"])
-                .await
-                .is_ok_and(|output| !output.status.success());
+        // Note: we deliberately do not run `git lfs fsck` here. It is very
+        // expensive on large repositories and spawns a storm of child console
+        // processes; object integrity belongs in an explicit, user-initiated check.
+        let missing_objects = false;
         let mut large_untracked_files = Vec::new();
+        // Cap the number of large files we inspect so health stays fast and never
+        // floods a big project (e.g. a game engine project) with subprocesses.
+        const MAX_LARGE_FILES: usize = 25;
         for entry in WalkDir::new(root)
             .follow_links(false)
             .into_iter()
             .filter_entry(|entry| {
                 let name = entry.file_name().to_string_lossy();
-                name != ".git" && name != ".vantadeck"
+                !matches!(
+                    name.as_ref(),
+                    ".git"
+                        | ".vantadeck"
+                        | "node_modules"
+                        | "Library"
+                        | "Temp"
+                        | "Logs"
+                        | "obj"
+                        | "bin"
+                        | ".vs"
+                        | "Intermediate"
+                        | "Saved"
+                        | "Binaries"
+                        | "DerivedDataCache"
+                )
             })
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_file())
         {
+            if large_untracked_files.len() >= MAX_LARGE_FILES {
+                break;
+            }
             if entry
                 .metadata()
                 .map_or(true, |metadata| metadata.len() < large_file_threshold)
