@@ -188,6 +188,7 @@ function AppShell() {
   const [customCategory, setCustomCategory] = useState("dcc");
   const [quickLaunchIds, setQuickLaunchIds] = useState<string[]>(() => loadQuickLaunch());
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [autoUpdate, setAutoUpdate] = useState(() => localStorage.getItem("vantadeck.autoUpdate") !== "false");
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [onboarding, setOnboarding] = useState(false);
@@ -217,9 +218,18 @@ function AppShell() {
 
   useEffect(() => {
     if (!isNativeRuntime()) return;
-    desktopApi.checkForUpdate().then((info) => { if (info.available) setUpdate(info); }).catch(() => undefined);
+    if (autoUpdate) {
+      desktopApi.checkForUpdate().then((info) => { if (info.available) setUpdate(info); }).catch(() => undefined);
+    }
     if (localStorage.getItem("vantadeck.onboarded") !== "true") setOnboarding(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function setAutoUpdatePref(enabled: boolean) {
+    setAutoUpdate(enabled);
+    localStorage.setItem("vantadeck.autoUpdate", String(enabled));
+    if (enabled) desktopApi.checkForUpdate().then((info) => { if (info.available) setUpdate(info); }).catch(() => undefined);
+  }
 
   async function undoLast() {
     const entry = undoStack.current.pop();
@@ -553,6 +563,8 @@ function AppShell() {
             <Button variant="outline" onClick={() => void run("Checking for updates", async () => { const info = await desktopApi.checkForUpdate(); setUpdate(info); toast.message(info.available ? `Update ${info.version} is available.` : "You are on the latest version."); })}><RefreshCw size={15} /> Check for updates</Button>
             {update?.available ? <Button onClick={() => { if (window.confirm(`Download and install version ${update.version} now? Vantadeck will restart.`)) void run("Installing update", () => desktopApi.installUpdate()); }}><Download size={15} /> Install &amp; restart</Button> : null}
           </div>
+          <label className="flex items-center gap-2 pt-1 text-sm"><input type="checkbox" checked={autoUpdate} onChange={(event) => setAutoUpdatePref(event.target.checked)} className="size-4 accent-[var(--primary)]" /> Automatically check for updates on launch</label>
+          <p className="text-xs text-muted-foreground">Update info comes from Vantadeck's GitHub releases. Downloads are verified against the signing key before install.</p>
         </Panel>
         <Panel title="Runtime"><p className="text-sm text-muted-foreground">{runtimeLabel}. Network operations are disabled by default; all indexed data is stored locally.</p></Panel>
       </div> : null}

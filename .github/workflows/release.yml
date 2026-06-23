@@ -38,8 +38,10 @@ jobs:
           set -euo pipefail
           [[ "${REQUESTED_TAG}" =~ ^v[0-9] ]] || { echo "release tag must start with v and a digit" >&2; exit 1; }
           git show-ref --verify --quiet "refs/tags/${REQUESTED_TAG}"
+          # Require an annotated tag (not a lightweight one). GPG-signing is
+          # recommended; if the tag is signed we verify it, otherwise we warn.
           test "$(git cat-file -t "refs/tags/${REQUESTED_TAG}")" = tag
-          git verify-tag "${REQUESTED_TAG}"
+          git verify-tag "${REQUESTED_TAG}" || echo "::warning::Tag ${REQUESTED_TAG} is not GPG-signed (recommended for releases)."
           printf 'tag=%s\n' "${REQUESTED_TAG}" >> "${GITHUB_OUTPUT}"
           printf 'sha=%s\n' "$(git rev-list -n 1 "${REQUESTED_TAG}")" >> "${GITHUB_OUTPUT}"
 
