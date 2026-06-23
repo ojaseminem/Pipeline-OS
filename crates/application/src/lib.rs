@@ -63,6 +63,15 @@ pub struct ProjectSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ScanProgress {
+    pub completed: usize,
+    pub total: usize,
+    pub current: String,
+    pub done: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSummary {
     pub id: String,
     pub name: String,
@@ -212,6 +221,21 @@ impl ApplicationService {
         manifest_dir: &Path,
         roots: &[PathBuf],
     ) -> Result<Vec<DetectedApplication>, ApplicationError> {
+        self.scan_apps_with_progress(manifest_dir, roots, |_| {}, || false)
+            .await
+    }
+
+    /// Scans applications while reporting progress and honoring cancellation.
+    /// `on_progress` is called with (completed, total, current app name).
+    /// `should_cancel` is polled before each manifest; when it returns true the
+    /// scan stops early and returns what was found so far.
+    pub async fn scan_apps_with_progress(
+        &self,
+        manifest_dir: &Path,
+        roots: &[PathBuf],
+        mut on_progress: impl FnMut(ScanProgress),
+        should_cancel: impl Fn() -> bool,
+    ) -> Result<Vec<DetectedApplication>, ApplicationError> {
         let mut manifest_paths = fs::read_dir(manifest_dir)?
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
@@ -219,13 +243,23 @@ impl ApplicationService {
             .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
             .collect::<Vec<_>>();
         manifest_paths.sort();
+        let total = manifest_paths.len();
         // Build the detection engine once and reuse it across every manifest, so
         // expensive system sources (registry query, hub probes) run a single
         // time per scan rather than once per application.
         let engine = system_detection_engine(roots);
         let mut applications = Vec::new();
-        for path in manifest_paths {
+        for (index, path) in manifest_paths.into_iter().enumerate() {
+            if should_cancel() {
+                break;
+            }
             let manifest = AppManifest::from_json(&fs::read_to_string(path)?)?;
+            on_progress(ScanProgress {
+                completed: index,
+                total,
+                current: manifest.name.clone(),
+                done: false,
+            });
             let mut application = engine
                 .scan_app(
                     &ScanRequest::new(
@@ -260,6 +294,12 @@ impl ApplicationService {
                 applications.push(application);
             }
         }
+        on_progress(ScanProgress {
+            completed: total,
+            total,
+            current: String::new(),
+            done: true,
+        });
         self.storage
             .record_activity(
                 "app-scan",

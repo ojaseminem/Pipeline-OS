@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_updater::UpdaterExt;
 use vantadeck_application::{
     AppSummary, ApplicationService, HealthSummary, LaunchResult, ProjectSummary,
@@ -65,6 +67,7 @@ const TOOL_INDEX_SOURCE: &str = "https://tools.vantadeck.org/v1/index.json";
 struct DesktopState {
     service: ApplicationService,
     manifest_dir: PathBuf,
+    scan_cancel: Arc<AtomicBool>,
 }
 
 #[derive(Serialize)]
@@ -293,15 +296,31 @@ async fn list_apps(state: State<'_, DesktopState>) -> Result<Vec<DesktopApp>, St
 
 #[tauri::command]
 async fn scan_apps(
+    app: tauri::AppHandle,
     roots: Vec<String>,
     state: State<'_, DesktopState>,
 ) -> Result<Vec<DetectedApplication>, String> {
     let roots = roots.into_iter().map(PathBuf::from).collect::<Vec<_>>();
+    state.scan_cancel.store(false, Ordering::SeqCst);
+    let cancel = state.scan_cancel.clone();
     state
         .service
-        .scan_apps(&state.manifest_dir, &roots)
+        .scan_apps_with_progress(
+            &state.manifest_dir,
+            &roots,
+            |progress| {
+                let _ = app.emit("scan://progress", progress);
+            },
+            || cancel.load(Ordering::SeqCst),
+        )
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cancel_scan(state: State<'_, DesktopState>) -> Result<(), String> {
+    state.scan_cancel.store(true, Ordering::SeqCst);
+    Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -762,6 +781,7 @@ pub fn run() {
             app.manage(DesktopState {
                 service: ApplicationService::new(storage, GitProvider::new("git")),
                 manifest_dir,
+                scan_cancel: Arc::new(AtomicBool::new(false)),
             });
             Ok(())
         })
@@ -774,6 +794,7 @@ pub fn run() {
             list_apps,
             scan_apps,
             set_manual_override,
+            cancel_scan,
             launch_app,
             app_icon,
             list_tools,

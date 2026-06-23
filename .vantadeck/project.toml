@@ -1,0 +1,10 @@
+schema_version = 1
+name = "Vantadeck"
+project_type = "general-creative"
+linked_apps = []
+launch_profiles = []
+shortcuts = []
+enabled_health_checks = [
+    "project-path",
+    "linked-apps",
+]

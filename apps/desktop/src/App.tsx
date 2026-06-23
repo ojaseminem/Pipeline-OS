@@ -33,7 +33,8 @@ import { Input } from "@/components/ui/input";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { installedApps as defaultApps, pinnedProjects as defaultPinned, recentProjects as defaultRecent, type Project } from "./data";
-import { APP_CATEGORY_LABELS, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, type HealthIssue, type UpdateInfo } from "./bridge";
+import { APP_CATEGORY_LABELS, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onScanProgress, type HealthIssue, type ScanProgress, type UpdateInfo } from "./bridge";
+import { Progress } from "@/components/ui/progress";
 import { createQueryClient, useApps, useInvalidate, useProjects, useTools } from "./lib/queries";
 import { type ThemePreference, useTheme } from "./theme";
 import { Onboarding, type OnboardingPrefs } from "./components/onboarding";
@@ -174,6 +175,7 @@ function AppShell() {
   const [quickLaunchIds, setQuickLaunchIds] = useState<string[]>(() => loadQuickLaunch());
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [onboarding, setOnboarding] = useState(false);
   const [selectedProject, setSelectedProject] = useState<{ path: string; name: string } | null>(null);
   const undoStack = useRef<UndoEntry[]>([]);
@@ -248,13 +250,17 @@ function AppShell() {
   async function scanWith(rootsValue: string) {
     if (scanning) return;
     setScanning(true);
+    setScanProgress({ completed: 0, total: 0, current: "", done: false });
+    const unsubscribe = await onScanProgress(setScanProgress);
     try {
       await run("Scanning applications", async () => {
         await desktopApi.scanApps(rootsValue.split(";").map((value) => value.trim()).filter(Boolean));
         await invalidate.apps();
       });
     } finally {
+      unsubscribe();
       setScanning(false);
+      setScanProgress(null);
     }
   }
   const runScan = () => scanWith(scanRoots);
@@ -369,7 +375,13 @@ function AppShell() {
             <PathInput ariaLabel="Scan roots" directory multi disabled={scanning} placeholder="Blank = all drives, or e.g. D:/Tools; E:/Apps" value={scanRoots} onChange={setScanRoots} />
             <Button disabled={scanning} aria-busy={scanning} onClick={() => void runScan()}>{scanning ? <><RefreshCw size={15} className="animate-spin" /> Scanning…</> : "Scan now"}</Button>
           </div>
-          {scanning ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><RefreshCw size={14} className="animate-spin" /> Scanning installed applications across your drives — this can take a moment.</p> : null}
+          {scanning ? <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span className="flex min-w-0 items-center gap-2"><RefreshCw size={14} className="shrink-0 animate-spin" /><span className="truncate">{scanProgress?.current ? `Scanning ${scanProgress.current}…` : "Scanning across your drives…"}</span></span>
+              <span className="flex shrink-0 items-center gap-3">{scanProgress && scanProgress.total ? `${scanProgress.completed}/${scanProgress.total}` : ""}<Button variant="outline" size="sm" onClick={() => void desktopApi.cancelScan()}>Cancel</Button></span>
+            </div>
+            <Progress value={scanProgress && scanProgress.total ? (scanProgress.completed / scanProgress.total) * 100 : 8} />
+          </div> : null}
         </Panel>
         {CATEGORY_ORDER.filter((category) => managedApps.some((app) => app.category === category && app.installations.length > 0)).map((category) => (
           <section key={category} className="space-y-2">

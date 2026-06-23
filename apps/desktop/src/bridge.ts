@@ -19,6 +19,14 @@ export type ProjectConfig = {
   enabled_health_checks: string[];
 };
 export type RecentFile = { path: string; name: string; modified: number };
+export type ScanProgress = { completed: number; total: number; current: string; done: boolean };
+
+/** Subscribes to live scan progress; returns an unsubscribe function. */
+export async function onScanProgress(handler: (progress: ScanProgress) => void): Promise<() => void> {
+  if (!isNativeRuntime()) return () => undefined;
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<ScanProgress>("scan://progress", (event) => handler(event.payload));
+}
 
 /** Opens a native folder or file picker; returns the chosen path, or null. */
 export async function browsePath(opts: { directory?: boolean; title?: string }): Promise<string | null> {
@@ -101,6 +109,7 @@ export const desktopApi = {
   gitStatus: (root: string) => invokeDesktop<GitStatus>("git_status", { root }),
   listApps: () => invokeDesktop<ManagedApp[]>("list_apps"),
   scanApps: (roots: string[]) => invokeDesktop<unknown[]>("scan_apps", { roots }),
+  cancelScan: () => invokeDesktop<void>("cancel_scan"),
   setManualOverride: (appId: string, version: string, executable: string) => invokeDesktop<void>("set_manual_override", { appId, version, executable }),
   launchApp: (appId: string, executable: string) => invokeDesktop<void>("launch_app", { appId, executable }),
   appIcon: (executable: string) => invokeDesktop<string | null>("app_icon", { executable }),
