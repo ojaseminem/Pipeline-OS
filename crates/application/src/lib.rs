@@ -469,6 +469,20 @@ impl ApplicationService {
         Ok(self.git.status(root).await?)
     }
 
+    pub async fn vcs_branches(&self, root: &Path) -> Result<Vec<String>, ApplicationError> {
+        Ok(self.git.branches(root).await?)
+    }
+
+    pub async fn vcs_create_branch(
+        &self,
+        root: &Path,
+        branch: &str,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("Git branch creation", confirmed)?;
+        Ok(self.git.create_branch(root, branch).await?)
+    }
+
     pub async fn vcs_sync(
         &self,
         root: &Path,

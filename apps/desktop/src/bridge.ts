@@ -127,4 +127,7 @@ export const desktopApi = {
   gitCommit: (root: string, message: string, confirmed: boolean) => invokeDesktop("git_commit", { root, message, confirmed }),
   gitPush: (root: string, confirmed: boolean) => invokeDesktop("git_push", { root, confirmed }),
   gitSwitch: (root: string, branch: string, confirmed: boolean) => invokeDesktop("git_switch", { root, branch, confirmed }),
+  gitBranches: (root: string) => invokeDesktop<string[]>("git_branches", { root }),
+  gitCreateBranch: (root: string, branch: string, confirmed: boolean) => invokeDesktop("git_create_branch", { root, branch, confirmed }),
+  appVersion: () => invokeDesktop<string>("app_version"),
 };

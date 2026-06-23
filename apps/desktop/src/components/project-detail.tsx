@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Box, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitCommitHorizontal,
-  ListTodo, Notebook, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
+  ArrowLeft, Box, Check, ChevronDown, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
+  GitCommitHorizontal, ListTodo, Notebook, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { HealthPanel } from "./health-panel";
 import { desktopApi, isNativeRuntime, type HealthIssue } from "../bridge";
@@ -29,12 +30,12 @@ export function ProjectDetail({ project, onBack }: { project: { path: string; na
   const cfg = useQuery({ queryKey: ["project-config", project.path], queryFn: () => desktopApi.projectConfig(project.path), enabled: native, retry: false });
   const git = useQuery({ queryKey: ["git-status", project.path], queryFn: () => desktopApi.gitStatus(project.path), enabled: native, retry: false });
   const files = useQuery({ queryKey: ["recent-files", project.path], queryFn: () => desktopApi.recentFiles(project.path, 25), enabled: native });
+  const branches = useQuery({ queryKey: ["git-branches", project.path], queryFn: () => desktopApi.gitBranches(project.path), enabled: native, retry: false });
   const [health, setHealth] = useState<HealthIssue[]>([]);
   const [ws, setWs] = useState<ProjectWorkspace>(() => loadWorkspace(project.path));
   const [todoText, setTodoText] = useState("");
   const [refLabel, setRefLabel] = useState("");
   const [refUrl, setRefUrl] = useState("");
-  const [branch, setBranch] = useState("");
   const [commit, setCommit] = useState("");
 
   useEffect(() => saveWorkspace(project.path, ws), [project.path, ws]);
@@ -43,7 +44,22 @@ export function ProjectDetail({ project, onBack }: { project: { path: string; na
     try { await action(); toast.success(`${label} complete.`); }
     catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
   }
-  const refreshGit = () => queryClient.invalidateQueries({ queryKey: ["git-status", project.path] });
+  const refreshGit = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["git-status", project.path] }),
+    queryClient.invalidateQueries({ queryKey: ["git-branches", project.path] }),
+  ]);
+  function switchBranch(name: string) {
+    if (name === git.data?.branch) return;
+    if (window.confirm(`Switch ${project.name} to ${name}?`)) {
+      void run(`Switching to ${name}`, async () => { await desktopApi.gitSwitch(project.path, name, true); await refreshGit(); });
+    }
+  }
+  function newBranch() {
+    const name = window.prompt("New branch name");
+    if (name && name.trim()) {
+      void run(`Creating ${name.trim()}`, async () => { await desktopApi.gitCreateBranch(project.path, name.trim(), true); await refreshGit(); });
+    }
+  }
 
   const profiles = cfg.data?.launch_profiles ?? [];
   const engine = cfg.data?.project_type ?? "project";
@@ -91,8 +107,21 @@ export function ProjectDetail({ project, onBack }: { project: { path: string; na
           ) : (
             <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
               <Card><CardContent className="p-0">
-                <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-                  <span className="flex min-w-0 items-center gap-2 text-sm font-semibold"><GitBranch size={15} className="shrink-0" /><span className="truncate">{git.data?.branch ?? "—"}</span></span>
+                <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="min-w-0 gap-1.5 font-semibold" disabled={!native}><GitBranch size={15} className="shrink-0" /><span className="truncate">{git.data?.branch ?? "—"}</span><ChevronDown size={13} className="shrink-0 text-muted-foreground" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="max-h-80 w-60 overflow-y-auto">
+                      {(branches.data ?? []).map((name) => (
+                        <DropdownMenuItem key={name} onClick={() => switchBranch(name)}>
+                          <Check size={14} className={name === git.data?.branch ? "opacity-100" : "opacity-0"} /> <span className="truncate">{name}</span>
+                        </DropdownMenuItem>
+                      ))}
+                      {branches.data && branches.data.length ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuItem onClick={newBranch}><GitBranchPlus size={14} /> New branch…</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <div className="flex shrink-0 items-center gap-1">
                     <Button variant="ghost" size="sm" disabled={!native} onClick={() => { if (window.confirm(`Pull changes into ${project.name}?`)) void run("Pulling", async () => { await desktopApi.gitSync(project.path, true); await refreshGit(); }); }}><Download size={14} /> Pull</Button>
                     <Button variant="ghost" size="sm" disabled={!native} onClick={() => { if (window.confirm(`Push ${project.name} to its remote?`)) void run("Pushing", () => desktopApi.gitPush(project.path, true)); }}><Upload size={14} /> Push</Button>
@@ -115,11 +144,7 @@ export function ProjectDetail({ project, onBack }: { project: { path: string; na
                   <h3 className="text-sm font-semibold">Commit</h3>
                   <Input aria-label="Commit message" placeholder={`Summary of changes`} value={commit} onChange={(e) => setCommit(e.target.value)} />
                   <Button className="w-full" disabled={!native || !commit.trim() || !(git.data && git.data.changedFiles.length)} onClick={() => { if (window.confirm(`Commit all changes in ${project.name}?`)) void run("Committing", async () => { await desktopApi.gitCommit(project.path, commit, true); setCommit(""); await refreshGit(); }); }}><GitCommitHorizontal size={15} /> Commit to {git.data?.branch ?? "branch"}</Button>
-                  <p className="text-xs text-muted-foreground">Stages all changes and commits. Push when you're ready to share.</p>
-                </CardContent></Card>
-                <Card><CardContent className="space-y-2 p-4">
-                  <h3 className="text-sm font-semibold">Switch branch</h3>
-                  <div className="flex gap-2"><Input aria-label="Branch" placeholder="branch name" value={branch} onChange={(e) => setBranch(e.target.value)} className="flex-1" /><Button variant="outline" disabled={!native || !branch} onClick={() => { if (window.confirm(`Switch ${project.name} to ${branch}?`)) void run("Switching branch", async () => { await desktopApi.gitSwitch(project.path, branch, true); await refreshGit(); }); }}>Switch</Button></div>
+                  <p className="text-xs text-muted-foreground">Stages all changes and commits. Switch branches from the menu above.</p>
                 </CardContent></Card>
               </div>
             </div>

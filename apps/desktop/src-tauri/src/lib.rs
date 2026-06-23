@@ -540,6 +540,36 @@ async fn git_switch(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command(rename_all = "camelCase")]
+async fn git_branches(root: String, state: State<'_, DesktopState>) -> Result<Vec<String>, String> {
+    state
+        .service
+        .vcs_branches(Path::new(&root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn git_create_branch(
+    root: String,
+    branch: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_create_branch(Path::new(&root), &branch, confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// The running application's version (from tauri.conf.json), shown in the UI.
+#[tauri::command]
+async fn app_version(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(app.package_info().version.to_string())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateInfo {
@@ -817,7 +847,10 @@ pub fn run() {
             git_sync,
             git_commit,
             git_push,
-            git_switch
+            git_switch,
+            git_branches,
+            git_create_branch,
+            app_version
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Vantadeck desktop application");

@@ -109,6 +109,26 @@ impl GitProvider {
         self.operation(root, &["switch", branch]).await
     }
 
+    pub async fn create_branch(
+        &self,
+        root: &Path,
+        branch: &str,
+    ) -> Result<VcsOperationResult, VcsError> {
+        self.operation(root, &["switch", "-c", branch]).await
+    }
+
+    /// Local branch names for the repository.
+    pub async fn branches(&self, root: &Path) -> Result<Vec<String>, VcsError> {
+        let output = self
+            .run(root, &["branch", "--format=%(refname:short)"])
+            .await?;
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect())
+    }
+
     pub async fn lfs_probe(&self, root: &Path, large_file_threshold: u64) -> LfsProbe {
         let installed = self
             .run_raw(root, &["lfs", "version"])

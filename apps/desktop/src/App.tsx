@@ -189,6 +189,7 @@ function AppShell() {
   const [quickLaunchIds, setQuickLaunchIds] = useState<string[]>(() => loadQuickLaunch());
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [autoUpdate, setAutoUpdate] = useState(() => localStorage.getItem("vantadeck.autoUpdate") !== "false");
+  const [appVersion, setAppVersion] = useState("0.2.0");
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [onboarding, setOnboarding] = useState(false);
@@ -218,6 +219,7 @@ function AppShell() {
 
   useEffect(() => {
     if (!isNativeRuntime()) return;
+    desktopApi.appVersion().then(setAppVersion).catch(() => undefined);
     if (autoUpdate) {
       desktopApi.checkForUpdate().then((info) => { if (info.available) setUpdate(info); }).catch(() => undefined);
     }
@@ -585,7 +587,7 @@ function AppShell() {
         <div className="mt-auto flex items-center gap-2.5 rounded-lg bg-secondary/60 p-3">
           <Laptop size={18} className="text-primary" /><span className="flex flex-col text-xs"><span className="text-muted-foreground">System status</span><strong>Offline &amp; Local</strong><em className="not-italic text-muted-foreground">All systems operational</em></span>
         </div>
-        <div className="flex items-center justify-between px-2 text-xs text-muted-foreground"><span>v0.1.0</span><span className="flex items-center gap-1"><Code2 size={13} /> Open Source</span></div>
+        <div className="flex items-center justify-between px-2 text-xs text-muted-foreground"><span>v{appVersion}</span><span className="flex items-center gap-1"><Code2 size={13} /> Open Source</span></div>
       </aside>
 
       <main className="flex flex-1 flex-col overflow-hidden">
