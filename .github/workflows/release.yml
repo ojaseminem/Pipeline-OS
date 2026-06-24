@@ -32,6 +32,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
       - id: tag
         name: Resolve and verify signed tag
@@ -41,6 +42,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "${REQUESTED_TAG}" =~ ^v[0-9] ]] || { echo "release tag must start with v and a digit" >&2; exit 1; }
+          # checkout can materialise a tag as a lightweight ref; re-fetch the real
+          # (annotated) tag object so the annotation check below is accurate.
+          git fetch --force origin "refs/tags/${REQUESTED_TAG}:refs/tags/${REQUESTED_TAG}"
           git show-ref --verify --quiet "refs/tags/${REQUESTED_TAG}"
           # Require an annotated tag (not a lightweight one). GPG-signing is
           # recommended; if the tag is signed we verify it, otherwise we warn.
