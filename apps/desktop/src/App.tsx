@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
@@ -40,7 +41,7 @@ import { Input } from "@/components/ui/input";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { installedApps as defaultApps, pinnedProjects as defaultPinned, recentProjects as defaultRecent, type Project } from "./data";
-import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onScanProgress, openExternal, type HealthSummary, type RecentFile, type ScanProgress, type ToolManifest, type UpdateInfo } from "./bridge";
+import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onScanProgress, openExternal, type EngineVersionOption, type HealthSummary, type RecentFile, type ScanProgress, type ToolManifest, type UpdateInfo } from "./bridge";
 import { formatLastOpened, timeAgo } from "./lib/format";
 import { ProjectThumb } from "./components/thumbnail";
 import { Progress } from "@/components/ui/progress";
@@ -170,6 +171,7 @@ function AppShell() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [continueProject, setContinueProject] = useState<Project | null>(isDemoMode() ? sampleContinueProject : null);
   const [continueFiles, setContinueFiles] = useState<RecentFile[]>([]);
+  const [enginePicker, setEnginePicker] = useState<{ path: string; name: string; appId: string; options: EngineVersionOption[] } | null>(null);
   const [pinnedProjects, setPinnedProjects] = useState(isDemoMode() ? defaultPinned : []);
   const [recentProjects, setRecentProjects] = useState(isDemoMode() ? defaultRecent : []);
   const [installedApps, setInstalledApps] = useState<Array<{ id: string; name: string; executable?: string | null; versions: string[] }>>(
@@ -410,6 +412,31 @@ function AppShell() {
   function openProject(target: { path: string; name: string }) {
     if (isNativeRuntime()) desktopApi.recordProjectOpened(target.path).catch(() => undefined);
     navigate("Project", target);
+  }
+
+  // Opens a project in its engine. If several versions are installed and none is
+  // saved yet, prompts to choose one (then remembers it); otherwise opens directly.
+  async function requestOpenInEngine(target: { path: string; name: string }) {
+    if (!isNativeRuntime()) return;
+    const choice = await desktopApi.engineOptions(target.path).catch(() => null);
+    if (!choice) { toast.message("This project isn't connected to an engine."); return; }
+    if (choice.options.length === 0) { toast.error("No installed version of this engine was found to open the project."); return; }
+    const preferredValid = Boolean(choice.preferred && choice.options.some((option) => option.version === choice.preferred));
+    if (choice.options.length > 1 && !preferredValid) {
+      setEnginePicker({ path: target.path, name: target.name, appId: choice.appId, options: choice.options });
+      return;
+    }
+    void run(`Opening ${target.name}`, () => desktopApi.openInEngine(target.path));
+  }
+  function confirmEnginePick(version: string) {
+    if (!enginePicker) return;
+    const { path, name, appId } = enginePicker;
+    setEnginePicker(null);
+    void run(`Opening ${name}`, async () => {
+      await desktopApi.setProjectEngineVersion(path, appId, version);
+      await desktopApi.openInEngine(path);
+      reloadDashboard();
+    });
   }
 
   async function importDroppedFolder(path: string) {
@@ -812,7 +839,7 @@ function AppShell() {
                     <DropdownMenuTrigger asChild><Button variant="outline" size="icon" aria-label="More project commands"><ChevronDown size={16} /></Button></DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-52">
                       <DropdownMenuItem onClick={() => continueProject && openProject({ path: continueProject.path, name: continueProject.name })}><Folder size={14} /> Open project</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!continueProject.engineId} onClick={() => continueProject && void run(`Opening ${continueProject.name}`, () => desktopApi.openInEngine(continueProject.path))}><Rocket size={14} /> Open in Engine</DropdownMenuItem>
+                      <DropdownMenuItem disabled={!continueProject.engineId} onClick={() => continueProject && void requestOpenInEngine(continueProject)}><Rocket size={14} /> Open in Engine</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => continueProject && openProject({ path: continueProject.path, name: continueProject.name })}><GitBranch size={14} /> Source control</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => { if (continueProject && isNativeRuntime()) void run("Opening folder", () => desktopApi.openPath(continueProject.path)); }}><FolderOpen size={14} /> Open folder</DropdownMenuItem>
                       <DropdownMenuSeparator />
@@ -833,7 +860,7 @@ function AppShell() {
                 </div>
                 <ProjectTable projects={filteredProjects} actions={{
                   onOpen: (p) => openProject({ path: p.path, name: p.name }),
-                  onLaunch: (p) => void run(`Opening ${p.name}`, () => desktopApi.openInEngine(p.path)),
+                  onLaunch: (p) => void requestOpenInEngine(p),
                   onOpenFolder: (p) => { if (isNativeRuntime()) void run("Opening folder", () => desktopApi.openPath(p.path)); },
                   onCopyPath: (p) => { void navigator.clipboard?.writeText(p.path); toast.success("Path copied."); },
                 }} />
@@ -844,9 +871,20 @@ function AppShell() {
                 <Card><CardContent className="p-4"><div className="mb-2 flex items-center justify-between text-sm font-semibold">Installed Apps <Button variant="ghost" size="sm" className="h-auto p-0 text-muted-foreground" onClick={() => openScreen("Applications")}>Manage</Button></div><div className="space-y-1">{installedApps.length ? installedApps.map((app) => <button key={app.name} onClick={() => openScreen("Applications")} title={`Manage ${app.name} versions`} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted/50"><span className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary"><AppIcon executable={app.executable ?? undefined} size={18} /></span><span className="min-w-0 flex-1"><strong className="block truncate">{app.name}</strong><small className="block truncate text-xs text-muted-foreground">{[...new Set(app.versions.map(formatVersion))].join(", ")}</small></span><ChevronRight size={15} className="text-muted-foreground" /></button>) : <EmptyState text="No apps detected yet." />}</div></CardContent></Card>
               </aside>
             </section>
-          </div> : activeScreen === "Project" && selectedProject ? <ProjectDetail project={selectedProject} onBack={() => openScreen("Projects")} onRenamed={() => { void invalidate.projects(); reloadDashboard(); }} pinnedIds={pinnedIds} onTogglePin={toggleQuickLaunch} /> : activeScreen === "Health" ? <HealthScreen projects={registeredProjects} onOpenProject={openProject} /> : managementContent}
+          </div> : activeScreen === "Project" && selectedProject ? <ProjectDetail project={selectedProject} onBack={() => openScreen("Projects")} onRenamed={() => { void invalidate.projects(); reloadDashboard(); }} onOpenInEngine={requestOpenInEngine} /> : activeScreen === "Health" ? <HealthScreen projects={registeredProjects} onOpenProject={openProject} /> : managementContent}
         </div>
 
+        <Dialog open={!!enginePicker} onOpenChange={(open) => { if (!open) setEnginePicker(null); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Choose a version</DialogTitle>
+              <DialogDescription>Multiple versions are installed. Pick the one to open {enginePicker?.name} in — it's saved for next time and editable from the project view.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1">{enginePicker?.options.map((option) => (
+              <Button key={option.version} variant="outline" className="w-full justify-start" onClick={() => confirmEnginePick(option.version)}>{formatVersion(option.version)}</Button>
+            ))}</div>
+          </DialogContent>
+        </Dialog>
         <Onboarding open={onboarding} onComplete={completeOnboarding} onSkip={skipOnboarding} />
         <CommandDialog open={paletteOpen} onOpenChange={setPaletteOpen}>
           <CommandInput placeholder="Type a command or search projects, apps…" />

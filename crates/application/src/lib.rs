@@ -108,6 +108,21 @@ pub struct LaunchResult {
     pub executable: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineVersionOption {
+    pub version: String,
+    pub executable: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineChoice {
+    pub app_id: String,
+    pub preferred: Option<String>,
+    pub options: Vec<EngineVersionOption>,
+}
+
 impl DashboardSnapshot {
     pub fn demo() -> Self {
         let project = |name: &str, engine: &str, version: &str, branch: &str| ProjectSummary {
@@ -506,10 +521,14 @@ impl ApplicationService {
     pub async fn open_project_in_engine(
         &self,
         root: &Path,
+        app_id: Option<&str>,
     ) -> Result<LaunchResult, ApplicationError> {
         let config = load_project(root)?;
-        let engine_id = project_engine_id(&config)
-            .ok_or(ApplicationError::LaunchProfileMissing("engine".into()))?;
+        let engine_id = match app_id {
+            Some(id) if config.linked_apps.iter().any(|app| app.app_id == id) => id.to_string(),
+            _ => project_engine_id(&config)
+                .ok_or(ApplicationError::LaunchProfileMissing("engine".into()))?,
+        };
         let preferred = config
             .linked_apps
             .iter()
@@ -547,6 +566,71 @@ impl ApplicationService {
             process_id: child.id(),
             executable,
         })
+    }
+
+    /// Sets a linked app's preferred version in the portable project config.
+    pub async fn set_project_engine_version(
+        &self,
+        root: &Path,
+        app_id: &str,
+        version: &str,
+    ) -> Result<(), ApplicationError> {
+        let mut config = load_project(root)?;
+        let mut found = false;
+        for app in &mut config.linked_apps {
+            if app.app_id == app_id {
+                app.preferred_version = Some(version.to_string());
+                found = true;
+            }
+        }
+        if !found {
+            return Err(ApplicationError::LaunchProfileMissing(app_id.to_string()));
+        }
+        vantadeck_projects::save_project(root, &config)?;
+        Ok(())
+    }
+
+    /// The detected runnable version choices for opening a project in its
+    /// (primary or given) engine, plus the currently preferred version. `None`
+    /// means the project isn't connected to any engine.
+    pub async fn engine_options(
+        &self,
+        root: &Path,
+        app_id: Option<&str>,
+    ) -> Result<Option<EngineChoice>, ApplicationError> {
+        let config = load_project(root)?;
+        let engine_id = match app_id {
+            Some(id) if config.linked_apps.iter().any(|app| app.app_id == id) => id.to_string(),
+            _ => match project_engine_id(&config) {
+                Some(id) => id,
+                None => return Ok(None),
+            },
+        };
+        let preferred = config
+            .linked_apps
+            .iter()
+            .find(|app| app.app_id == engine_id)
+            .and_then(|app| app.preferred_version.clone());
+        let mut options = self
+            .local_installations(&engine_id)
+            .await?
+            .into_iter()
+            .filter(|installation| {
+                installation.executable.is_file()
+                    && ensure_runnable(&installation.executable).is_ok()
+            })
+            .map(|installation| EngineVersionOption {
+                version: installation.version.to_string(),
+                executable: installation.executable.display().to_string(),
+            })
+            .collect::<Vec<_>>();
+        options.sort_by(|left, right| right.version.cmp(&left.version));
+        options.dedup_by(|left, right| left.version == right.version);
+        Ok(Some(EngineChoice {
+            app_id: engine_id,
+            preferred,
+            options,
+        }))
     }
 
     pub async fn recent_activity(

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Box, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
-  GitCommitHorizontal, ListTodo, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Star, Trash2, Upload,
+  GitCommitHorizontal, ListTodo, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,7 +15,7 @@ import { Copy, ImageIcon, Link2, Tag, X } from "lucide-react";
 import { HealthPanel } from "./health-panel";
 import { browsePath, desktopApi, isNativeRuntime, openExternal, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
-import { loadTags, loadWorkspace, newId, saveTags, saveWorkspace, type ProjectWorkspace, type QuickLaunchEntry } from "../lib/local-store";
+import { loadTags, loadWorkspace, newId, saveTags, saveWorkspace, type ProjectWorkspace } from "../lib/local-store";
 
 function diffLineClass(line: string): string {
   if (line.startsWith("@@")) return "text-primary";
@@ -33,7 +33,7 @@ function timeAgo(epochSeconds: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-export function ProjectDetail({ project, onBack, onRenamed, pinnedIds, onTogglePin }: { project: { path: string; name: string }; onBack: () => void; onRenamed?: (name: string) => void; pinnedIds?: Set<string>; onTogglePin?: (entry: QuickLaunchEntry) => void }) {
+export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { project: { path: string; name: string }; onBack: () => void; onRenamed?: (name: string) => void; onOpenInEngine?: (target: { path: string; name: string }) => void }) {
   const native = isNativeRuntime();
   const queryClient = useQueryClient();
   const cfg = useQuery({ queryKey: ["project-config", project.path], queryFn: () => desktopApi.projectConfig(project.path), enabled: native, retry: false });
@@ -107,6 +107,12 @@ export function ProjectDetail({ project, onBack, onRenamed, pinnedIds, onToggleP
       setName(next);
       setRenaming(false);
       onRenamed?.(next);
+    });
+  }
+  function saveEngineVersion(appId: string, version: string) {
+    void run("Saving engine version", async () => {
+      await desktopApi.setProjectEngineVersion(project.path, appId, version);
+      await queryClient.invalidateQueries({ queryKey: ["project-config", project.path] });
     });
   }
   function runHealth() {
@@ -199,7 +205,7 @@ export function ProjectDetail({ project, onBack, onRenamed, pinnedIds, onToggleP
         </div>
         <Badge variant="secondary" className="capitalize">{engine.replaceAll("-", " ")}</Badge>
         <Button variant="outline" onClick={() => native ? void run("Opening folder", () => desktopApi.openPath(project.path)) : undefined}><FolderOpen size={15} /> Open folder</Button>
-        <Button disabled={!native || !canOpenInEngine} title={canOpenInEngine ? undefined : "This project isn't connected to an engine."} onClick={() => void run(`Opening ${name}`, () => desktopApi.openInEngine(project.path))}><Rocket size={15} /> Open in {engineName ?? "Engine"}</Button>
+        <Button disabled={!native || !canOpenInEngine} title={canOpenInEngine ? undefined : "This project isn't connected to an engine."} onClick={() => onOpenInEngine?.({ path: project.path, name })}><Rocket size={15} /> Open in {engineName ?? "Engine"}</Button>
       </div>
 
       <Tabs defaultValue="overview">
@@ -228,27 +234,23 @@ export function ProjectDetail({ project, onBack, onRenamed, pinnedIds, onToggleP
           </CardContent></Card>
           {cfg.data?.linked_apps.length ? <Card className="lg:col-span-2"><CardContent className="space-y-3 p-5">
             <h2 className="text-base font-semibold">Project apps</h2>
-            <p className="-mt-1 text-sm text-muted-foreground">Applications linked to this project. Launch a specific version, or pin one to Quick Launch.</p>
+            <p className="-mt-1 text-sm text-muted-foreground">Applications linked to this project. Choose the version to open the project in — it's saved to the project.</p>
             <div className="grid gap-2 sm:grid-cols-2">{cfg.data.linked_apps.map((linked) => {
               const managed = managedApps.find((app) => app.id === linked.app_id);
-              const runnable = managed?.installations.filter((item) => item.runnable) ?? [];
+              const runnable = (managed?.installations.filter((item) => item.runnable) ?? []).slice().sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }));
+              const selectedVersion = linked.preferred_version && runnable.some((item) => item.version === linked.preferred_version) ? linked.preferred_version : runnable[0]?.version ?? "";
               return (
-                <div key={linked.app_id} className="rounded-lg border border-border p-3">
+                <div key={linked.app_id} className="space-y-2 rounded-lg border border-border p-3">
                   <div className="flex items-center gap-2">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary text-primary"><Box size={16} /></span>
-                    <span className="min-w-0 flex-1"><strong className="block truncate text-sm font-medium">{managed?.name ?? linked.app_id}</strong>{linked.preferred_version ? <small className="block text-xs text-muted-foreground">Prefers {linked.preferred_version}</small> : null}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{managed?.name ?? linked.app_id}</span>
                   </div>
-                  {runnable.length ? <div className="mt-2 space-y-1">{runnable.map((item) => {
-                    const entry: QuickLaunchEntry = { id: `${linked.app_id}::${item.executable}`, appId: linked.app_id, name: `${managed?.name ?? linked.app_id} ${item.version}`, executable: item.executable, version: item.version, custom: false };
-                    const pinned = pinnedIds?.has(entry.id) ?? false;
-                    return (
-                      <div key={item.executable} className="flex items-center gap-1.5 text-sm">
-                        <Badge variant="secondary">{item.version}</Badge>
-                        <Button variant="ghost" size="sm" className="ml-auto h-7 px-2" disabled={!native} onClick={() => { if (window.confirm(`Launch ${entry.name}?`)) void run(`Launching ${entry.name}`, () => desktopApi.launchApp(linked.app_id, item.executable)); }}><Play size={13} /> Launch</Button>
-                        {onTogglePin ? <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={pinned ? `Unpin ${entry.name} from Quick Launch` : `Pin ${entry.name} to Quick Launch`} onClick={() => onTogglePin(entry)}><Star size={14} className={pinned ? "fill-primary text-primary" : "text-muted-foreground"} /></Button> : null}
-                      </div>
-                    );
-                  })}</div> : <p className="mt-2 text-xs text-muted-foreground">{native ? "Not detected on this machine. Scan applications to enable launching." : "Open the desktop app to detect and launch."}</p>}
+                  {runnable.length ? <div className="flex items-center gap-1.5">
+                    <select aria-label={`Version for ${managed?.name ?? linked.app_id}`} className="h-8 min-w-0 flex-1 rounded-md border border-border bg-secondary px-2 text-sm" value={selectedVersion} onChange={(event) => saveEngineVersion(linked.app_id, event.target.value)}>
+                      {runnable.map((item) => <option key={item.executable} value={item.version}>{item.version}</option>)}
+                    </select>
+                    <Button variant="outline" size="sm" className="shrink-0" disabled={!native} onClick={() => void run(`Opening ${managed?.name ?? linked.app_id}`, () => desktopApi.openInEngine(project.path, linked.app_id))}><Play size={13} /> Open</Button>
+                  </div> : <p className="text-xs text-muted-foreground">{native ? "Not detected on this machine. Scan applications to enable opening." : "Open the desktop app to detect installed versions."}</p>}
                 </div>
               );
             })}</div>

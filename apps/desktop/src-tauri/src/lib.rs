@@ -6,7 +6,7 @@ use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_updater::UpdaterExt;
 use vantadeck_application::{
-    AppSummary, ApplicationService, HealthSummary, LaunchResult, ProjectSummary,
+    AppSummary, ApplicationService, EngineChoice, HealthSummary, LaunchResult, ProjectSummary,
 };
 use vantadeck_domain::{
     AppCategory, AppInstallation, DetectedApplication, HealthIssue, ProjectConfig,
@@ -760,14 +760,45 @@ async fn launch_project_profile(
 }
 
 /// Opens a project directly in its connected engine (no launch profile needed).
+/// `appId` targets a specific linked app; omit it for the primary engine.
 #[tauri::command(rename_all = "camelCase")]
 async fn open_in_engine(
     root: String,
+    app_id: Option<String>,
     state: State<'_, DesktopState>,
 ) -> Result<LaunchResult, String> {
     state
         .service
-        .open_project_in_engine(Path::new(&root))
+        .open_project_in_engine(Path::new(&root), app_id.as_deref())
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Version choices for opening a project in its (primary or given) engine.
+#[tauri::command(rename_all = "camelCase")]
+async fn engine_options(
+    root: String,
+    app_id: Option<String>,
+    state: State<'_, DesktopState>,
+) -> Result<Option<EngineChoice>, String> {
+    state
+        .service
+        .engine_options(Path::new(&root), app_id.as_deref())
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Saves a linked app's preferred version into the portable project config.
+#[tauri::command(rename_all = "camelCase")]
+async fn set_project_engine_version(
+    root: String,
+    app_id: String,
+    version: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    state
+        .service
+        .set_project_engine_version(Path::new(&root), &app_id, &version)
         .await
         .map_err(|error| error.to_string())
 }
@@ -1216,6 +1247,8 @@ pub fn run() {
             set_project_pinned,
             launch_project_profile,
             open_in_engine,
+            engine_options,
+            set_project_engine_version,
             check_for_update,
             install_update,
             path_info,
