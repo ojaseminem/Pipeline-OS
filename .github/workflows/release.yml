@@ -1,14 +1,16 @@
 name: Release
 
-# Releases are cut from a local signed build and published manually (see
-# RELEASING.md), so this workflow is manual-only. Running it on every `v*` tag
-# push would fail fast because those tags are lightweight, not the annotated,
-# verifiable tags this pipeline requires. Trigger it by hand to rebuild a tag.
+# Pushing an annotated `vX.Y.Z` tag builds and signs the desktop app on every
+# platform and publishes the GitHub release (which the auto-updater reads). The
+# tag MUST be annotated (`git tag -a`), not lightweight — the validate job
+# rejects lightweight tags. Can also be dispatched by hand to rebuild a tag.
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing annotated v-prefixed tag to rebuild as a draft
+        description: Existing annotated v-prefixed tag to (re)build and publish
         required: true
         type: string
 
@@ -183,11 +185,11 @@ jobs:
         with:
           subject-path: release-assets/*
           sbom-path: artifact-sbom.spdx.json
-      - name: Publish draft release for native validation and promotion
+      - name: Publish signed release (consumed by the auto-updater)
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
         with:
           tag_name: ${{ needs.validate-ref.outputs.tag }}
-          draft: true
+          draft: false
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
