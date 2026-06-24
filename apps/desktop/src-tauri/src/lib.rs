@@ -437,6 +437,20 @@ async fn refresh_health(
     Ok(health)
 }
 
+/// Renames a project (updates project.toml and the local registry).
+#[tauri::command(rename_all = "camelCase")]
+async fn rename_project(
+    root: String,
+    name: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    state
+        .service
+        .rename_project(Path::new(&root), &name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Records that a project was opened (updates its last-opened timestamp).
 #[tauri::command(rename_all = "camelCase")]
 async fn record_project_opened(
@@ -1168,6 +1182,7 @@ pub fn run() {
             cached_health,
             health_overview,
             refresh_health,
+            rename_project,
             record_project_opened,
             set_project_thumbnail,
             clear_project_thumbnail,

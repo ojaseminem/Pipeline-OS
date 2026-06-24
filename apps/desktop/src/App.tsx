@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AppWindow,
@@ -120,11 +120,11 @@ type ProjectActions = {
 function ProjectTable({ projects, actions }: { projects: Project[]; actions: ProjectActions }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border" role="table" aria-label="Projects">
-      <div className="grid grid-cols-[2fr_1fr_1.3fr_0.9fr_0.6fr_auto] gap-3 border-b border-border bg-muted/40 px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground" role="row">
+      <div className="grid grid-cols-[2fr_1fr_1.3fr_0.9fr_0.6fr_190px] gap-3 border-b border-border bg-muted/40 px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground" role="row">
         <span>Project</span><span>Last opened</span><span>Engine / version</span><span>Branch</span><span>Platform</span><span>Actions</span>
       </div>
       {projects.length === 0 ? <EmptyState text="No projects in this view yet." /> : projects.map((project) => (
-        <div className="grid grid-cols-[2fr_1fr_1.3fr_0.9fr_0.6fr_auto] items-center gap-3 border-b border-border px-4 py-3 text-sm last:border-0 hover:bg-muted/30" role="row" key={project.name}>
+        <div className="grid grid-cols-[2fr_1fr_1.3fr_0.9fr_0.6fr_190px] items-center gap-3 border-b border-border px-4 py-3 text-sm last:border-0 hover:bg-muted/30" role="row" key={project.name}>
           <span className="flex items-center gap-3">
             <ProjectThumb projectPath={project.path} thumbnail={project.thumbnail} className="h-9 w-14" alt={`${project.name} thumbnail`} />
             <span className="flex flex-col"><strong className="font-medium">{project.name}</strong><small className="text-xs text-muted-foreground">{project.path}</small></span>
@@ -227,7 +227,7 @@ function AppShell() {
     [projects, query],
   );
 
-  useEffect(() => {
+  const reloadDashboard = useCallback(() => {
     void loadDashboard().then((snapshot) => {
       setContinueProject(snapshot.continueProject);
       setPinnedProjects(snapshot.pinnedProjects);
@@ -236,6 +236,8 @@ function AppShell() {
       setHealth(snapshot.health); // cached health, shown instantly
     });
   }, []);
+
+  useEffect(() => { reloadDashboard(); }, [reloadDashboard]);
 
   // Recent items for the Continue card (like the dashboard reference).
   useEffect(() => {
@@ -831,7 +833,7 @@ function AppShell() {
                 <Card><CardContent className="p-4"><div className="mb-2 flex items-center justify-between text-sm font-semibold">Installed Apps <Button variant="ghost" size="sm" className="h-auto p-0 text-muted-foreground" onClick={() => openScreen("Applications")}>Manage</Button></div><div className="space-y-1">{installedApps.length ? installedApps.map((app) => <button key={app.name} onClick={() => openScreen("Applications")} title={`Manage ${app.name} versions`} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted/50"><span className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary"><AppIcon executable={app.executable ?? undefined} size={18} /></span><span className="min-w-0 flex-1"><strong className="block truncate">{app.name}</strong><small className="block truncate text-xs text-muted-foreground">{[...new Set(app.versions.map(formatVersion))].join(", ")}</small></span><ChevronRight size={15} className="text-muted-foreground" /></button>) : <EmptyState text="No apps detected yet." />}</div></CardContent></Card>
               </aside>
             </section>
-          </div> : activeScreen === "Project" && selectedProject ? <ProjectDetail project={selectedProject} onBack={() => openScreen("Projects")} /> : activeScreen === "Health" ? <HealthScreen projects={registeredProjects} onOpenProject={openProject} /> : managementContent}
+          </div> : activeScreen === "Project" && selectedProject ? <ProjectDetail project={selectedProject} onBack={() => openScreen("Projects")} onRenamed={() => { void invalidate.projects(); reloadDashboard(); }} /> : activeScreen === "Health" ? <HealthScreen projects={registeredProjects} onOpenProject={openProject} /> : managementContent}
         </div>
 
         <Onboarding open={onboarding} onComplete={completeOnboarding} onSkip={skipOnboarding} />

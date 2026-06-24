@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Box, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
-  GitCommitHorizontal, ListTodo, Notebook, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
+  GitCommitHorizontal, ListTodo, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,7 +33,7 @@ function timeAgo(epochSeconds: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-export function ProjectDetail({ project, onBack }: { project: { path: string; name: string }; onBack: () => void }) {
+export function ProjectDetail({ project, onBack, onRenamed }: { project: { path: string; name: string }; onBack: () => void; onRenamed?: (name: string) => void }) {
   const native = isNativeRuntime();
   const queryClient = useQueryClient();
   const cfg = useQuery({ queryKey: ["project-config", project.path], queryFn: () => desktopApi.projectConfig(project.path), enabled: native, retry: false });
@@ -52,6 +52,9 @@ export function ProjectDetail({ project, onBack }: { project: { path: string; na
   const [ws, setWs] = useState<ProjectWorkspace>(() => loadWorkspace(project.path));
   const thumbnail = cfg.data?.thumbnail ?? null;
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [name, setName] = useState(project.name);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(project.name);
   const [tags, setTags] = useState<string[]>(() => loadTags(project.path));
   const [tagInput, setTagInput] = useState("");
   const [todoText, setTodoText] = useState("");
@@ -93,6 +96,16 @@ export function ProjectDetail({ project, onBack }: { project: { path: string; na
     void run("Removing thumbnail", async () => {
       await desktopApi.clearProjectThumbnail(project.path);
       await queryClient.invalidateQueries({ queryKey: ["project-config", project.path] });
+    });
+  }
+  function saveName() {
+    const next = nameDraft.trim();
+    if (!next || next === name) { setRenaming(false); return; }
+    void run("Renaming project", async () => {
+      await desktopApi.renameProject(project.path, next);
+      setName(next);
+      setRenaming(false);
+      onRenamed?.(next);
     });
   }
   function runHealth() {
@@ -163,7 +176,18 @@ export function ProjectDetail({ project, onBack }: { project: { path: string; na
           {thumbnail ? <button onClick={clearThumbnail} aria-label="Remove thumbnail" className="absolute right-0.5 top-0.5 rounded bg-background/80 p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"><X size={12} /></button> : null}
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-semibold">{project.name}</h1>
+          {renaming ? (
+            <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); saveName(); }}>
+              <Input autoFocus aria-label="Project name" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setRenaming(false); }} className="h-9 max-w-sm text-lg font-semibold" />
+              <Button type="submit" size="sm"><Check size={15} /> Save</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setRenaming(false)}>Cancel</Button>
+            </form>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <h1 className="truncate text-2xl font-semibold">{name}</h1>
+              <Button variant="ghost" size="icon" aria-label="Rename project" disabled={!native} onClick={() => { setNameDraft(name); setRenaming(true); }}><Pencil size={15} /></Button>
+            </div>
+          )}
           <p className="truncate text-sm text-muted-foreground">{project.path}</p>
         </div>
         <Badge variant="secondary" className="capitalize">{engine.replaceAll("-", " ")}</Badge>

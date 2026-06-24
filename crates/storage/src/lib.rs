@@ -395,6 +395,22 @@ impl Storage {
         Ok(row.map(|row| (row.get("issues_json"), row.get("checked_at"))))
     }
 
+    pub async fn set_project_name(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            "UPDATE registered_projects SET name = ?, updated_at = CURRENT_TIMESTAMP \
+             WHERE root_path = ?",
+        )
+        .bind(name)
+        .bind(root.to_string_lossy().as_ref())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn set_project_pinned(
         &self,
         root: &std::path::Path,

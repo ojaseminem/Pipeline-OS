@@ -116,6 +116,7 @@ export const desktopApi = {
   healthOverview: () => invokeDesktop<ProjectHealthOverview[]>("health_overview"),
   refreshHealth: (full: boolean) => invokeDesktop<HealthSummary[]>("refresh_health", { full }),
   recordProjectOpened: (root: string) => invokeDesktop<void>("record_project_opened", { root }),
+  renameProject: (root: string, name: string) => invokeDesktop<void>("rename_project", { root, name }),
   setProjectThumbnail: (root: string, source: string) => invokeDesktop<string>("set_project_thumbnail", { root, source }),
   clearProjectThumbnail: (root: string) => invokeDesktop<void>("clear_project_thumbnail", { root }),
   gitCommitFiles: (root: string, hash: string) => invokeDesktop<CommitFile[]>("git_commit_files", { root, hash }),

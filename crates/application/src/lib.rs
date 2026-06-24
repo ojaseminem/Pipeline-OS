@@ -366,6 +366,23 @@ impl ApplicationService {
         Ok(())
     }
 
+    /// Renames a project: updates the portable `project.toml` name and the local
+    /// registry so the new name is both shared and reflected on this machine.
+    pub async fn rename_project(&self, root: &Path, name: &str) -> Result<(), ApplicationError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(ApplicationError::Project(ProjectError::InvalidRoot));
+        }
+        let mut config = load_project(root)?;
+        config.name = name.to_string();
+        vantadeck_projects::save_project(root, &config)?;
+        self.storage.set_project_name(root, name).await?;
+        self.storage
+            .record_activity("project-rename", &format!("Renamed project to {name}"))
+            .await?;
+        Ok(())
+    }
+
     /// Sets a portable, team-shared thumbnail for a project from a source image.
     pub async fn set_project_thumbnail(
         &self,
