@@ -224,6 +224,32 @@ impl GitProvider {
         Ok(files)
     }
 
+    /// Discards local changes to a single path: reverts a tracked file to HEAD
+    /// (unstaging and restoring the working copy), or deletes an untracked file.
+    /// Destructive — callers must confirm with the user first.
+    pub async fn discard_path(&self, root: &Path, path: &str) -> Result<VcsOperationResult, VcsError> {
+        let tracked = self
+            .run_raw(root, &["ls-files", "--error-unmatch", "--", path])
+            .await
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        if tracked {
+            self.run(root, &["restore", "--staged", "--worktree", "--source=HEAD", "--", path])
+                .await
+                .map(|output| VcsOperationResult {
+                    stdout: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+                    stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+                })
+        } else {
+            let target = root.join(path);
+            std::fs::remove_file(&target)?;
+            Ok(VcsOperationResult {
+                stdout: format!("Deleted untracked {path}"),
+                stderr: String::new(),
+            })
+        }
+    }
+
     /// The current branch name (cheap; `HEAD` when detached). Used to annotate
     /// project summaries without running a full status.
     pub async fn current_branch(&self, root: &Path) -> Option<String> {
@@ -485,6 +511,18 @@ pub fn parse_git_porcelain_v2(input: &str) -> Result<VcsStatus, VcsError> {
             status.changed_files.push(ChangedFile {
                 status: fields[1].to_owned(),
                 path: fields[8].to_owned(),
+            });
+        } else if line.starts_with("2 ") {
+            // Renamed/copied entry. The final field is "<newPath>\t<origPath>";
+            // we surface the new path with its XY status.
+            let fields: Vec<_> = line.splitn(10, ' ').collect();
+            if fields.len() != 10 {
+                return Err(VcsError::InvalidRecord(line.to_owned()));
+            }
+            let path = fields[9].split('\t').next().unwrap_or(fields[9]);
+            status.changed_files.push(ChangedFile {
+                status: fields[1].to_owned(),
+                path: path.to_owned(),
             });
         }
     }

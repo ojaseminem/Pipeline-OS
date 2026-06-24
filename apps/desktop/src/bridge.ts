@@ -154,6 +154,7 @@ export const desktopApi = {
   gitLog: (root: string, limit: number) => invokeDesktop<GitCommit[]>("git_log", { root, limit }),
   gitDiff: (root: string, path: string) => invokeDesktop<string>("git_diff", { root, path }),
   gitCommitPaths: (root: string, message: string, paths: string[], confirmed: boolean) => invokeDesktop("git_commit_paths", { root, message, paths, confirmed }),
+  gitDiscard: (root: string, path: string, confirmed: boolean) => invokeDesktop("git_discard", { root, path, confirmed }),
   appVersion: () => invokeDesktop<string>("app_version"),
 };
 

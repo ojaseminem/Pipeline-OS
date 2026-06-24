@@ -563,6 +563,23 @@ async fn git_diff(
         .map_err(|e| e.to_string())
 }
 
+/// Discards local changes to a single file (reverts to HEAD, or deletes if
+/// untracked). Destructive — requires confirmation.
+#[tauri::command(rename_all = "camelCase")]
+async fn git_discard(
+    root: String,
+    path: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_discard_path(Path::new(&root), &path, confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn git_commit_paths(
     root: String,
@@ -1267,6 +1284,7 @@ pub fn run() {
             git_create_branch,
             git_log,
             git_diff,
+            git_discard,
             git_commit_paths,
             app_version
         ])

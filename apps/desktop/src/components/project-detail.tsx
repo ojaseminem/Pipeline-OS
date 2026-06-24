@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Box, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
-  GitCommitHorizontal, ListTodo, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
+  GitCommitHorizontal, ListTodo, MoreHorizontal, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,6 +16,21 @@ import { HealthPanel } from "./health-panel";
 import { browsePath, desktopApi, isNativeRuntime, openExternal, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
 import { loadTags, loadWorkspace, newId, saveTags, saveWorkspace, type ProjectWorkspace } from "../lib/local-store";
+
+// Maps a Git status to a friendly label + an explanatory tooltip. Codes come
+// from `git status --porcelain=v2`: a two-char XY field where X is the staged
+// (index) state and Y is the working-tree state ("." means unchanged).
+function statusLabel(code: string): { label: string; title: string } {
+  if (code === "untracked") {
+    return { label: "Untracked", title: "Untracked — a new file Git isn't following yet. It won't be committed unless you include it." };
+  }
+  const names: Record<string, string> = { M: "Modified", A: "Added", D: "Deleted", R: "Renamed", C: "Copied", T: "Type changed", U: "Conflicted" };
+  const staged = code.charAt(0) !== "." ? code.charAt(0) : "";
+  const worktree = code.charAt(1) !== "." ? code.charAt(1) : "";
+  const letter = worktree || staged || "M";
+  const label = (names[letter] ?? "Changed") + (staged && !worktree ? " (staged)" : "");
+  return { label, title: `Git status "${code}" — ${staged ? "staged: " + (names[staged] ?? staged) + "; " : ""}working tree: ${worktree ? names[worktree] ?? worktree : "unchanged"}.` };
+}
 
 function diffLineClass(line: string): string {
   if (line.startsWith("@@")) return "text-primary";
@@ -147,6 +162,17 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
     if (window.confirm(`Commit ${selected.size} file(s) in ${project.name}?`)) {
       void run("Committing", async () => { await desktopApi.gitCommitPaths(project.path, commit, [...selected], true); setCommit(""); setDiffPath(null); await refreshGit(); });
     }
+  }
+  function discardFile(file: { path: string; status: string }) {
+    const message = file.status === "untracked"
+      ? `Delete the untracked file "${file.path}"? It will be removed from disk — this can't be undone.`
+      : `Discard all local changes to "${file.path}"? It will be reverted to the last commit — this can't be undone.`;
+    if (!window.confirm(message)) return;
+    void run("Discarding changes", async () => { await desktopApi.gitDiscard(project.path, file.path, true); if (diffPath === file.path) setDiffPath(null); await refreshGit(); });
+  }
+  function fileActions(path: string) {
+    const abs = `${project.path}/${path}`;
+    return { abs, dir: abs.replace(/[\\/][^\\/]*$/, "") };
   }
 
   async function run(label: string, action: () => Promise<unknown>) {
@@ -301,13 +327,28 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
                 {sourceView === "changes" ? (
                   <>
                     <div className="max-h-[300px] overflow-y-auto">
-                      {git.data && git.data.changedFiles.length ? git.data.changedFiles.map((file) => (
-                        <div key={file.path} className={`flex items-center gap-2 border-t border-border px-3 py-1.5 text-sm ${diffPath === file.path ? "bg-muted/50" : ""}`}>
-                          <input type="checkbox" aria-label={`Include ${file.path}`} checked={selected.has(file.path)} onChange={() => toggleSelected(file.path)} className="size-4 accent-[var(--primary)]" />
-                          <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setDiffPath(file.path)}><FileCode2 size={14} className="shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate" title={file.path}>{file.path}</span></button>
-                          <Badge variant="outline" className="shrink-0 text-[10px] uppercase">{file.status}</Badge>
-                        </div>
-                      )) : <div className="border-t border-border px-4 py-8 text-center text-sm text-muted-foreground">No local changes — working tree clean.</div>}
+                      {git.data && git.data.changedFiles.length ? git.data.changedFiles.map((file) => {
+                        const info = statusLabel(file.status);
+                        return (
+                          <div key={file.path} className={`flex items-center gap-2 border-t border-border px-3 py-1.5 text-sm ${diffPath === file.path ? "bg-muted/50" : ""}`}>
+                            <input type="checkbox" aria-label={`Include ${file.path}`} checked={selected.has(file.path)} onChange={() => toggleSelected(file.path)} className="size-4 accent-[var(--primary)]" />
+                            <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setDiffPath(file.path)}><FileCode2 size={14} className="shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate" title={file.path}>{file.path}</span></button>
+                            <Badge variant="outline" className="shrink-0 text-[10px]" title={info.title}>{info.label}</Badge>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" aria-label={`Actions for ${file.path}`}><MoreHorizontal size={15} /></Button></DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-56">
+                                <DropdownMenuItem onClick={() => setDiffPath(file.path)}><FileCode2 size={14} /> View diff</DropdownMenuItem>
+                                <DropdownMenuItem disabled={!native} onClick={() => void run("Opening file", () => desktopApi.openPath(fileActions(file.path).abs))}><ExternalLink size={14} /> Open file</DropdownMenuItem>
+                                <DropdownMenuItem disabled={!native} onClick={() => { const dir = fileActions(file.path).dir; if (dir) void run("Opening folder", () => desktopApi.openPath(dir)); }}><FolderOpen size={14} /> Open containing folder</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => { void navigator.clipboard?.writeText(file.path); toast.success("Path copied."); }}><Copy size={14} /> Copy relative path</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => { void navigator.clipboard?.writeText(fileActions(file.path).abs); toast.success("Path copied."); }}><Copy size={14} /> Copy full path</DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem variant="destructive" disabled={!native} onClick={() => discardFile(file)}><Trash2 size={14} /> Discard changes</DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        );
+                      }) : <div className="border-t border-border px-4 py-8 text-center text-sm text-muted-foreground">No local changes — working tree clean.</div>}
                     </div>
                     <div className="space-y-2 border-t border-border p-3">
                       <Input aria-label="Commit message" placeholder="Summary of changes" value={commit} onChange={(e) => setCommit(e.target.value)} />

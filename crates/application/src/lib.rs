@@ -720,6 +720,16 @@ impl ApplicationService {
         Ok(self.git.commit_paths(root, message, paths).await?)
     }
 
+    pub async fn vcs_discard_path(
+        &self,
+        root: &Path,
+        path: &str,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("discarding local changes", confirmed)?;
+        Ok(self.git.discard_path(root, path).await?)
+    }
+
     pub async fn vcs_sync(
         &self,
         root: &Path,
