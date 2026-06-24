@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { toast } from "sonner";
 import { Copy, ImageIcon, Link2, Tag, X } from "lucide-react";
 import { HealthPanel } from "./health-panel";
-import { browsePath, desktopApi, isNativeRuntime, type HealthIssue } from "../bridge";
+import { browsePath, desktopApi, isNativeRuntime, openExternal, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
 import { loadTags, loadWorkspace, newId, saveTags, saveWorkspace, type ProjectWorkspace } from "../lib/local-store";
 
@@ -335,7 +335,7 @@ export function ProjectDetail({ project, onBack }: { project: { path: string; na
             </form>
             <ul className="space-y-1.5">{ws.references.length ? ws.references.map((reference) => {
               const isLink = /^https?:\/\//i.test(reference.url);
-              const open = () => { if (isLink) window.open(reference.url, "_blank"); else void run("Opening reference", () => desktopApi.openPath(reference.url)); };
+              const open = () => { if (isLink) void openExternal(reference.url); else void run("Opening reference", () => desktopApi.openPath(reference.url)); };
               return (
                 <li key={reference.id} className="flex items-center gap-2.5 rounded-lg border border-border p-2.5">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">{isLink ? <Link2 size={15} /> : <FileCode2 size={15} />}</span>

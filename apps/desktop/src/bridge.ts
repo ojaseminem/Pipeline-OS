@@ -132,6 +132,7 @@ export const desktopApi = {
   projectConfig: (root: string) => invokeDesktop<ProjectConfig>("project_config", { root }),
   recentFiles: (root: string, limit: number) => invokeDesktop<RecentFile[]>("recent_files", { root, limit }),
   openPath: (path: string) => invokeDesktop<void>("open_path", { path }),
+  openUrl: (url: string) => invokeDesktop<void>("open_url", { url }),
   readImage: (path: string) => invokeDesktop<string | null>("read_image", { path }),
   readToolsFromDir: (path: string) => invokeDesktop<ToolManifest[]>("read_tools_from_dir", { path }),
   launchExecutable: (executable: string) => invokeDesktop<void>("launch_executable", { executable }),
@@ -149,3 +150,12 @@ export const desktopApi = {
   gitCommitPaths: (root: string, message: string, paths: string[], confirmed: boolean) => invokeDesktop("git_commit_paths", { root, message, paths, confirmed }),
   appVersion: () => invokeDesktop<string>("app_version"),
 };
+
+/// Opens an external http(s) link: via the OS opener in the desktop app (the
+/// WebView's window.open is unreliable), or a new browser tab on the web.
+export async function openExternal(url: string): Promise<void> {
+  if (isNativeRuntime()) {
+    try { await desktopApi.openUrl(url); return; } catch { /* fall through to window.open */ }
+  }
+  window.open(url, "_blank", "noopener");
+}

@@ -40,7 +40,7 @@ import { Input } from "@/components/ui/input";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { installedApps as defaultApps, pinnedProjects as defaultPinned, recentProjects as defaultRecent, type Project } from "./data";
-import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onScanProgress, type HealthSummary, type RecentFile, type ScanProgress, type ToolManifest, type UpdateInfo } from "./bridge";
+import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onScanProgress, openExternal, type HealthSummary, type RecentFile, type ScanProgress, type ToolManifest, type UpdateInfo } from "./bridge";
 import { formatLastOpened, timeAgo } from "./lib/format";
 import { ProjectThumb } from "./components/thumbnail";
 import { Progress } from "@/components/ui/progress";
@@ -403,7 +403,7 @@ function AppShell() {
   /// Opens the GitHub release page for the available version in the browser.
   function openReleaseNotes() {
     const version = update?.version;
-    if (version) window.open(`https://github.com/ojaseminem/Vantadeck/releases/tag/v${version}`, "_blank");
+    if (version) void openExternal(`https://github.com/ojaseminem/Vantadeck/releases/tag/v${version}`);
   }
 
   /// Confirms, then downloads, installs, and restarts to apply the update.
@@ -712,7 +712,7 @@ function AppShell() {
             <Card key={tool.id}><CardContent className="flex items-start gap-3 p-4">
               <Wrench className="text-primary" />
               <div className="min-w-0 flex-1"><h3 className="font-medium">{tool.name}</h3><p className="text-sm text-muted-foreground">{tool.description}</p><small className="text-xs text-muted-foreground">{tool.reviewState} · {tool.license} · checked {tool.lastVerifiedAt}</small></div>
-              <Button variant="outline" size="sm" onClick={() => { if (/^https?:\/\//i.test(tool.sourceUrl)) window.open(tool.sourceUrl, "_blank"); else toast.message("Source", { description: tool.sourceUrl }); }}>Source</Button>
+              <Button variant="outline" size="sm" onClick={() => { if (/^https?:\/\//i.test(tool.sourceUrl)) void openExternal(tool.sourceUrl); else toast.message("Source", { description: tool.sourceUrl }); }}>Source</Button>
             </CardContent></Card>
           )) : <EmptyState text="No tools available. Add a local folder of tool manifests above to populate this list." />}</div>
         </div>;

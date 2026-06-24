@@ -1105,6 +1105,16 @@ async fn open_path(path: String) -> Result<(), String> {
     open_with_os(&path).map_err(|e| e.to_string())
 }
 
+/// Opens an http(s) URL in the user's default browser. The WebView's
+/// `window.open` is unreliable, so external links route through the OS opener.
+#[tauri::command(rename_all = "camelCase")]
+async fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("Only http(s) links can be opened.".into());
+    }
+    open_with_os(&url).map_err(|e| e.to_string())
+}
+
 /// Launches an arbitrary user-provided executable (custom apps not in the
 /// bundled catalog), with the same architecture safety as catalog launches.
 #[tauri::command(rename_all = "camelCase")]
@@ -1180,6 +1190,7 @@ pub fn run() {
             read_image,
             read_tools_from_dir,
             open_path,
+            open_url,
             launch_executable,
             git_sync,
             git_commit,
