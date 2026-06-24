@@ -154,6 +154,15 @@ fn discovers_p4_in_known_locations() {
         .path()
         .join(if cfg!(windows) { "p4.exe" } else { "p4" });
     std::fs::write(&executable, b"fake").expect("fake executable");
+    // On Unix, discovery requires the execute bit; set it so the fake binary is
+    // recognised the same way a real one would be.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&executable).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&executable, permissions).expect("chmod");
+    }
 
     assert_eq!(
         discover_p4_executable(
