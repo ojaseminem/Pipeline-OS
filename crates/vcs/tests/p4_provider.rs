@@ -159,7 +159,9 @@ fn discovers_p4_in_known_locations() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&executable).expect("metadata").permissions();
+        let mut permissions = std::fs::metadata(&executable)
+            .expect("metadata")
+            .permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(&executable, permissions).expect("chmod");
     }
