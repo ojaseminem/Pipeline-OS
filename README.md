@@ -1,8 +1,10 @@
 <div align="center">
 
-# Vantadeck
+# Pipeline OS
 
 **The local-first creative launcher for game development, CG, VFX, animation, and technical art.**
+
+<sub>The product is **Pipeline OS**. This repository and its crates/packages are named `Vantadeck` (links, paths, and `.vantadeck/` config keep that name).</sub>
 
 Manage projects, creative applications, health checks, launch profiles, and source-control workflows from one open-source desktop app and automation-friendly CLI.
 
@@ -21,14 +23,14 @@ Manage projects, creative applications, health checks, launch profiles, and sour
 
 </div>
 
-![Vantadeck dashboard](docs/design/vantadeck-dashboard-reference.png)
+![Pipeline OS dashboard](docs/design/vantadeck-dashboard-reference.png)
 
 > [!IMPORTANT]
-> Vantadeck is at **Windows release-candidate** stage. The Rust backend and CLI are feature-complete and tested, the Tauri 2 + React desktop app is functional, and an unsigned Windows build is the current validated target. The repository does not yet provide a published cross-platform V1: signed installers and fully validated macOS/Linux releases remain roadmap gates. See [docs/release/BLOCKERS.md](docs/release/BLOCKERS.md) for the exact remaining gates.
+> Pipeline OS is a **Windows-first app at public-V1 stage**. The Rust backend and CLI are feature-complete and tested, and the Tauri 2 + React desktop app is functional. Signed, multi-platform builds are produced automatically by CI on each `vX.Y.Z` tag, and the in-app auto-updater ships them. The Windows installer is **not yet code-signed**, so Windows SmartScreen shows an "unknown publisher" prompt — choose *More info → Run anyway*. macOS/Linux artifacts are built but remain experimental. See [docs/release/BLOCKERS.md](docs/release/BLOCKERS.md) for the remaining gates.
 
-## Why Vantadeck?
+## Why Pipeline OS?
 
-Creative projects rarely use one application. A game project may depend on multiple engine versions, DCC packages, editors, source-control tools, local utilities, and platform-specific paths. Vantadeck provides one transparent local workspace for those dependencies without introducing another account or cloud service.
+Creative projects rarely use one application. A game project may depend on multiple engine versions, DCC packages, editors, source-control tools, local utilities, and platform-specific paths. Pipeline OS provides one transparent local workspace for those dependencies without introducing another account or cloud service.
 
 - **Local-first:** project discovery, preferences, caches, and activity remain on your machine.
 - **Account-free:** no sign-in is required for core workflows.
@@ -42,15 +44,24 @@ Creative projects rarely use one application. A game project may depend on multi
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Windows desktop development build | Available | Native Tauri build and automated tests pass locally |
+| Windows desktop app | Available | Native Tauri build; CI publishes signed auto-updating releases on each tag |
+| Auto-update | Implemented | CI signs updater artifacts + `latest.json`; the in-app updater installs them |
 | Rust CLI | Available | Human-readable and versioned JSON output |
 | Windows application detection | Implemented | Registry, Unity Hub, Epic, Steam, shortcuts, PATH, and filesystem sources |
-| macOS/Linux adapters | Experimental | Fixture-tested; native validation is still required |
-| Git and Git LFS | Implemented | Status, sync, commit, push, branch switching, and health diagnostics |
-| Perforce | Experimental | Typed provider and fixture tests; live disposable-server validation remains |
-| Tools Hub | Experimental | Validated offline cache and SHA-256 verification; hosted index is not yet launched |
-| Signed public releases | Not available | Authenticode, notarization, package signing, and clean-machine testing remain gates |
-| Public V1 | Not released | See [ROADMAP.md](ROADMAP.md) and [release gates](docs/release/RELEASE.md) |
+| macOS/Linux adapters | Experimental | Built by CI; not notarized/signed or clean-machine validated |
+| Git and Git LFS | Implemented | Status, sync, commit, push, branch switching, per-file actions, and health |
+| Perforce | Experimental | Typed provider and fixture tests; not wired into the desktop UI; live-server validation remains |
+| Tools Hub | Experimental | Local/cached manifests with SHA-256 verification; hosted public index is not yet launched |
+| Code-signed installer | Not yet | Updater artifacts are signed; Windows Authenticode signing of the installer is pending (SmartScreen prompt until then) |
+| Public V1 (Windows) | In progress | Functionally complete; pending installer code-signing and clean-machine validation |
+
+## Known limitations (V1)
+
+- **Unsigned Windows installer** — SmartScreen shows "unknown publisher"; choose *More info → Run anyway*. Code signing is planned (Azure Trusted Signing, the Microsoft Store, or an Authenticode certificate).
+- **Windows is the supported target** — macOS/Linux are built by CI but are not notarized/signed or clean-machine validated.
+- **Manual version overrides require a semantic version** (e.g. `4.1.1`); some engine build labels (e.g. Unity `6000.0.67f1`) aren't accepted yet.
+- **Perforce** is a typed, fixture-tested provider — not yet exposed in the desktop UI or validated against a live server.
+- **Tools Hub** reads local and cached tool manifests; the hosted, separately-governed public index is not launched.
 
 ## Features
 

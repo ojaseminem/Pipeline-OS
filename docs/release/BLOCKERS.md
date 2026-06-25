@@ -18,17 +18,18 @@ The following external and infrastructure gates must be satisfied before a publi
 
 - **Live Perforce server integration** — Current Perforce support includes mutation, timeout, and cancellation contracts tested against command construction and parsing. Integration testing against a live Perforce server is required.
 
-## Auto-update signing
+## Auto-update signing — DONE
 
-The in-app auto-updater is implemented (it checks the GitHub releases feed and
-verifies downloads against the public key in `tauri.conf.json`). To publish
-working updates, the release pipeline must sign the updater artifacts:
+The in-app auto-updater is implemented and **live**. The signing keypair exists,
+the repository secrets `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+are configured, and pushing an annotated `vX.Y.Z` tag runs `release.yml`, which
+builds and signs Windows/macOS/Linux, generates `latest.json`, and publishes the
+GitHub release. The in-app updater consumes it from the latest release.
 
-- Generate the keypair locally with `npm run tauri --workspace @vantadeck/desktop -- signer generate -w apps/desktop/.tauri/updater.key` (the public key is already embedded in `tauri.conf.json`; the private key is gitignored and must never be committed).
-- Add two repository secrets used by `release.yml`:
-  - `TAURI_SIGNING_PRIVATE_KEY` — contents of `apps/desktop/.tauri/updater.key`.
-  - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the key password (empty if none).
-- A tagged `release.yml` run then emits signed updater artifacts and `latest.json`, which the app's updater consumes from the latest release.
+> Note: this is distinct from **installer code-signing** (Windows Authenticode /
+> macOS notarization), which is still pending — see "Code-signing and distribution"
+> above. Updater artifacts are signed with the project key, but the installer is not
+> yet code-signed, so Windows SmartScreen shows an "unknown publisher" prompt.
 
 ## Community infrastructure
 
@@ -36,4 +37,4 @@ working updates, the release pipeline must sign the updater artifacts:
 
 ## Current state
 
-Vantadeck is an unsigned Windows Release Candidate. All in-code features are complete and tested. See [RELEASE.md](RELEASE.md) for the promotion process and evidence requirements that these gates feed into. See [NATIVE_VALIDATION.md](NATIVE_VALIDATION.md) for the validation record template.
+Pipeline OS (repo `Vantadeck`) is a Windows-first app at public-V1 stage. All in-code features are complete and tested, and CI auto-publishes signed, auto-updating releases on each tag. The remaining V1 gates are external: a **code-signed Windows installer** (to clear SmartScreen) and **clean-machine validation**. macOS/Linux signing/notarization and live-Perforce validation are deferred post-V1. See [RELEASE.md](RELEASE.md) for the promotion process and [NATIVE_VALIDATION.md](NATIVE_VALIDATION.md) for the validation record template.
