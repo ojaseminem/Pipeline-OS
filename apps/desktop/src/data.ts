@@ -11,6 +11,8 @@ export type Project = {
   engineExecutable?: string | null;
   /** Project-relative thumbnail path from project.toml, if set. */
   thumbnail?: string | null;
+  /** Project category (explicit or inferred). */
+  category?: string;
 };
 
 export const pinnedProjects: Project[] = [

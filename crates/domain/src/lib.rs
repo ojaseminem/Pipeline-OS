@@ -101,6 +101,10 @@ pub struct ProjectConfig {
     /// User-assigned tags for grouping/filtering. Portable (travels with the repo).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// Project category (e.g. "Game Dev", "3D"). When unset, the UI infers one
+    /// from the linked applications. Portable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

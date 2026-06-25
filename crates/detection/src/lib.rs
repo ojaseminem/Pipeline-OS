@@ -289,7 +289,7 @@ pub(crate) fn infer_version(path: &std::path::Path) -> Option<Version> {
         .filter_map(|name| {
             name.to_string_lossy()
                 .split(|character: char| !character.is_ascii_digit() && character != '.')
-                .filter(|candidate| candidate.contains('.'))
+                .filter(|candidate| !candidate.is_empty())
                 .filter_map(parse_version_candidate)
                 .max()
         })
@@ -300,6 +300,14 @@ fn parse_version_candidate(candidate: &str) -> Option<Version> {
     let candidate = candidate.trim_matches('.');
     let dot_count = candidate.bytes().filter(|byte| *byte == b'.').count();
     match dot_count {
+        // A bare integer is only treated as a version when it's a plausible
+        // year-style release (Maya 2024, 3ds Max 2025, ZBrush 2024…). This keeps
+        // stray numbers like the "86" in "Program Files (x86)" from matching.
+        0 => candidate
+            .parse::<u64>()
+            .ok()
+            .filter(|year| (1990..=2100).contains(year))
+            .map(|year| Version::new(year, 0, 0)),
         1 => Version::parse(&format!("{candidate}.0")).ok(),
         2 => Version::parse(candidate).ok(),
         _ => None,

@@ -77,6 +77,7 @@ struct DesktopProject {
     path: String,
     pinned: bool,
     tags: Vec<String>,
+    category: String,
 }
 
 #[derive(Serialize)]
@@ -157,6 +158,31 @@ const ENGINE_LABELS: &[(&str, &str)] = &[
     ("maya", "Maya"),
 ];
 
+/// Derives a project category from its explicit setting or its linked apps.
+fn derive_category(config: &ProjectConfig) -> String {
+    if let Some(category) = config.category.as_deref().filter(|value| !value.is_empty()) {
+        return category.to_string();
+    }
+    let has = |id: &str| config.linked_apps.iter().any(|app| app.app_id == id);
+    if has("unity") || has("unreal-engine") || has("godot") {
+        "Game Dev".into()
+    } else if has("zbrush") {
+        "Sculpting".into()
+    } else if has("substance-painter") || has("substance-designer") {
+        "Texturing".into()
+    } else if has("maya") || has("blender") || has("3dsmax") || has("houdini") || has("cinema4d") {
+        "3D".into()
+    } else if has("photoshop") || has("krita") || has("aseprite") {
+        "2D / Concept".into()
+    } else if config.project_type == "game-development" {
+        "Game Dev".into()
+    } else if !config.linked_apps.is_empty() {
+        "3D".into()
+    } else {
+        "Other".into()
+    }
+}
+
 /// Derives (display name, catalog id, preferred version) for a project's
 /// primary engine from its linked apps, falling back to the project type.
 fn derive_engine(config: &ProjectConfig) -> (String, String, String) {
@@ -219,6 +245,10 @@ async fn build_summary(
             })
     };
     let thumbnail = config.as_ref().and_then(|config| config.thumbnail.clone());
+    let category = config
+        .as_ref()
+        .map(derive_category)
+        .unwrap_or_else(|| "Other".into());
     let branch = service
         .vcs_current_branch(&project.root)
         .await
@@ -233,6 +263,7 @@ async fn build_summary(
         branch,
         last_opened: project.last_opened.clone().unwrap_or_default(),
         thumbnail,
+        category,
     }
 }
 
@@ -330,20 +361,38 @@ async fn list_projects(state: State<'_, DesktopState>) -> Result<Vec<DesktopProj
         .map_err(|e| e.to_string())?;
     let mut result = Vec::with_capacity(projects.len());
     for project in projects {
-        let tags = state
-            .service
-            .project_config(&project.root)
-            .await
-            .map(|config| config.tags)
+        let config = state.service.project_config(&project.root).await.ok();
+        let tags = config
+            .as_ref()
+            .map(|config| config.tags.clone())
             .unwrap_or_default();
+        let category = config
+            .as_ref()
+            .map(derive_category)
+            .unwrap_or_else(|| "Other".into());
         result.push(DesktopProject {
             name: project.name,
             path: project.root.display().to_string(),
             pinned: project.pinned,
             tags,
+            category,
         });
     }
     Ok(result)
+}
+
+/// Sets a project's portable category (written to project.toml; empty clears it).
+#[tauri::command(rename_all = "camelCase")]
+async fn set_project_category(
+    root: String,
+    category: Option<String>,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    state
+        .service
+        .set_project_category(Path::new(&root), category.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Unregisters a project (does not delete its files).
@@ -1338,6 +1387,7 @@ pub fn run() {
             import_project,
             remove_project,
             set_project_tags,
+            set_project_category,
             read_project_workspace,
             save_project_workspace,
             recent_activity,

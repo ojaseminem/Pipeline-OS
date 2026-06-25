@@ -66,6 +66,8 @@ pub struct ProjectSummary {
     pub last_opened: String,
     /// Project-relative thumbnail path from `project.toml`, if any.
     pub thumbnail: Option<String>,
+    /// Project category (explicit, or inferred from linked apps).
+    pub category: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,6 +137,7 @@ impl DashboardSnapshot {
             branch: branch.into(),
             last_opened: "Today".into(),
             thumbnail: None,
+            category: "Game Dev".into(),
         };
         Self {
             network_enabled: false,
@@ -430,6 +433,16 @@ impl ApplicationService {
         tags: &[String],
     ) -> Result<(), ApplicationError> {
         vantadeck_projects::set_project_tags(root, tags)?;
+        Ok(())
+    }
+
+    /// Sets the project's portable category in `project.toml` (empty clears it).
+    pub async fn set_project_category(
+        &self,
+        root: &Path,
+        category: Option<&str>,
+    ) -> Result<(), ApplicationError> {
+        vantadeck_projects::set_project_category(root, category)?;
         Ok(())
     }
 

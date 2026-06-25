@@ -43,6 +43,7 @@ import { cn } from "@/lib/utils";
 import { installedApps as defaultApps, pinnedProjects as defaultPinned, recentProjects as defaultRecent, type Project } from "./data";
 import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onScanProgress, openExternal, type ActivityRecord, type EngineVersionOption, type HealthSummary, type ProjectHealthOverview, type RecentFile, type ScanProgress, type ToolManifest, type UpdateInfo } from "./bridge";
 import { formatLastOpened, timeAgo } from "./lib/format";
+import { categoryClass } from "./lib/categories";
 import { ProjectThumb } from "./components/thumbnail";
 import { Progress } from "@/components/ui/progress";
 import { createQueryClient, useApps, useInvalidate, useProjects, useTools } from "./lib/queries";
@@ -119,7 +120,7 @@ function ProjectTable({ projects, actions }: { projects: Project[]; actions: Pro
         <div className="grid grid-cols-[2fr_1fr_1.3fr_0.9fr_190px] items-center gap-3 border-b border-border px-4 py-3 text-sm last:border-0 hover:bg-muted/30" role="row" key={project.name}>
           <span className="flex items-center gap-3">
             <ProjectThumb projectPath={project.path} thumbnail={project.thumbnail} className="h-9 w-14" alt={`${project.name} thumbnail`} />
-            <span className="flex flex-col"><strong className="font-medium">{project.name}</strong><small className="text-xs text-muted-foreground">{project.path}</small></span>
+            <span className="flex min-w-0 flex-col"><span className="flex items-center gap-2"><strong className="truncate font-medium">{project.name}</strong>{project.category ? <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", categoryClass(project.category))}>{project.category}</span> : null}</span><small className="truncate text-xs text-muted-foreground">{project.path}</small></span>
           </span>
           <span className="text-muted-foreground">{formatLastOpened(project.lastOpened) || "—"}</span>
           <span className="flex items-center gap-1.5 text-muted-foreground"><AppIcon executable={project.engineExecutable ?? undefined} size={16} /> {project.engine}{project.version ? ` ${project.version}` : ""}</span>
@@ -225,9 +226,11 @@ function AppShell() {
   const searchRef = useRef<HTMLInputElement>(null);
   const { preference, setPreference } = useTheme();
   const projects = projectView === "pinned" ? pinnedProjects : recentProjects;
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const homeCategories = useMemo(() => [...new Set([...pinnedProjects, ...recentProjects].map((project) => project.category).filter((value): value is string => Boolean(value)))].sort(), [pinnedProjects, recentProjects]);
   const filteredProjects = useMemo(
-    () => projects.filter((project) => project.name.toLowerCase().includes(query.toLowerCase())),
-    [projects, query],
+    () => projects.filter((project) => project.name.toLowerCase().includes(query.toLowerCase()) && (!categoryFilter || project.category === categoryFilter)),
+    [projects, query, categoryFilter],
   );
 
   const reloadDashboard = useCallback(() => {
@@ -661,7 +664,7 @@ function AppShell() {
                 <Card key={project.path} className="cursor-pointer transition-colors hover:border-primary/50" onClick={() => openProject({ path: project.path, name: project.name })}>
                   <CardContent className="flex items-start gap-3 p-4">
                     <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary"><Folder size={18} /></span>
-                    <div className="min-w-0 flex-1"><h3 className="truncate font-medium">{project.name}</h3><p className="truncate text-sm text-muted-foreground">{project.path}</p>
+                    <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="truncate font-medium">{project.name}</h3>{project.category ? <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", categoryClass(project.category))}>{project.category}</span> : null}</div><p className="truncate text-sm text-muted-foreground">{project.path}</p>
                       {projectTags.length ? <div className="mt-2 flex flex-wrap gap-1">{projectTags.map((tag) => <span key={tag} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">{tag}</span>)}</div> : null}
                       <div className="mt-3 flex gap-2">
                         <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); openProject({ path: project.path, name: project.name }); }}>Open</Button>
@@ -859,7 +862,7 @@ function AppShell() {
               {continueProject ? <Card className="overflow-hidden"><CardContent className="grid gap-5 p-0 lg:grid-cols-[260px_1fr_280px]">
                 {isDemoMode() ? <img src={voidlineImage} alt="Voidline reactor environment" className="h-full max-h-64 w-full object-cover" /> : <ProjectThumb projectPath={continueProject.path} thumbnail={continueProject.thumbnail} className="h-full max-h-64 w-full rounded-none" iconSize={48} alt={`${continueProject.name} thumbnail`} />}
                 <div className="space-y-3 py-5"><h1 className="text-2xl font-semibold">{continueProject.name}</h1><p className="text-sm text-muted-foreground">{continueProject.path}</p>
-                  <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground"><span className="flex items-center gap-1.5"><AppIcon executable={continueProject.engineExecutable ?? undefined} size={16} /> {continueProject.engine}{continueProject.version ? ` ${continueProject.version}` : ""}</span>{continueProject.branch ? <span className="flex items-center gap-1.5"><GitBranch size={13} /> {continueProject.branch}</span> : null}{formatLastOpened(continueProject.lastOpened) ? <span>Last opened: {formatLastOpened(continueProject.lastOpened)}</span> : null}</div>
+                  <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">{continueProject.category ? <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", categoryClass(continueProject.category))}>{continueProject.category}</span> : null}<span className="flex items-center gap-1.5"><AppIcon executable={continueProject.engineExecutable ?? undefined} size={16} /> {continueProject.engine}{continueProject.version ? ` ${continueProject.version}` : ""}</span>{continueProject.branch ? <span className="flex items-center gap-1.5"><GitBranch size={13} /> {continueProject.branch}</span> : null}{formatLastOpened(continueProject.lastOpened) ? <span>Last opened: {formatLastOpened(continueProject.lastOpened)}</span> : null}</div>
                   {continueFiles.length ? <div className="pt-1"><div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent items</div><ul className="space-y-1">{continueFiles.map((file) => (
                     <li key={file.path} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/40">
                       <FileCode2 size={14} className="shrink-0 text-muted-foreground" />
@@ -902,9 +905,10 @@ function AppShell() {
 
             <section className="grid gap-5 lg:grid-cols-[1fr_320px]">
               <div className="space-y-3">
-                <div className="flex gap-2" role="tablist">
+                <div className="flex flex-wrap items-center gap-2" role="tablist">
                   <button role="tab" aria-selected={projectView === "pinned"} onClick={() => setProjectView("pinned")} className={cn("rounded-lg px-3 py-1.5 text-sm", projectView === "pinned" ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground")}>Pinned Projects</button>
                   <button role="tab" aria-selected={projectView === "recent"} onClick={() => setProjectView("recent")} className={cn("rounded-lg px-3 py-1.5 text-sm", projectView === "recent" ? "bg-secondary font-medium" : "text-muted-foreground hover:text-foreground")}>Recent Projects</button>
+                  {homeCategories.length ? <select aria-label="Filter by category" value={categoryFilter ?? ""} onChange={(event) => setCategoryFilter(event.target.value || null)} className="ml-auto h-8 rounded-md border border-border bg-secondary px-2 text-sm text-muted-foreground"><option value="">All categories</option>{homeCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select> : null}
                 </div>
                 <ProjectTable projects={filteredProjects} actions={{
                   onOpen: (p) => openProject({ path: p.path, name: p.name }),

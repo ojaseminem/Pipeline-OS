@@ -15,6 +15,7 @@ import { Copy, ImageIcon, Link2, Tag, X } from "lucide-react";
 import { HealthPanel } from "./health-panel";
 import { browsePath, desktopApi, isNativeRuntime, openExternal, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
+import { PROJECT_CATEGORIES } from "../lib/categories";
 import { loadTags, loadWorkspace, newId, saveTags, saveWorkspace, type ProjectWorkspace } from "../lib/local-store";
 
 // Maps a Git status to a friendly label + an explanatory tooltip. Codes come
@@ -160,6 +161,13 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
       setName(next);
       setRenaming(false);
       onRenamed?.(next);
+    });
+  }
+  function saveCategory(category: string | null) {
+    void run("Saving category", async () => {
+      await desktopApi.setProjectCategory(project.path, category);
+      await queryClient.invalidateQueries({ queryKey: ["project-config", project.path] });
+      onRenamed?.(name);
     });
   }
   function saveEngineVersion(appId: string, version: string) {
@@ -353,6 +361,14 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
             })}</div>
           </CardContent></Card> : null}
           <Card className="lg:col-span-2"><CardContent className="space-y-3 p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold">Category</h2>
+              <select aria-label="Project category" disabled={!native} value={cfg.data?.category ?? ""} onChange={(event) => saveCategory(event.target.value || null)} className="h-8 rounded-md border border-border bg-secondary px-2 text-sm">
+                <option value="">Auto (from apps)</option>
+                {PROJECT_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+              <p className="text-xs text-muted-foreground">Sets the colored category tag and the Home category filter.</p>
+            </div>
             <h2 className="flex items-center gap-2 text-base font-semibold"><Tag size={16} /> Tags</h2>
             <div className="flex flex-wrap items-center gap-2">
               {tags.map((tag) => <span key={tag} className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs">{tag}<button aria-label={`Remove tag ${tag}`} onClick={() => applyTags(tags.filter((value) => value !== tag))} className="text-muted-foreground hover:text-foreground"><X size={12} /></button></span>)}

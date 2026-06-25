@@ -136,6 +136,7 @@ pub fn infer_project(root: &Path, name: Option<&str>) -> Result<ProjectConfig, P
         enabled_health_checks: vec!["project-path".into(), "linked-apps".into()],
         thumbnail: None,
         tags: Vec::new(),
+        category: None,
     })
 }
 
@@ -201,6 +202,16 @@ pub fn write_project_workspace(root: &Path, contents: &str) -> Result<(), Projec
 pub fn set_project_tags(root: &Path, tags: &[String]) -> Result<(), ProjectError> {
     let mut config = load_project(root)?;
     config.tags = tags.to_vec();
+    save_project(root, &config)?;
+    Ok(())
+}
+
+/// Sets the project's category in the portable `project.toml` (empty clears it).
+pub fn set_project_category(root: &Path, category: Option<&str>) -> Result<(), ProjectError> {
+    let mut config = load_project(root)?;
+    config.category = category
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
     save_project(root, &config)?;
     Ok(())
 }
@@ -442,6 +453,7 @@ mod tests {
             enabled_health_checks: vec!["project-path".into()],
             thumbnail: None,
             tags: Vec::new(),
+            category: None,
         }
     }
 

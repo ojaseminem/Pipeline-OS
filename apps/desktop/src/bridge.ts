@@ -8,7 +8,7 @@ export type EngineVersionOption = { version: string; executable: string };
 export type EngineChoice = { appId: string; preferred: string | null; options: EngineVersionOption[] };
 export type AppInstallation = { version: string; executable: string; state: string; runnable: boolean };
 export type ManagedApp = { id: string; name: string; category: string; launchable: boolean; installations: AppInstallation[] };
-export type RegisteredProject = { name: string; path: string; pinned: boolean; tags: string[] };
+export type RegisteredProject = { name: string; path: string; pinned: boolean; tags: string[]; category: string };
 export type ActivityRecord = { id: number; kind: string; message: string; createdAt: string };
 export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null };
 export type PathInfo = { exists: boolean; isDir: boolean; isFile: boolean };
@@ -25,6 +25,7 @@ export type ProjectConfig = {
   enabled_health_checks: string[];
   thumbnail?: string | null;
   tags?: string[];
+  category?: string | null;
 };
 export type RecentFile = { path: string; name: string; modified: number };
 export type ScanProgress = { completed: number; total: number; current: string; done: boolean };
@@ -117,6 +118,7 @@ export const desktopApi = {
   importProject: (root: string, name?: string) => invokeDesktop("import_project", { root, name: name || null }),
   removeProject: (root: string) => invokeDesktop<void>("remove_project", { root }),
   setProjectTags: (root: string, tags: string[]) => invokeDesktop<void>("set_project_tags", { root, tags }),
+  setProjectCategory: (root: string, category: string | null) => invokeDesktop<void>("set_project_category", { root, category }),
   readWorkspace: (root: string) => invokeDesktop<string | null>("read_project_workspace", { root }),
   saveWorkspace: (root: string, contents: string) => invokeDesktop<void>("save_project_workspace", { root, contents }),
   recentActivity: (limit: number) => invokeDesktop<ActivityRecord[]>("recent_activity", { limit }),
