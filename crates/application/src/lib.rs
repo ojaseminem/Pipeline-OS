@@ -749,6 +749,26 @@ impl ApplicationService {
         Ok(self.git.status(root).await?)
     }
 
+    /// Whether Git is available on this machine.
+    pub async fn git_available(&self) -> bool {
+        self.git.is_installed().await
+    }
+
+    /// Initializes a Git repository for a project (optionally with a remote).
+    pub async fn git_init_repo(
+        &self,
+        root: &Path,
+        remote: Option<&str>,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("Git repository setup", confirmed)?;
+        let result = self.git.init_repo(root, remote).await?;
+        self.storage
+            .record_activity("git-init", &format!("Set up Git for {}", root.display()))
+            .await?;
+        Ok(result)
+    }
+
     pub async fn vcs_branches(&self, root: &Path) -> Result<Vec<String>, ApplicationError> {
         Ok(self.git.branches(root).await?)
     }

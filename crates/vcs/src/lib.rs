@@ -25,6 +25,24 @@ pub struct VcsStatus {
     pub changed_files: Vec<ChangedFile>,
 }
 
+/// Starter ignore rules for a fresh creative-project repo. Keeps `.vantadeck/`
+/// tracked (it's the portable project config) while excluding engine caches and
+/// build output. Written only when the project has no `.gitignore` yet.
+const DEFAULT_GITIGNORE: &str = "# Engine caches and build output\n\
+Library/\n\
+Temp/\n\
+Logs/\n\
+obj/\n\
+bin/\n\
+.vs/\n\
+Binaries/\n\
+Intermediate/\n\
+Saved/\n\
+DerivedDataCache/\n\
+node_modules/\n\
+__pycache__/\n\
+*.tmp\n";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommit {
@@ -262,6 +280,63 @@ impl GitProvider {
                 stderr: String::new(),
             })
         }
+    }
+
+    /// Whether a usable `git` is available on this machine.
+    pub async fn is_installed(&self) -> bool {
+        self.run_raw(std::path::Path::new("."), &["--version"])
+            .await
+            .is_ok_and(|output| output.status.success())
+    }
+
+    /// Initializes a Git repository in `root`: ensures a commit identity, writes a
+    /// starter `.gitignore` if missing, makes an initial commit, and — when a
+    /// `remote` URL is given — adds it as `origin` and pushes. Authentication for
+    /// the push is handled by the user's Git credential helper (browser sign-in);
+    /// this never handles passwords.
+    pub async fn init_repo(
+        &self,
+        root: &Path,
+        remote: Option<&str>,
+    ) -> Result<VcsOperationResult, VcsError> {
+        // Ensure a commit identity exists so the initial commit doesn't fail on a
+        // fresh machine; set a machine-local one only if none is configured.
+        let has_identity = self
+            .run_raw(root, &["config", "user.email"])
+            .await
+            .map(|output| output.status.success() && !output.stdout.is_empty())
+            .unwrap_or(false);
+        if !has_identity {
+            let user = std::env::var("USERNAME")
+                .or_else(|_| std::env::var("USER"))
+                .unwrap_or_else(|_| "Pipeline OS".into());
+            let email = format!("{}@users.noreply.github.com", user.replace(' ', ""));
+            let _ = self.run(root, &["config", "user.name", &user]).await;
+            let _ = self.run(root, &["config", "user.email", &email]).await;
+        }
+        // Initialize with `main` as the default branch (fall back for older Git).
+        if self.run(root, &["init", "-b", "main"]).await.is_err() {
+            self.run(root, &["init"]).await?;
+            let _ = self
+                .run(root, &["symbolic-ref", "HEAD", "refs/heads/main"])
+                .await;
+        }
+        let gitignore = root.join(".gitignore");
+        if !gitignore.exists() {
+            let _ = std::fs::write(&gitignore, DEFAULT_GITIGNORE);
+        }
+        self.run(root, &["add", "-A"]).await?;
+        // Tolerate "nothing to commit" for an otherwise-empty project.
+        let _ = self.run(root, &["commit", "-m", "Initial commit"]).await;
+        if let Some(url) = remote.filter(|value| !value.trim().is_empty()) {
+            let _ = self.run(root, &["remote", "remove", "origin"]).await;
+            self.run(root, &["remote", "add", "origin", url]).await?;
+            self.run(root, &["push", "-u", "origin", "HEAD"]).await?;
+        }
+        Ok(VcsOperationResult {
+            stdout: "Repository initialized".into(),
+            stderr: String::new(),
+        })
     }
 
     /// The current branch name (cheap; `HEAD` when detached). Used to annotate

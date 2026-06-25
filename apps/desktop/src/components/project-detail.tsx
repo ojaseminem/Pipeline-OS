@@ -59,6 +59,10 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
   const git = useQuery({ queryKey: ["git-status", project.path], queryFn: () => desktopApi.gitStatus(project.path), enabled: native, retry: false });
   const files = useQuery({ queryKey: ["recent-files", project.path], queryFn: () => desktopApi.recentFiles(project.path, 25), enabled: native });
   const branches = useQuery({ queryKey: ["git-branches", project.path], queryFn: () => desktopApi.gitBranches(project.path), enabled: native, retry: false });
+  const gitInstalled = useQuery({ queryKey: ["git-available"], queryFn: () => desktopApi.gitAvailable(), enabled: native && git.isError, retry: false });
+  const [setupMode, setSetupMode] = useState<"local" | "online">("local");
+  const [remoteUrl, setRemoteUrl] = useState("");
+  const [settingUp, setSettingUp] = useState(false);
   const [sourceView, setSourceView] = useState<"changes" | "history">("changes");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [marked, setMarked] = useState<Set<string>>(new Set());
@@ -162,6 +166,27 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
       setRenaming(false);
       onRenamed?.(next);
     });
+  }
+  async function installGitNow() {
+    setSettingUp(true);
+    try { toast.message(await desktopApi.installGit()); }
+    catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+    finally { setSettingUp(false); }
+  }
+  async function setupGit() {
+    const remote = setupMode === "online" ? remoteUrl.trim() : null;
+    if (setupMode === "online" && !remote) return;
+    const message = remote
+      ? `Initialize Git here, make an initial commit, add ${remote} as origin, and push? If sign-in is required it opens in your browser.`
+      : "Initialize a local Git repository here and make an initial commit?";
+    if (!window.confirm(message)) return;
+    setSettingUp(true);
+    try {
+      await desktopApi.gitInitRepo(project.path, remote, true);
+      toast.success("Git is set up.");
+      await refreshGit();
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+    finally { setSettingUp(false); }
   }
   function saveCategory(category: string | null) {
     void run("Saving category", async () => {
@@ -382,7 +407,29 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
 
         <TabsContent value="source" className="mt-4">
           {git.isError ? (
-            <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">This folder isn't a Git repository (or Git isn't available). Initialize one from your engine or a terminal to track changes here.</p></CardContent></Card>
+            <Card><CardContent className="max-w-xl space-y-4 p-6">
+              <div><h2 className="text-base font-semibold">Set up version control</h2><p className="mt-0.5 text-sm text-muted-foreground">This folder isn't a Git repository yet. Pipeline OS can initialize one so you can track changes, branch, and sync.</p></div>
+              {gitInstalled.data === false ? (
+                <div className="space-y-2">
+                  <p className="text-sm">Git isn't installed on this machine.</p>
+                  <Button disabled={!native || settingUp} onClick={installGitNow}><Download size={15} /> {settingUp ? "Installing…" : "Install Git"}</Button>
+                  <p className="text-xs text-muted-foreground">Installs Git via winget — you may see a Windows permission prompt. Restart Pipeline OS afterward, then return here.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => setSetupMode("local")} className={`rounded-lg border px-3 py-1.5 text-sm ${setupMode === "local" ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}>Local repository</button>
+                    <button onClick={() => setSetupMode("online")} className={`rounded-lg border px-3 py-1.5 text-sm ${setupMode === "online" ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}>Connect to a remote</button>
+                  </div>
+                  {setupMode === "online" ? (
+                    <label className="block text-sm">Remote URL<Input aria-label="Remote URL" placeholder="https://github.com/you/repo.git" value={remoteUrl} onChange={(event) => setRemoteUrl(event.target.value)} className="mt-1" /><span className="mt-1 block text-xs text-muted-foreground">Create the empty repository on your host first. If sign-in is needed it opens in your browser — Pipeline OS never sees your password.</span></label>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Creates a local repository with an initial commit and a starter .gitignore. You can add a remote later.</p>
+                  )}
+                  <Button disabled={!native || settingUp || (setupMode === "online" && !remoteUrl.trim())} onClick={setupGit}><GitBranchPlus size={15} /> {settingUp ? "Setting up…" : "Set up Git"}</Button>
+                </div>
+              )}
+            </CardContent></Card>
           ) : (
             <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
               <Card><CardContent className="p-0">

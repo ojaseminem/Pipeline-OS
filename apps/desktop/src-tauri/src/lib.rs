@@ -1325,6 +1325,86 @@ async fn open_path(path: String) -> Result<(), String> {
     open_with_os(&path).map_err(|e| e.to_string())
 }
 
+/// Resolves the `git` executable: prefers a standard Git-for-Windows install
+/// location (so a freshly winget-installed Git works without restarting), then
+/// falls back to whatever is on `PATH`.
+fn resolve_git_binary() -> PathBuf {
+    #[cfg(windows)]
+    for candidate in [
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files\Git\bin\git.exe",
+        r"C:\Program Files (x86)\Git\cmd\git.exe",
+    ] {
+        if Path::new(candidate).is_file() {
+            return PathBuf::from(candidate);
+        }
+    }
+    PathBuf::from("git")
+}
+
+/// Whether Git is available on this machine.
+#[tauri::command]
+async fn git_available(state: State<'_, DesktopState>) -> Result<bool, String> {
+    Ok(state.service.git_available().await)
+}
+
+/// Initializes a Git repository for a project, optionally adding `remote` and
+/// pushing. Remote auth is handled by the user's Git credential helper.
+#[tauri::command(rename_all = "camelCase")]
+async fn git_init_repo(
+    root: String,
+    remote: Option<String>,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .git_init_repo(Path::new(&root), remote.as_deref(), confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Installs Git via winget (Windows). Returns a message; the app must be
+/// restarted afterwards so the new install is picked up reliably.
+#[tauri::command]
+async fn install_git() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let output = tauri::async_runtime::spawn_blocking(|| {
+            use std::os::windows::process::CommandExt;
+            std::process::Command::new("winget")
+                .args([
+                    "install",
+                    "--id",
+                    "Git.Git",
+                    "-e",
+                    "--accept-source-agreements",
+                    "--accept-package-agreements",
+                ])
+                .creation_flags(0x0800_0000)
+                .output()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            format!("Could not run winget: {e}. Install Git from https://git-scm.com/download/win")
+        })?;
+        if output.status.success() {
+            Ok("Git installed. Restart Pipeline OS, then continue setting up Git.".into())
+        } else {
+            Err(format!(
+                "winget could not install Git: {}. You can install it from https://git-scm.com/download/win",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Automatic install is Windows-only. Install Git with your package manager.".into())
+    }
+}
+
 /// Opens an http(s) URL in the user's default browser. The WebView's
 /// `window.open` is unreliable, so external links route through the OS opener.
 #[tauri::command(rename_all = "camelCase")]
@@ -1375,7 +1455,7 @@ pub fn run() {
                 PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../manifests/apps")
             };
             app.manage(DesktopState {
-                service: ApplicationService::new(storage, GitProvider::new("git")),
+                service: ApplicationService::new(storage, GitProvider::new(resolve_git_binary())),
                 manifest_dir,
                 scan_cancel: Arc::new(AtomicBool::new(false)),
             });
@@ -1401,6 +1481,9 @@ pub fn run() {
             clear_project_thumbnail,
             git_commit_files,
             git_status,
+            git_available,
+            git_init_repo,
+            install_git,
             list_apps,
             scan_apps,
             set_manual_override,
