@@ -1313,6 +1313,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let storage = tauri::async_runtime::block_on(Storage::connect_path(

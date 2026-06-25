@@ -210,6 +210,7 @@ function AppShell() {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [autoUpdate, setAutoUpdate] = useState(() => localStorage.getItem("vantadeck.autoUpdate") !== "false");
   const [appVersion, setAppVersion] = useState("0.2.0");
+  const [autostart, setAutostart] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [onboarding, setOnboarding] = useState(false);
@@ -277,15 +278,20 @@ function AppShell() {
       lastHealthRefresh.current = now;
       desktopApi.refreshHealth(full).then(() => loadHealth()).catch(() => undefined);
     };
-    refresh(true); // actual scan on launch
+    // On launch, run the QUICK check first so health appears immediately and
+    // reliably (no Git/LFS subprocess), then a full pass in the background to add
+    // Git/LFS findings. Focus does a debounced quick refresh.
+    refresh(false);
+    const full = window.setTimeout(() => refresh(true), 2000);
     const onFocus = () => refresh(false);
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    return () => { window.clearTimeout(full); window.removeEventListener("focus", onFocus); };
   }, [loadHealth]);
 
   useEffect(() => {
     if (!isNativeRuntime()) return;
     desktopApi.appVersion().then(setAppVersion).catch(() => undefined);
+    desktopApi.autostartEnabled().then(setAutostart).catch(() => undefined);
     if (autoUpdate) {
       desktopApi.checkForUpdate().then((info) => { if (info.available) setUpdate(info); }).catch(() => undefined);
     }
@@ -297,6 +303,13 @@ function AppShell() {
     setAutoUpdate(enabled);
     localStorage.setItem("vantadeck.autoUpdate", String(enabled));
     if (enabled) desktopApi.checkForUpdate().then((info) => { if (info.available) setUpdate(info); }).catch(() => undefined);
+  }
+  function toggleAutostart(enabled: boolean) {
+    setAutostart(enabled);
+    void run(enabled ? "Enabling launch on startup" : "Disabling launch on startup", async () => {
+      await desktopApi.setAutostart(enabled);
+      setAutostart(await desktopApi.autostartEnabled());
+    });
   }
 
   async function undoLast() {
@@ -783,6 +796,10 @@ function AppShell() {
           </div>
           <label className="flex items-center gap-2 pt-1 text-sm"><input type="checkbox" checked={autoUpdate} onChange={(event) => setAutoUpdatePref(event.target.checked)} className="size-4 accent-[var(--primary)]" /> Automatically check for updates on launch</label>
           <p className="text-xs text-muted-foreground">Update info comes from PipelineOS's GitHub releases. Downloads are verified against the signing key before install.</p>
+        </Panel>
+        <Panel title="Startup">
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={autostart} disabled={!isNativeRuntime()} onChange={(event) => toggleAutostart(event.target.checked)} className="size-4 accent-[var(--primary)]" /> Launch Pipeline OS when I sign in to Windows</label>
+          <p className="text-xs text-muted-foreground">Starts the app automatically at login. You can turn this off any time.</p>
         </Panel>
         <Panel title="Runtime"><p className="text-sm text-muted-foreground">{runtimeLabel}. Network operations are disabled by default; all indexed data is stored locally.</p></Panel>
       </div> : null}

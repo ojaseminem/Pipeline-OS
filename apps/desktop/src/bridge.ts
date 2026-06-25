@@ -163,6 +163,8 @@ export const desktopApi = {
   gitCommitPaths: (root: string, message: string, paths: string[], confirmed: boolean) => invokeDesktop("git_commit_paths", { root, message, paths, confirmed }),
   gitDiscard: (root: string, path: string, confirmed: boolean) => invokeDesktop("git_discard", { root, path, confirmed }),
   appVersion: () => invokeDesktop<string>("app_version"),
+  autostartEnabled: () => invokeDesktop<boolean>("plugin:autostart|is_enabled"),
+  setAutostart: (enabled: boolean) => invokeDesktop<void>(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable"),
 };
 
 /// Opens an external http(s) link: via the OS opener in the desktop app (the

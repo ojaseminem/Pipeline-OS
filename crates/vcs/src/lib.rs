@@ -398,6 +398,11 @@ impl GitProvider {
     async fn run_raw(&self, root: &Path, arguments: &[&str]) -> io::Result<Output> {
         let mut command = Command::new(&self.binary);
         command.current_dir(root).args(arguments);
+        // Never block on an interactive credential/terminal prompt: fail fast
+        // instead, so a repo needing auth can't hang status/health scans.
+        command
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GCM_INTERACTIVE", "never");
         // Run git without flashing a console window on Windows.
         #[cfg(windows)]
         command.creation_flags(0x0800_0000);
