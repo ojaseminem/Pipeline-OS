@@ -135,6 +135,7 @@ pub fn infer_project(root: &Path, name: Option<&str>) -> Result<ProjectConfig, P
         version_control: None,
         enabled_health_checks: vec!["project-path".into(), "linked-apps".into()],
         thumbnail: None,
+        tags: Vec::new(),
     })
 }
 
@@ -174,6 +175,34 @@ pub fn set_project_thumbnail(root: &Path, source: &Path) -> Result<String, Proje
     config.thumbnail = Some(relative.clone());
     save_project(root, &config)?;
     Ok(relative)
+}
+
+/// Reads the project's portable workspace document (notes, to-dos, references)
+/// from `.vantadeck/workspace.json`. Returns `None` when it doesn't exist yet.
+pub fn read_project_workspace(root: &Path) -> Result<Option<String>, ProjectError> {
+    let file = root.join(".vantadeck/workspace.json");
+    match fs::read_to_string(&file) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(ProjectError::Io(error)),
+    }
+}
+
+/// Writes the project's portable workspace document. The caller supplies the
+/// serialized JSON; this only owns the file location under `.vantadeck/`.
+pub fn write_project_workspace(root: &Path, contents: &str) -> Result<(), ProjectError> {
+    let directory = root.join(".vantadeck");
+    fs::create_dir_all(&directory)?;
+    fs::write(directory.join("workspace.json"), contents.as_bytes())?;
+    Ok(())
+}
+
+/// Sets the project's tags in the portable `project.toml`.
+pub fn set_project_tags(root: &Path, tags: &[String]) -> Result<(), ProjectError> {
+    let mut config = load_project(root)?;
+    config.tags = tags.to_vec();
+    save_project(root, &config)?;
+    Ok(())
 }
 
 /// Clears the project thumbnail: removes the stored image file and the
@@ -412,6 +441,7 @@ mod tests {
             version_control: None,
             enabled_health_checks: vec!["project-path".into()],
             thumbnail: None,
+            tags: Vec::new(),
         }
     }
 

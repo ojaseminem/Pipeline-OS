@@ -398,6 +398,43 @@ impl ApplicationService {
         Ok(())
     }
 
+    /// Unregisters a project from the local registry (files left untouched).
+    pub async fn remove_project(&self, root: &Path) -> Result<(), ApplicationError> {
+        self.storage.remove_project(root).await?;
+        self.storage
+            .record_activity("project-remove", &format!("Removed {}", root.display()))
+            .await?;
+        Ok(())
+    }
+
+    /// Sets the project's portable tags in `project.toml`.
+    pub async fn set_project_tags(
+        &self,
+        root: &Path,
+        tags: &[String],
+    ) -> Result<(), ApplicationError> {
+        vantadeck_projects::set_project_tags(root, tags)?;
+        Ok(())
+    }
+
+    /// Reads the portable workspace document (notes/to-dos/references).
+    pub async fn read_project_workspace(
+        &self,
+        root: &Path,
+    ) -> Result<Option<String>, ApplicationError> {
+        Ok(vantadeck_projects::read_project_workspace(root)?)
+    }
+
+    /// Writes the portable workspace document.
+    pub async fn save_project_workspace(
+        &self,
+        root: &Path,
+        contents: &str,
+    ) -> Result<(), ApplicationError> {
+        vantadeck_projects::write_project_workspace(root, contents)?;
+        Ok(())
+    }
+
     /// Sets a portable, team-shared thumbnail for a project from a source image.
     pub async fn set_project_thumbnail(
         &self,

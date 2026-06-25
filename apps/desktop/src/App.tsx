@@ -41,7 +41,7 @@ import { Input } from "@/components/ui/input";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { installedApps as defaultApps, pinnedProjects as defaultPinned, recentProjects as defaultRecent, type Project } from "./data";
-import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onScanProgress, openExternal, type EngineVersionOption, type HealthSummary, type ProjectHealthOverview, type RecentFile, type ScanProgress, type ToolManifest, type UpdateInfo } from "./bridge";
+import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onScanProgress, openExternal, type ActivityRecord, type EngineVersionOption, type HealthSummary, type ProjectHealthOverview, type RecentFile, type ScanProgress, type ToolManifest, type UpdateInfo } from "./bridge";
 import { formatLastOpened, timeAgo } from "./lib/format";
 import { ProjectThumb } from "./components/thumbnail";
 import { Progress } from "@/components/ui/progress";
@@ -52,7 +52,7 @@ import { Onboarding, type OnboardingPrefs } from "./components/onboarding";
 import { PathInput } from "./components/path-input";
 import { ProjectDetail } from "./components/project-detail";
 import { HealthScreen } from "./components/health-screen";
-import { loadCustomApps, loadQuickLaunch, loadTags, loadToolSources, newId, saveCustomApps, saveQuickLaunch, saveToolSources, type CustomApp, type QuickLaunchEntry, type ToolSource } from "./lib/local-store";
+import { loadCustomApps, loadQuickLaunch, loadToolSources, newId, saveCustomApps, saveQuickLaunch, saveToolSources, type CustomApp, type QuickLaunchEntry, type ToolSource } from "./lib/local-store";
 import voidlineImage from "./assets/voidline-reactor.png";
 
 type UndoEntry = { label: string; undo: () => Promise<void>; redo: () => Promise<void> };
@@ -172,6 +172,10 @@ function AppShell() {
   const [continueProject, setContinueProject] = useState<Project | null>(isDemoMode() ? sampleContinueProject : null);
   const [continueFiles, setContinueFiles] = useState<RecentFile[]>([]);
   const [enginePicker, setEnginePicker] = useState<{ path: string; name: string; appId: string; options: EngineVersionOption[] } | null>(null);
+  const [activity, setActivity] = useState<ActivityRecord[]>([]);
+  const [overrideApp, setOverrideApp] = useState<{ id: string; name: string } | null>(null);
+  const [overrideVersion, setOverrideVersion] = useState("");
+  const [overrideExe, setOverrideExe] = useState("");
   const [pinnedProjects, setPinnedProjects] = useState(isDemoMode() ? defaultPinned : []);
   const [recentProjects, setRecentProjects] = useState(isDemoMode() ? defaultRecent : []);
   const [installedApps, setInstalledApps] = useState<Array<{ id: string; name: string; executable?: string | null; versions: string[] }>>(
@@ -242,6 +246,15 @@ function AppShell() {
   }, []);
 
   useEffect(() => { reloadDashboard(); }, [reloadDashboard]);
+
+  // Recent activity for the Home log; refreshes on window focus.
+  useEffect(() => {
+    if (!isNativeRuntime()) return;
+    const load = () => { desktopApi.recentActivity(8).then(setActivity).catch(() => undefined); };
+    load();
+    window.addEventListener("focus", load);
+    return () => window.removeEventListener("focus", load);
+  }, []);
 
   // Recent items for the Continue card (like the dashboard reference).
   useEffect(() => {
@@ -619,8 +632,8 @@ function AppShell() {
           </div>
         </Panel></form>
         {(() => {
-          const allTags = [...new Set(registeredProjects.flatMap((p) => loadTags(p.path)))].sort();
-          const shown = tagFilter ? registeredProjects.filter((p) => loadTags(p.path).includes(tagFilter)) : registeredProjects;
+          const allTags = [...new Set(registeredProjects.flatMap((p) => p.tags))].sort();
+          const shown = tagFilter ? registeredProjects.filter((p) => p.tags.includes(tagFilter)) : registeredProjects;
           return <>
             <div className="flex items-center justify-between gap-3">
               <SectionLabel>Your projects</SectionLabel>
@@ -630,7 +643,7 @@ function AppShell() {
               </div> : null}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">{shown.length ? shown.map((project) => {
-              const projectTags = loadTags(project.path);
+              const projectTags = project.tags;
               return (
                 <Card key={project.path} className="cursor-pointer transition-colors hover:border-primary/50" onClick={() => openProject({ path: project.path, name: project.name })}>
                   <CardContent className="flex items-start gap-3 p-4">
@@ -640,6 +653,7 @@ function AppShell() {
                       <div className="mt-3 flex gap-2">
                         <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); openProject({ path: project.path, name: project.name }); }}>Open</Button>
                         <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); void performUndoable(project.pinned ? "Unpinned project" : "Pinned project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await invalidate.projects(); }, async () => { await desktopApi.pinProject(project.path, project.pinned); await invalidate.projects(); }); }}>{project.pinned ? "Unpin" : "Pin"}</Button>
+                        <Button variant="ghost" size="sm" className="ml-auto text-muted-foreground hover:text-destructive" onClick={(e) => { e.stopPropagation(); if (window.confirm(`Remove "${project.name}" from Pipeline OS? This unregisters it — your files and .vantadeck config stay on disk.`)) void run("Removing project", async () => { await desktopApi.removeProject(project.path); await invalidate.projects(); reloadDashboard(); }); }}>Remove</Button>
                       </div>
                     </div>
                   </CardContent></Card>
@@ -673,7 +687,7 @@ function AppShell() {
                 <Card key={app.id}><CardContent className="flex items-start gap-3 p-4">
                   <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary"><AppIcon executable={iconInstall?.executable} size={26} /></span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2"><h3 className="truncate font-medium">{app.name}</h3>{app.launchable && launchTarget ? <Button variant="outline" size="sm" onClick={() => { if (window.confirm(`Launch ${app.name} ${formatVersion(launchTarget.version)}?`)) void run(`Launching ${app.name}`, () => desktopApi.launchApp(app.id, launchTarget.executable)); }}>Launch</Button> : null}</div>
+                    <div className="flex items-center justify-between gap-2"><h3 className="truncate font-medium">{app.name}</h3><span className="flex shrink-0 items-center gap-1"><Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Set a version override for ${app.name}`} title="Add or override a version (point at a specific executable)" onClick={() => { setOverrideApp({ id: app.id, name: app.name }); setOverrideVersion(""); setOverrideExe(""); }}><Plus size={15} /></Button>{app.launchable && launchTarget ? <Button variant="outline" size="sm" onClick={() => { if (window.confirm(`Launch ${app.name} ${formatVersion(launchTarget.version)}?`)) void run(`Launching ${app.name}`, () => desktopApi.launchApp(app.id, launchTarget.executable)); }}>Launch</Button> : null}</span></div>
                     {app.launchable ? <div className="mt-2 space-y-1">{app.installations.map((item) => {
                       const entry = { id: `${app.id}::${item.executable}`, appId: app.id, name: `${app.name} ${formatVersion(item.version)}`, executable: item.executable, version: item.version, custom: false };
                       const pinned = pinnedIds.has(entry.id);
@@ -896,6 +910,9 @@ function AppShell() {
                   </button>;
                 })}</div> : <EmptyState text="No projects to check yet." />}</CardContent></Card>
                 <Card><CardContent className="p-4"><div className="mb-2 flex items-center justify-between text-sm font-semibold">Installed Apps <Button variant="ghost" size="sm" className="h-auto p-0 text-muted-foreground" onClick={() => openScreen("Applications")}>Manage</Button></div><div className="space-y-1">{installedApps.length ? installedApps.map((app) => <button key={app.name} onClick={() => openScreen("Applications")} title={`Manage ${app.name} versions`} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted/50"><span className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary"><AppIcon executable={app.executable ?? undefined} size={18} /></span><span className="min-w-0 flex-1"><strong className="block truncate">{app.name}</strong><small className="block truncate text-xs text-muted-foreground">{[...new Set(app.versions.map(formatVersion))].join(", ")}</small></span><ChevronRight size={15} className="text-muted-foreground" /></button>) : <EmptyState text="No apps detected yet." />}</div></CardContent></Card>
+                {activity.length ? <Card><CardContent className="p-4"><div className="mb-2 text-sm font-semibold">Recent activity</div><ul className="space-y-1.5">{activity.map((entry) => (
+                  <li key={entry.id} className="flex items-start gap-2 text-sm"><Activity size={14} className="mt-0.5 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1"><span className="block truncate">{entry.message}</span><span className="block text-xs text-muted-foreground">{formatLastOpened(entry.createdAt)}</span></span></li>
+                ))}</ul></CardContent></Card> : null}
               </aside>
             </section>
           </div> : activeScreen === "Project" && selectedProject ? <ProjectDetail project={selectedProject} onBack={() => openScreen("Projects")} onRenamed={() => { void invalidate.projects(); reloadDashboard(); }} onOpenInEngine={requestOpenInEngine} /> : activeScreen === "Health" ? <HealthScreen projects={registeredProjects} onOpenProject={openProject} /> : managementContent}
@@ -910,6 +927,19 @@ function AppShell() {
             <div className="space-y-1">{enginePicker?.options.map((option) => (
               <Button key={option.version} variant="outline" className="w-full justify-start" onClick={() => confirmEnginePick(option.version)}>{formatVersion(option.version)}</Button>
             ))}</div>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={!!overrideApp} onOpenChange={(open) => { if (!open) setOverrideApp(null); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Set a version for {overrideApp?.name}</DialogTitle>
+              <DialogDescription>Point a version at a specific executable on this machine. Useful when a version isn't auto-detected or is detected incorrectly. This override is machine-local.</DialogDescription>
+            </DialogHeader>
+            <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); const app = overrideApp; const version = overrideVersion.trim(); const exe = overrideExe.trim(); if (!app || !version || !exe) return; setOverrideApp(null); void run("Saving version override", async () => { await desktopApi.setManualOverride(app.id, version, exe); await invalidate.apps(); }); }}>
+              <label className="block text-sm">Version<Input aria-label="Version" required placeholder="e.g. 2022.3.18f1" value={overrideVersion} onChange={(e) => setOverrideVersion(e.target.value)} className="mt-1" /></label>
+              <label className="block text-sm">Executable<PathInput ariaLabel="Executable" directory={false} required placeholder="C:/…/app.exe" value={overrideExe} onChange={setOverrideExe} /></label>
+              <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setOverrideApp(null)}>Cancel</Button><Button type="submit" disabled={!isNativeRuntime() || !overrideVersion.trim() || !overrideExe.trim()}>Save override</Button></div>
+            </form>
           </DialogContent>
         </Dialog>
         <Onboarding open={onboarding} onComplete={completeOnboarding} onSkip={skipOnboarding} />

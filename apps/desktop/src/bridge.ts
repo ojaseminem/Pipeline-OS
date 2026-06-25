@@ -8,7 +8,8 @@ export type EngineVersionOption = { version: string; executable: string };
 export type EngineChoice = { appId: string; preferred: string | null; options: EngineVersionOption[] };
 export type AppInstallation = { version: string; executable: string; state: string; runnable: boolean };
 export type ManagedApp = { id: string; name: string; category: string; launchable: boolean; installations: AppInstallation[] };
-export type RegisteredProject = { name: string; path: string; pinned: boolean };
+export type RegisteredProject = { name: string; path: string; pinned: boolean; tags: string[] };
+export type ActivityRecord = { id: number; kind: string; message: string; createdAt: string };
 export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null };
 export type PathInfo = { exists: boolean; isDir: boolean; isFile: boolean };
 export type LaunchProfile = { id: string; name: string; app_id: string; arguments: string[]; working_directory?: string | null; preferred_version?: string | null; fallback_version?: string | null };
@@ -23,6 +24,7 @@ export type ProjectConfig = {
   version_control?: { provider: string; root: string } | null;
   enabled_health_checks: string[];
   thumbnail?: string | null;
+  tags?: string[];
 };
 export type RecentFile = { path: string; name: string; modified: number };
 export type ScanProgress = { completed: number; total: number; current: string; done: boolean };
@@ -113,6 +115,11 @@ export async function loadDashboard(): Promise<DashboardSnapshot> {
 export const desktopApi = {
   listProjects: () => invokeDesktop<RegisteredProject[]>("list_projects"),
   importProject: (root: string, name?: string) => invokeDesktop("import_project", { root, name: name || null }),
+  removeProject: (root: string) => invokeDesktop<void>("remove_project", { root }),
+  setProjectTags: (root: string, tags: string[]) => invokeDesktop<void>("set_project_tags", { root, tags }),
+  readWorkspace: (root: string) => invokeDesktop<string | null>("read_project_workspace", { root }),
+  saveWorkspace: (root: string, contents: string) => invokeDesktop<void>("save_project_workspace", { root, contents }),
+  recentActivity: (limit: number) => invokeDesktop<ActivityRecord[]>("recent_activity", { limit }),
   projectHealth: (root: string) => invokeDesktop<HealthIssue[]>("project_health", { root }),
   cachedHealth: (root: string) => invokeDesktop<CachedHealth | null>("cached_health", { root }),
   healthOverview: () => invokeDesktop<ProjectHealthOverview[]>("health_overview"),

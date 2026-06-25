@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Box, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
@@ -39,6 +39,8 @@ function diffLineClass(line: string): string {
   return "text-muted-foreground";
 }
 
+const EMPTY_WORKSPACE: ProjectWorkspace = { notes: "", todos: [], references: [] };
+
 function timeAgo(epochSeconds: number): string {
   if (!epochSeconds) return "";
   const diff = Math.max(0, Date.now() / 1000 - epochSeconds);
@@ -65,21 +67,55 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
   const commitFiles = useQuery({ queryKey: ["git-commit-files", project.path, expandedCommit], queryFn: () => desktopApi.gitCommitFiles(project.path, expandedCommit as string), enabled: native && !!expandedCommit, retry: false });
   const [health, setHealth] = useState<HealthIssue[]>([]);
   const [healthCheckedAt, setHealthCheckedAt] = useState<string | null>(null);
-  const [ws, setWs] = useState<ProjectWorkspace>(() => loadWorkspace(project.path));
+  const [ws, setWs] = useState<ProjectWorkspace>(() => (native ? EMPTY_WORKSPACE : loadWorkspace(project.path)));
+  const wsLoaded = useRef(false);
   const thumbnail = cfg.data?.thumbnail ?? null;
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [name, setName] = useState(project.name);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(project.name);
-  const [tags, setTags] = useState<string[]>(() => loadTags(project.path));
+  const [tags, setTags] = useState<string[]>(() => (native ? [] : loadTags(project.path)));
   const [tagInput, setTagInput] = useState("");
   const [todoText, setTodoText] = useState("");
   const [refLabel, setRefLabel] = useState("");
   const [refUrl, setRefUrl] = useState("");
   const [commit, setCommit] = useState("");
 
-  useEffect(() => saveWorkspace(project.path, ws), [project.path, ws]);
-  useEffect(() => saveTags(project.path, tags), [project.path, tags]);
+  // Portable workspace (notes/to-dos/references) lives in .vantadeck/workspace.json
+  // so it travels with the repo. Load on mount; in the web demo, fall back to
+  // localStorage. Migrate any prior localStorage workspace into the file once.
+  useEffect(() => {
+    wsLoaded.current = false;
+    if (!native) { setWs(loadWorkspace(project.path)); wsLoaded.current = true; return; }
+    let active = true;
+    desktopApi.readWorkspace(project.path).then((json) => {
+      if (!active) return;
+      if (json) {
+        try { setWs({ ...EMPTY_WORKSPACE, ...(JSON.parse(json) as ProjectWorkspace) }); } catch { setWs(EMPTY_WORKSPACE); }
+      } else {
+        setWs(loadWorkspace(project.path)); // migrate localStorage → file on first save
+      }
+      wsLoaded.current = true;
+    }).catch(() => { wsLoaded.current = true; });
+    return () => { active = false; };
+  }, [native, project.path]);
+
+  // Persist workspace edits (debounced for the native file write).
+  useEffect(() => {
+    if (!wsLoaded.current) return;
+    if (!native) { saveWorkspace(project.path, ws); return; }
+    const timer = setTimeout(() => { void desktopApi.saveWorkspace(project.path, JSON.stringify(ws)).catch(() => undefined); }, 500);
+    return () => clearTimeout(timer);
+  }, [ws, native, project.path]);
+
+  // Tags are portable (in project.toml); reflect the loaded config.
+  useEffect(() => { if (native) setTags(cfg.data?.tags ?? []); }, [native, cfg.data?.tags]);
+
+  function applyTags(next: string[]) {
+    setTags(next);
+    if (native) void run("Saving tags", async () => { await desktopApi.setProjectTags(project.path, next); await queryClient.invalidateQueries({ queryKey: ["project-config", project.path] }); onRenamed?.(name); });
+    else saveTags(project.path, next);
+  }
   useEffect(() => {
     let active = true;
     if (thumbnail && native) {
@@ -140,7 +176,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
 
   function addTag(value: string) {
     const tag = value.trim().toLowerCase();
-    if (tag && !tags.includes(tag)) setTags([...tags, tag]);
+    if (tag && !tags.includes(tag)) applyTags([...tags, tag]);
     setTagInput("");
   }
 
@@ -284,7 +320,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
           <Card className="lg:col-span-2"><CardContent className="space-y-3 p-5">
             <h2 className="flex items-center gap-2 text-base font-semibold"><Tag size={16} /> Tags</h2>
             <div className="flex flex-wrap items-center gap-2">
-              {tags.map((tag) => <span key={tag} className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs">{tag}<button aria-label={`Remove tag ${tag}`} onClick={() => setTags(tags.filter((value) => value !== tag))} className="text-muted-foreground hover:text-foreground"><X size={12} /></button></span>)}
+              {tags.map((tag) => <span key={tag} className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs">{tag}<button aria-label={`Remove tag ${tag}`} onClick={() => applyTags(tags.filter((value) => value !== tag))} className="text-muted-foreground hover:text-foreground"><X size={12} /></button></span>)}
               <form onSubmit={(event) => { event.preventDefault(); addTag(tagInput); }} className="flex">
                 <Input aria-label="Add tag" placeholder="Add tag…" value={tagInput} onChange={(event) => setTagInput(event.target.value)} className="h-8 w-32" />
               </form>

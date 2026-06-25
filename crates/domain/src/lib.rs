@@ -98,6 +98,9 @@ pub struct ProjectConfig {
     /// thumbnail travels with the repository to other machines.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
+    /// User-assigned tags for grouping/filtering. Portable (travels with the repo).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

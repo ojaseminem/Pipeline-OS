@@ -395,6 +395,21 @@ impl Storage {
         Ok(row.map(|row| (row.get("issues_json"), row.get("checked_at"))))
     }
 
+    /// Unregisters a project and drops its cached health. Does not touch the
+    /// project's files on disk (its `.vantadeck/` config stays intact).
+    pub async fn remove_project(&self, root: &std::path::Path) -> Result<(), StorageError> {
+        let path = root.to_string_lossy();
+        sqlx::query("DELETE FROM registered_projects WHERE root_path = ?")
+            .bind(path.as_ref())
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM project_health WHERE root_path = ?")
+            .bind(path.as_ref())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn set_project_name(
         &self,
         root: &std::path::Path,

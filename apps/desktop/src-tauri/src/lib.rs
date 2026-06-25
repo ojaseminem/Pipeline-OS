@@ -76,6 +76,16 @@ struct DesktopProject {
     name: String,
     path: String,
     pinned: bool,
+    tags: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopActivity {
+    id: i64,
+    kind: String,
+    message: String,
+    created_at: String,
 }
 
 #[derive(Serialize)]
@@ -313,16 +323,97 @@ async fn dashboard_snapshot(state: State<'_, DesktopState>) -> Result<DesktopDas
 
 #[tauri::command]
 async fn list_projects(state: State<'_, DesktopState>) -> Result<Vec<DesktopProject>, String> {
-    Ok(state
+    let projects = state
         .service
         .registered_projects()
         .await
+        .map_err(|e| e.to_string())?;
+    let mut result = Vec::with_capacity(projects.len());
+    for project in projects {
+        let tags = state
+            .service
+            .project_config(&project.root)
+            .await
+            .map(|config| config.tags)
+            .unwrap_or_default();
+        result.push(DesktopProject {
+            name: project.name,
+            path: project.root.display().to_string(),
+            pinned: project.pinned,
+            tags,
+        });
+    }
+    Ok(result)
+}
+
+/// Unregisters a project (does not delete its files).
+#[tauri::command(rename_all = "camelCase")]
+async fn remove_project(root: String, state: State<'_, DesktopState>) -> Result<(), String> {
+    state
+        .service
+        .remove_project(Path::new(&root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Sets a project's portable tags (written to project.toml).
+#[tauri::command(rename_all = "camelCase")]
+async fn set_project_tags(
+    root: String,
+    tags: Vec<String>,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    state
+        .service
+        .set_project_tags(Path::new(&root), &tags)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Reads the portable project workspace document (notes/to-dos/references JSON).
+#[tauri::command(rename_all = "camelCase")]
+async fn read_project_workspace(
+    root: String,
+    state: State<'_, DesktopState>,
+) -> Result<Option<String>, String> {
+    state
+        .service
+        .read_project_workspace(Path::new(&root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Writes the portable project workspace document.
+#[tauri::command(rename_all = "camelCase")]
+async fn save_project_workspace(
+    root: String,
+    contents: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    state
+        .service
+        .save_project_workspace(Path::new(&root), &contents)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Recent durable activity (imports, scans, launches, commits, …).
+#[tauri::command]
+async fn recent_activity(
+    limit: u32,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<DesktopActivity>, String> {
+    Ok(state
+        .service
+        .recent_activity(limit)
+        .await
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|p| DesktopProject {
-            name: p.name,
-            path: p.root.display().to_string(),
-            pinned: p.pinned,
+        .map(|record| DesktopActivity {
+            id: record.id,
+            kind: record.kind,
+            message: record.message,
+            created_at: record.created_at,
         })
         .collect())
 }
@@ -1244,6 +1335,11 @@ pub fn run() {
             dashboard_snapshot,
             list_projects,
             import_project,
+            remove_project,
+            set_project_tags,
+            read_project_workspace,
+            save_project_workspace,
+            recent_activity,
             project_health,
             cached_health,
             health_overview,
