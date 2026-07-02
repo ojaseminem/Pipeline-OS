@@ -27,7 +27,7 @@ use vantadeck_domain::{
     AppInstallation, AppState, DetectedApplication, DetectionEvidence, HealthIssue, HealthSeverity,
     LinkedApp, ProjectConfig,
 };
-use vantadeck_health::{HealthCheck, ProjectPathCheck};
+use vantadeck_health::{DiskSpaceCheck, HealthCheck, ProjectPathCheck};
 use vantadeck_launcher::{LaunchError, LaunchSpec, ensure_runnable, resolve_launch_profile};
 use vantadeck_manifests::{AppManifest, ManifestError, ToolManifest};
 use vantadeck_projects::{ProjectError, import_project, load_project};
@@ -36,7 +36,7 @@ use vantadeck_storage::{
 };
 use vantadeck_vcs::{
     ChangedFile, GitCommit, GitProvider, VcsError, VcsOperationResult, VcsStatus,
-    VersionControlProvider, evaluate_lfs_health,
+    VersionControlProvider, evaluate_lfs_health, evaluate_repo_size_health,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -446,6 +446,28 @@ impl ApplicationService {
         Ok(())
     }
 
+    /// Links an app (engine or DCC tool) to a project — either accepting an
+    /// auto-detected suggestion or a manual "add app" pick.
+    pub async fn add_linked_app(
+        &self,
+        root: &Path,
+        app_id: &str,
+        folder: Option<&str>,
+    ) -> Result<(), ApplicationError> {
+        vantadeck_projects::add_linked_app(root, app_id, folder)?;
+        Ok(())
+    }
+
+    /// Removes an app link from a project.
+    pub async fn remove_linked_app(
+        &self,
+        root: &Path,
+        app_id: &str,
+    ) -> Result<(), ApplicationError> {
+        vantadeck_projects::remove_linked_app(root, app_id)?;
+        Ok(())
+    }
+
     /// Reads the portable workspace document (notes/to-dos/references).
     pub async fn read_project_workspace(
         &self,
@@ -795,6 +817,43 @@ impl ApplicationService {
         Ok(self.git.diff(root, path).await?)
     }
 
+    /// Diff for a single path as introduced by a specific commit.
+    pub async fn vcs_commit_diff(
+        &self,
+        root: &Path,
+        hash: &str,
+        path: &str,
+    ) -> Result<String, ApplicationError> {
+        Ok(self.git.commit_diff(root, hash, path).await?)
+    }
+
+    pub async fn vcs_has_uncommitted_changes(&self, root: &Path) -> Result<bool, ApplicationError> {
+        Ok(self.git.has_uncommitted_changes(root).await?)
+    }
+
+    pub async fn vcs_stash_push(
+        &self,
+        root: &Path,
+        message: &str,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("Stashing changes", confirmed)?;
+        Ok(self.git.stash_push(root, message).await?)
+    }
+
+    pub async fn vcs_stash_pop(
+        &self,
+        root: &Path,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("Restoring stashed changes", confirmed)?;
+        Ok(self.git.stash_pop(root).await?)
+    }
+
+    pub async fn vcs_stash_list(&self, root: &Path) -> Result<Vec<String>, ApplicationError> {
+        Ok(self.git.stash_list(root).await?)
+    }
+
     pub async fn vcs_commit_paths(
         &self,
         root: &Path,
@@ -886,6 +945,7 @@ impl ApplicationService {
         if !issues.is_empty() {
             return issues;
         }
+        issues.extend(DiskSpaceCheck.run(root).await);
         match load_project(root) {
             Ok(config) => {
                 for linked_app in &config.linked_apps {
@@ -901,6 +961,31 @@ impl ApplicationService {
                             ),
                             checked_at: Utc::now(),
                         }),
+                        // A prior scan found it, but the executable is gone now (uninstalled,
+                        // moved, or on a disconnected drive) — the cached detection is stale.
+                        Ok(installations)
+                            if !installations
+                                .iter()
+                                .any(|installation| installation.executable.is_file()) =>
+                        {
+                            issues.push(HealthIssue {
+                                code: "APP_INSTALL_STALE".into(),
+                                severity: HealthSeverity::Warning,
+                                title: format!("{} installation may be out of date", linked_app.app_id),
+                                detail: format!(
+                                    "None of the previously detected installations exist at their recorded path anymore: {}",
+                                    installations
+                                        .iter()
+                                        .map(|installation| installation.executable.display().to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                ),
+                                remediation: Some(
+                                    "Rescan applications to refresh detected installation paths.".into(),
+                                ),
+                                checked_at: Utc::now(),
+                            });
+                        }
                         Err(error) => issues.push(HealthIssue {
                             code: "APP_CHECK_FAILED".into(),
                             severity: HealthSeverity::Error,
@@ -965,6 +1050,8 @@ impl ApplicationService {
         }
         let probe = self.git.lfs_probe(root, 50 * 1024 * 1024).await;
         issues.extend(evaluate_lfs_health(&probe));
+        let repo_size = self.git.repo_size_bytes(root).await;
+        issues.extend(evaluate_repo_size_health(repo_size));
         issues
     }
 

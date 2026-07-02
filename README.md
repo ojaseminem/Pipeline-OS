@@ -32,6 +32,7 @@ Manage projects, creative applications, health checks, launch profiles, and sour
 
 Creative projects rarely use one application. A game project may depend on multiple engine versions, DCC packages, editors, source-control tools, local utilities, and platform-specific paths. Pipeline OS provides one transparent local workspace for those dependencies without introducing another account or cloud service.
 
+- **Free and open source:** MIT-licensed, free for personal and commercial use — no paid tiers, seats, or feature gates.
 - **Local-first:** project discovery, preferences, caches, and activity remain on your machine.
 - **Account-free:** no sign-in is required for core workflows.
 - **Private by default:** no telemetry, advertising, analytics, or background network traffic.
@@ -79,6 +80,8 @@ Creative projects rarely use one application. A game project may depend on multi
 - Imports Unity, Unreal Engine, Godot, Blender/Maya, and generic creative folders.
 - Stores canonical team configuration in `.vantadeck/project.toml`.
 - Supports linked applications, preferred versions, fallbacks, launch profiles, shortcuts, VCS configuration, and enabled health checks.
+- Auto-detects DCC tools used in a project (Maya, Substance Painter, ZBrush, Houdini, and any app with a manifest) by matching file extensions found in the project, with a one-click "add" suggestion and manual override.
+- Shows each linked app's own project files (not just the engine's), with a version picker and one-click open.
 - Uses revision-checked writes, recovery backups, no-replace publication, and conflict preservation for external edits.
 - Keeps project pinning, search state, local paths, and activity in SQLite.
 
@@ -91,11 +94,13 @@ Creative projects rarely use one application. A game project may depend on multi
 
 ### Source Control And Health
 
-- Git status, branch switching, fast-forward pull, commit, and push operations.
-- Git LFS installation, tracking, large-file, and missing-object diagnostics.
+- Git status, history with per-file commit diffs, branch switching, fast-forward pull, commit, and push operations.
+- Branch switching prompts to bring or leave uncommitted changes (via a labeled stash), mirroring GitHub Desktop, and offers to restore them next time you're back on that branch.
+- Automatic, silent recovery from common corrupted local ref states (e.g. a stale `origin/HEAD`) that would otherwise break fetch/pull with a confusing error.
+- Git LFS diagnostics that only flag "LFS not configured" when the project actually has large files that need it — not on every repo.
 - Typed Perforce diagnosis, sync, opened files, reconcile, changelists, submit, locks, timeouts, and caller cancellation.
 - Confirmation gates at both client and shared application-service boundaries for repository mutations.
-- Project path, linked-application, launch-profile, Git, and LFS health reporting with stable error codes.
+- Project path, linked-application, launch-profile, Git, Git LFS, disk-space, and repository-size health reporting with stable error codes.
 
 ### Curated Tools Metadata
 
@@ -127,6 +132,10 @@ The built-in catalog currently includes:
 The manifest format is open and documented in [APP_MANIFEST_SPEC.md](docs/APP_MANIFEST_SPEC.md). New official manifests require schema validation, structured launch arguments, provenance, tests, and review.
 
 ## Getting Started
+
+### Download
+
+Grab the latest signed Windows build from [GitHub Releases](https://github.com/ojaseminem/Vantadeck/releases/latest) — no account, installer license, or payment required. The app self-updates after that. The installer isn't code-signed yet, so Windows SmartScreen shows an "unknown publisher" prompt on first run — choose *More info → Run anyway* (see [Known limitations](#known-limitations-v1)). Prefer to build it yourself? Follow the steps below.
 
 ### Prerequisites
 
@@ -302,7 +311,7 @@ Vantadeck is designed to remain useful with networking disabled.
 - Manifests cannot provide shell command strings.
 - Remote tool metadata is treated as untrusted and validated before caching.
 - Downloaded content is never executed automatically.
-- Release automation produces checksums, SBOMs, provenance attestations, and Sigstore bundles; platform signing remains a release gate.
+- Release automation produces checksums, SBOMs, and GitHub provenance/SBOM attestations. Every published file is also Sigstore-signed and logged to the public Rekor transparency log (verify with `cosign verify-blob` or `gh attestation verify`) — the release page itself only carries the installers, `SHA256SUMS.txt`, and the two SBOMs, not a signature bundle per file. Platform signing remains a release gate.
 
 Report vulnerabilities privately according to [SECURITY.md](SECURITY.md). Do not open public issues containing exploit details, credentials, private repository URLs, or proprietary project data.
 
@@ -391,7 +400,7 @@ Major decisions follow the public [RFC process](docs/RFC_PROCESS.md). Maintainer
 
 ## License
 
-Vantadeck source code is licensed under the [Apache License 2.0](LICENSE). Documentation is licensed under CC BY 4.0 unless a file states otherwise. Contributions use DCO sign-off rather than a contributor license agreement.
+Vantadeck source code is free and open source, licensed under the [MIT License](LICENSE) — free for personal and commercial use, with no royalties or paid tiers. Documentation is licensed under CC BY 4.0 unless a file states otherwise. Contributions use DCO sign-off rather than a contributor license agreement.
 
 ---
 

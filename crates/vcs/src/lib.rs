@@ -210,6 +210,19 @@ impl GitProvider {
         Ok(untracked)
     }
 
+    /// Diff for a single path as introduced by a specific commit (vs its parent).
+    pub async fn commit_diff(
+        &self,
+        root: &Path,
+        hash: &str,
+        path: &str,
+    ) -> Result<String, VcsError> {
+        let output = self
+            .run(root, &["show", "--format=", hash, "--", path])
+            .await?;
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
     /// Files changed by a single commit, with their status letters (A/M/D/R…).
     pub async fn commit_files(
         &self,
@@ -280,6 +293,45 @@ impl GitProvider {
                 stderr: String::new(),
             })
         }
+    }
+
+    /// Stashes all local changes (including untracked files) under a labeled
+    /// message, so they can be identified and restored later — used to let a
+    /// user "leave changes behind" when switching branches.
+    pub async fn stash_push(
+        &self,
+        root: &Path,
+        message: &str,
+    ) -> Result<VcsOperationResult, VcsError> {
+        self.operation(
+            root,
+            &["stash", "push", "--include-untracked", "-m", message],
+        )
+        .await
+    }
+
+    /// Re-applies and drops the most recent stash — used to "bring changes"
+    /// along after switching branches.
+    pub async fn stash_pop(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
+        self.operation(root, &["stash", "pop"]).await
+    }
+
+    /// Stash entries as `stash@{n} <message>` lines, newest first.
+    pub async fn stash_list(&self, root: &Path) -> Result<Vec<String>, VcsError> {
+        let output = self
+            .run(root, &["stash", "list", "--format=%gd\u{1f}%s"])
+            .await?;
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_owned)
+            .filter(|line| !line.is_empty())
+            .collect())
+    }
+
+    /// Whether there are any uncommitted changes (staged, unstaged, or
+    /// untracked) in the working tree.
+    pub async fn has_uncommitted_changes(&self, root: &Path) -> Result<bool, VcsError> {
+        Ok(!self.status(root).await?.changed_files.is_empty())
     }
 
     /// Whether a usable `git` is available on this machine.
@@ -447,6 +499,29 @@ impl GitProvider {
         }
     }
 
+    /// Total size in bytes of the `.git` directory — a proxy for repository
+    /// history bloat (large blobs committed directly instead of via LFS,
+    /// unpruned history, etc.). Runs on a blocking thread since it walks the
+    /// whole directory tree.
+    pub async fn repo_size_bytes(&self, root: &Path) -> u64 {
+        let git_dir = root.join(".git");
+        tokio::task::spawn_blocking(move || {
+            if !git_dir.is_dir() {
+                return 0;
+            }
+            WalkDir::new(&git_dir)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().is_file())
+                .filter_map(|entry| entry.metadata().ok())
+                .map(|metadata| metadata.len())
+                .sum()
+        })
+        .await
+        .unwrap_or(0)
+    }
+
     async fn operation(
         &self,
         root: &Path,
@@ -464,10 +539,69 @@ impl GitProvider {
         if output.status.success() {
             return Ok(output);
         }
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        // A handful of Git failures stem from a stale/corrupted local ref state
+        // (most commonly `refs/remotes/origin/HEAD` left pointing at a bad
+        // object after an interrupted clone or a remote default-branch rename)
+        // rather than anything the user did. These are silently self-healable:
+        // repair the ref state and retry once before surfacing an error.
+        if Self::looks_like_corrupt_ref_error(&stderr) {
+            self.repair_corrupt_refs(root).await;
+            let retry = self.run_raw(root, arguments).await?;
+            if retry.status.success() {
+                return Ok(retry);
+            }
+            return Err(VcsError::CommandFailed {
+                command: format!("git {}", arguments.join(" ")),
+                stderr: String::from_utf8_lossy(&retry.stderr).trim().to_owned(),
+            });
+        }
         Err(VcsError::CommandFailed {
             command: format!("git {}", arguments.join(" ")),
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            stderr,
         })
+    }
+
+    /// Whether a Git failure looks like stale/corrupted local ref state rather
+    /// than a real error (auth, conflicts, etc.) worth surfacing as-is.
+    fn looks_like_corrupt_ref_error(stderr: &str) -> bool {
+        stderr.contains("bad object refs/remotes/")
+            || stderr.contains("did not send all necessary objects")
+            || stderr.contains("unable to resolve reference")
+            || (stderr.contains("fatal:") && stderr.contains("ambiguous argument 'HEAD'"))
+            || stderr.contains("HEAD: not a valid SHA1")
+    }
+
+    /// Best-effort, silent repair of common corrupted-ref states: removes a
+    /// bad `refs/remotes/origin/HEAD` (found zeroed-out or otherwise invalid
+    /// after some interrupted operations) and reconstructs it from the
+    /// remote's actual default branch. Never surfaces failures to the caller —
+    /// worst case, the retried command fails again with its original error.
+    async fn repair_corrupt_refs(&self, root: &Path) {
+        let git_dir = self
+            .run_raw(root, &["rev-parse", "--git-common-dir"])
+            .await
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
+        if let Some(git_dir) = git_dir {
+            let git_dir = if Path::new(&git_dir).is_absolute() {
+                PathBuf::from(git_dir)
+            } else {
+                root.join(git_dir)
+            };
+            let bad_head = git_dir
+                .join("refs")
+                .join("remotes")
+                .join("origin")
+                .join("HEAD");
+            if bad_head.exists() {
+                let _ = std::fs::remove_file(&bad_head);
+            }
+        }
+        let _ = self
+            .run_raw(root, &["remote", "set-head", "origin", "-a"])
+            .await;
     }
 
     async fn run_raw(&self, root: &Path, arguments: &[&str]) -> io::Result<Output> {
@@ -520,7 +654,14 @@ pub struct LfsProbe {
 
 pub fn evaluate_lfs_health(probe: &LfsProbe) -> Vec<HealthIssue> {
     let mut issues = Vec::new();
-    if !probe.installed {
+    // A project only "needs" LFS if it has already opted in (`.gitattributes`
+    // declares an lfs filter) or it has large files that should be tracked by
+    // one. This mirrors how GitHub Desktop decides whether to surface LFS at
+    // all: it prompts based on large-file detection, not a blanket "you
+    // don't have LFS configured" warning on every repository regardless of
+    // whether it has anything LFS would ever touch.
+    let needs_lfs = probe.initialized || !probe.large_untracked_files.is_empty();
+    if needs_lfs && !probe.installed {
         issues.push(health_issue(
             "GIT_LFS_NOT_INSTALLED",
             HealthSeverity::Error,
@@ -528,15 +669,15 @@ pub fn evaluate_lfs_health(probe: &LfsProbe) -> Vec<HealthIssue> {
             "Install Git LFS before syncing repositories that use LFS.",
         ));
     }
-    if !probe.initialized {
+    if !probe.initialized && !probe.large_untracked_files.is_empty() {
         issues.push(health_issue(
             "GIT_LFS_NOT_INITIALIZED",
             HealthSeverity::Warning,
-            "Git LFS is not configured",
-            "Add reviewed LFS patterns to .gitattributes.",
+            "Large files aren't tracked by Git LFS yet",
+            "This project has large files that most remotes reject or discourage in normal Git history. Add LFS patterns to .gitattributes and run `git lfs track`.",
         ));
     }
-    if probe.missing_objects {
+    if needs_lfs && probe.missing_objects {
         issues.push(health_issue(
             "GIT_LFS_MISSING_OBJECTS",
             HealthSeverity::Error,
@@ -555,6 +696,31 @@ pub fn evaluate_lfs_health(probe: &LfsProbe) -> Vec<HealthIssue> {
         });
     }
     issues
+}
+
+const LARGE_REPO_HISTORY_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
+
+/// Flags a bloated `.git` directory — usually large binaries committed
+/// directly into history instead of through LFS, which makes every clone,
+/// fetch, and checkout slower over time and can't be fixed by discarding the
+/// working tree (the bloat lives in history).
+pub fn evaluate_repo_size_health(size_bytes: u64) -> Vec<HealthIssue> {
+    if size_bytes < LARGE_REPO_HISTORY_BYTES {
+        return Vec::new();
+    }
+    vec![HealthIssue {
+        code: "REPO_HISTORY_LARGE".into(),
+        severity: HealthSeverity::Warning,
+        title: "Git history is large".into(),
+        detail: format!(
+            "The .git folder is {:.1} GB, which slows down clones, fetches, and checkouts.",
+            size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+        ),
+        remediation: Some(
+            "Track large binaries with Git LFS going forward, and consider rewriting history (e.g. git filter-repo) to remove existing large blobs if this repo will be cloned often.".into(),
+        ),
+        checked_at: Utc::now(),
+    }]
 }
 
 fn health_issue(

@@ -13,11 +13,15 @@ decision after evidence review and native validation.
 4. Let the tag workflow build Windows, macOS, and Linux bundles on their corresponding
    GitHub-hosted runners. A manual rebuild must select the existing tag, not a branch.
 
-The workflow records the tag commit, run URL, artifact sizes, sorted SHA-256 hashes,
-source SBOM, packaged-artifact SBOM, GitHub provenance/SBOM attestations, and Sigstore
-bundles. Native packaging tools can embed timestamps or nondeterministic metadata, so
-equal source inputs do not currently promise byte-for-byte identical installers.
-Differences must be explained before promotion.
+The workflow records the tag commit, run URL, sorted SHA-256 hashes, source SBOM,
+packaged-artifact SBOM, and GitHub provenance/SBOM attestations. Every published file is
+also keyless-signed and logged to the public Rekor transparency log, but — to keep the
+release page to the files a user actually needs — the signature bundle itself isn't
+attached as a separate downloadable asset; verify with `cosign verify-blob` (against
+Rekor) or `gh attestation verify` (against the GitHub attestation store) instead of a
+bundled `.sigstore.json` file. Native packaging tools can embed timestamps or
+nondeterministic metadata, so equal source inputs do not currently promise byte-for-byte
+identical installers. Differences must be explained before promotion.
 
 ## Evidence review
 
@@ -26,8 +30,10 @@ For every draft:
 - Confirm the workflow resolved the expected tag and commit.
 - Confirm all three build jobs and the assembly job completed without overrides.
 - Download release assets into a clean directory and verify `SHA256SUMS.txt`.
-- Verify each `.sigstore.json` bundle against the repository workflow identity and
-  expected issuer using `cosign verify-blob`.
+- Verify each asset against Rekor and the expected workflow identity/issuer using
+  `cosign verify-blob --certificate-identity ... --certificate-oidc-issuer ...` (no
+  local `.sigstore.json` bundle is published; `cosign` resolves the signature from
+  Rekor by the file's digest).
 - Verify GitHub artifact attestations with `gh attestation verify --repo OWNER/REPO`.
 - Review both SBOMs for unexpected packages, missing Rust/Node lockfile coverage, and
   components with prohibited licenses or known critical vulnerabilities.

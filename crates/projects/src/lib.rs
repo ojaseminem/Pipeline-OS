@@ -216,6 +216,33 @@ pub fn set_project_category(root: &Path, category: Option<&str>) -> Result<(), P
     Ok(())
 }
 
+/// Adds an app to the project's linked apps (manual override alongside
+/// auto-detection), if it isn't already linked. No-op otherwise.
+pub fn add_linked_app(root: &Path, app_id: &str, folder: Option<&str>) -> Result<(), ProjectError> {
+    let mut config = load_project(root)?;
+    if !config.linked_apps.iter().any(|app| app.app_id == app_id) {
+        config.linked_apps.push(LinkedApp {
+            app_id: app_id.to_owned(),
+            preferred_version: None,
+            project_file: None,
+            folder: folder.map(str::to_owned),
+        });
+        save_project(root, &config)?;
+    }
+    Ok(())
+}
+
+/// Removes an app from the project's linked apps, if present.
+pub fn remove_linked_app(root: &Path, app_id: &str) -> Result<(), ProjectError> {
+    let mut config = load_project(root)?;
+    let before = config.linked_apps.len();
+    config.linked_apps.retain(|app| app.app_id != app_id);
+    if config.linked_apps.len() != before {
+        save_project(root, &config)?;
+    }
+    Ok(())
+}
+
 /// Clears the project thumbnail: removes the stored image file and the
 /// `thumbnail` entry from `project.toml`.
 pub fn clear_project_thumbnail(root: &Path) -> Result<(), ProjectError> {

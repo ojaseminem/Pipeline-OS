@@ -1,6 +1,7 @@
 {
   "name": "vantadeck-workspace",
   "private": true,
+  "license": "MIT",
   "workspaces": ["apps/desktop"],
   "scripts": {
     "build": "npm run build --workspace @vantadeck/desktop",

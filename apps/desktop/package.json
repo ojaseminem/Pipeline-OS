@@ -1,6 +1,7 @@
 {
   "name": "@vantadeck/desktop",
   "version": "0.3.7",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {

@@ -62,6 +62,21 @@ fn manifest_catalog(manifest_dir: &Path) -> Vec<(String, String, String)> {
     catalog.sort_by_key(|(_, name, _)| name.to_lowercase());
     catalog
 }
+
+/// All valid, bundled app manifests — used for generic per-project app
+/// detection (matching a project's files against every manifest's
+/// `fileTypes`, rather than hard-coding a list of DCC tools).
+fn load_all_manifests(manifest_dir: &Path) -> Vec<AppManifest> {
+    let Ok(entries) = std::fs::read_dir(manifest_dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.path().extension().and_then(|value| value.to_str()) == Some("json"))
+        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+        .filter_map(|text| AppManifest::from_json(&text).ok())
+        .collect()
+}
 const TOOL_INDEX_SOURCE: &str = "https://tools.vantadeck.org/v1/index.json";
 
 struct DesktopState {
@@ -395,6 +410,95 @@ async fn set_project_category(
         .map_err(|e| e.to_string())
 }
 
+/// Links an app (engine or DCC tool) to a project — from an auto-detected
+/// suggestion or a manual "add app" pick.
+#[tauri::command(rename_all = "camelCase")]
+async fn add_linked_app(
+    root: String,
+    app_id: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    state
+        .service
+        .add_linked_app(Path::new(&root), &app_id, None)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Unlinks an app from a project.
+#[tauri::command(rename_all = "camelCase")]
+async fn remove_linked_app(
+    root: String,
+    app_id: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    state
+        .service
+        .remove_linked_app(Path::new(&root), &app_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Scans a project's files for extensions matching any known DCC/engine/art
+/// app manifest and returns the app ids not already linked to the project —
+/// candidates for the "detected apps" suggestion banner. Convention-based:
+/// no per-app configuration needed, driven entirely by each manifest's
+/// `fileTypes`.
+#[tauri::command(rename_all = "camelCase")]
+async fn detect_project_apps(
+    root: String,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<String>, String> {
+    let root_path = PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Ok(Vec::new());
+    }
+    let manifest_dir = state.manifest_dir.clone();
+    let scan_root = root_path.clone();
+    let detected = tauri::async_runtime::spawn_blocking(move || {
+        let manifests = load_all_manifests(&manifest_dir);
+        let mut files = Vec::new();
+        collect_recent(&scan_root, 4, &mut files);
+        let extensions: std::collections::HashSet<String> = files
+            .iter()
+            .filter_map(|(path, _)| {
+                path.extension()
+                    .and_then(|value| value.to_str())
+                    .map(|value| value.to_ascii_lowercase())
+            })
+            .collect();
+        let mut ids: Vec<String> = manifests
+            .into_iter()
+            .filter(|manifest| is_launchable_category(category_str(&manifest.category)))
+            .filter(|manifest| {
+                manifest.file_types.iter().any(|file_type| {
+                    extensions.contains(
+                        file_type
+                            .trim_start_matches('.')
+                            .to_ascii_lowercase()
+                            .as_str(),
+                    )
+                })
+            })
+            .map(|manifest| manifest.id)
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let config = state
+        .service
+        .project_config(&root_path)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(detected
+        .into_iter()
+        .filter(|id| !config.linked_apps.iter().any(|app| &app.app_id == id))
+        .collect())
+}
+
 /// Unregisters a project (does not delete its files).
 #[tauri::command(rename_all = "camelCase")]
 async fn remove_project(root: String, state: State<'_, DesktopState>) -> Result<(), String> {
@@ -699,6 +803,22 @@ async fn git_diff(
     state
         .service
         .vcs_diff(Path::new(&root), &path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Diff for a single path as introduced by a specific commit (for the
+/// source-control history view).
+#[tauri::command(rename_all = "camelCase")]
+async fn git_commit_diff(
+    root: String,
+    hash: String,
+    path: String,
+    state: State<'_, DesktopState>,
+) -> Result<String, String> {
+    state
+        .service
+        .vcs_commit_diff(Path::new(&root), &hash, &path)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1049,6 +1169,61 @@ async fn git_branches(root: String, state: State<'_, DesktopState>) -> Result<Ve
     state
         .service
         .vcs_branches(Path::new(&root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Whether the working tree has uncommitted changes — checked before a branch
+/// switch so the UI can offer to bring or leave them behind.
+#[tauri::command(rename_all = "camelCase")]
+async fn git_has_uncommitted_changes(
+    root: String,
+    state: State<'_, DesktopState>,
+) -> Result<bool, String> {
+    state
+        .service
+        .vcs_has_uncommitted_changes(Path::new(&root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn git_stash_push(
+    root: String,
+    message: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_stash_push(Path::new(&root), &message, confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn git_stash_pop(
+    root: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_stash_pop(Path::new(&root), confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn git_stash_list(
+    root: String,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<String>, String> {
+    state
+        .service
+        .vcs_stash_list(Path::new(&root))
         .await
         .map_err(|e| e.to_string())
 }
@@ -1438,23 +1613,75 @@ async fn read_tools_from_dir(path: String) -> Result<Vec<ToolManifest>, String> 
     Ok(tools)
 }
 
+/// Opens a path or URL with the OS's default handler.
+///
+/// On Windows this deliberately avoids `cmd /C start` (or any other route
+/// through `cmd.exe`): `cmd.exe` re-parses its command line for its own
+/// metacharacters (`&`, `|`, `%`, ...) even inside an argument that Rust's
+/// `Command` quoted correctly, so a path or URL containing one of those
+/// characters (e.g. a maliciously named file, or a link with `&calc.exe`
+/// appended) could execute an unintended second command. `ShellExecuteW`
+/// launches the associated handler directly — the same call Explorer makes —
+/// with no intermediate shell to reinterpret the string.
+#[cfg(windows)]
 fn open_with_os(path: &str) -> std::io::Result<()> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", path])
-            .creation_flags(0x0800_0000)
-            .spawn()?;
+    use std::ffi::{OsStr, c_void};
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show_cmd: i32,
+        ) -> isize;
     }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open").arg(path).spawn()?;
+
+    fn wide(value: &str) -> Vec<u16> {
+        OsStr::new(value)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open").arg(path).spawn()?;
+
+    const SW_SHOWNORMAL: i32 = 1;
+    let operation = wide("open");
+    let file = wide(path);
+    // SAFETY: `operation` and `file` are NUL-terminated UTF-16 buffers kept
+    // alive for the duration of the call; all other pointer arguments are
+    // deliberately null, which ShellExecuteW documents as valid ("use
+    // defaults"). The return value is an HINSTANCE-shaped status code, not a
+    // handle we own, so there is nothing to free.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW returns a value > 32 on success; anything else is an error code.
+    if result > 32 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn open_with_os(path: &str) -> std::io::Result<()> {
+    std::process::Command::new("open").arg(path).spawn()?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn open_with_os(path: &str) -> std::io::Result<()> {
+    std::process::Command::new("xdg-open").arg(path).spawn()?;
     Ok(())
 }
 
@@ -1610,6 +1837,9 @@ pub fn run() {
             remove_project,
             set_project_tags,
             set_project_category,
+            add_linked_app,
+            remove_linked_app,
+            detect_project_apps,
             read_project_workspace,
             save_project_workspace,
             recent_activity,
@@ -1659,8 +1889,13 @@ pub fn run() {
             git_create_branch,
             git_log,
             git_diff,
+            git_commit_diff,
             git_discard,
             git_commit_paths,
+            git_has_uncommitted_changes,
+            git_stash_push,
+            git_stash_pop,
+            git_stash_list,
             app_version
         ])
         .run(tauri::generate_context!())

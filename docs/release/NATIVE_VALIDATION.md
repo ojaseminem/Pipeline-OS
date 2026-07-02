@@ -14,7 +14,7 @@ fields are failures, not implied passes.
 ## Artifact evidence
 
 - `SHA256SUMS.txt` verified:
-- Sigstore bundles verified against expected workflow identity:
+- Sigstore signatures verified against Rekor and the expected workflow identity (`cosign verify-blob`):
 - GitHub build provenance verified:
 - GitHub SBOM attestation verified:
 - Source SBOM reviewed for Rust and Node coverage:

@@ -137,11 +137,8 @@ jobs:
           format: spdx-json
           output-file: artifact-sbom.spdx.json
           upload-artifact: false
-      - name: Create deterministic checksum and artifact manifests
+      - name: Assemble distributable installers
         shell: bash
-        env:
-          VALIDATED_TAG: ${{ needs.validate-ref.outputs.tag }}
-          VALIDATED_SHA: ${{ needs.validate-ref.outputs.sha }}
         run: |
           set -euo pipefail
           mkdir release-assets
@@ -155,30 +152,34 @@ jobs:
             cp "${file}" "release-assets/${name}"
           done < <(find artifacts -type f -print0 | sort -z)
           test -n "$(find release-assets -maxdepth 1 -type f -print -quit)" || { echo "no distributable release assets found" >&2; exit 1; }
-          (cd release-assets && find . -maxdepth 1 -type f -printf '%f\0' | sort -z | xargs -0 sha256sum) > SHA256SUMS.txt
-          {
-            printf 'release_tag=%s\n' "${VALIDATED_TAG}"
-            printf 'release_sha=%s\n' "${VALIDATED_SHA}"
-            printf 'workflow_run=%s/actions/runs/%s\n' "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
-            find release-assets -maxdepth 1 -type f -printf '%s %f\n' | sort -k2
-          } > ARTIFACTS.txt
       - name: Generate auto-updater feed (latest.json)
         shell: bash
         env:
           VALIDATED_TAG: ${{ needs.validate-ref.outputs.tag }}
         run: node source/scripts/generate-latest-json.mjs artifacts release-assets "${VALIDATED_TAG}"
+      - name: Create deterministic checksum manifest
+        # Runs after the updater feed step so it covers every published file,
+        # including the updater .zip/.sig artifacts added above.
+        shell: bash
+        run: (cd release-assets && find . -maxdepth 1 -type f -printf '%f\0' | sort -z | xargs -0 sha256sum) > SHA256SUMS.txt
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - name: Keyless-sign artifacts and release evidence
+        # Signs every published file and logs each signature to the public
+        # Rekor transparency log (independently verifiable with `cosign
+        # verify-blob`), without also attaching a `.sigstore.json` bundle per
+        # file to the release — that data is already published, queryable,
+        # and tied to this exact workflow run via GitHub's native Artifact
+        # Attestations (`gh attestation verify`), so a second copy per asset
+        # on the release page is redundant clutter rather than added security.
         shell: bash
         run: |
           set -euo pipefail
-          mkdir signatures
           mapfile -d '' files < <(find release-assets -maxdepth 1 -type f -print0 | sort -z)
           for file in "${files[@]}"; do
-            cosign sign-blob --yes --bundle "signatures/$(basename "${file}").sigstore.json" "${file}"
+            cosign sign-blob --yes "${file}" > /dev/null
           done
-          for file in SHA256SUMS.txt ARTIFACTS.txt source-sbom.spdx.json artifact-sbom.spdx.json; do
-            cosign sign-blob --yes --bundle "${file}.sigstore.json" "${file}"
+          for file in SHA256SUMS.txt source-sbom.spdx.json artifact-sbom.spdx.json; do
+            cosign sign-blob --yes "${file}" > /dev/null
           done
       - name: Attest build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
@@ -198,12 +199,6 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             release-assets/*
-            signatures/*
             SHA256SUMS.txt
-            SHA256SUMS.txt.sigstore.json
-            ARTIFACTS.txt
-            ARTIFACTS.txt.sigstore.json
             source-sbom.spdx.json
-            source-sbom.spdx.json.sigstore.json
             artifact-sbom.spdx.json
-            artifact-sbom.spdx.json.sigstore.json

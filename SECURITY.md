@@ -27,9 +27,13 @@ downloaded tools, and stores no credentials in SQLite or project files.
 
 Pull requests and the default branch run secret, dependency, advisory, source, and
 license checks. Release workflows build each desktop target on its native GitHub-hosted
-runner and produce SHA-256 checksums, source and artifact SBOMs, GitHub attestations,
-and keyless Sigstore bundles. Actions are pinned to immutable revisions and workflows
-use least-privilege job permissions.
+runner and produce SHA-256 checksums, source and artifact SBOMs, and GitHub build
+provenance/SBOM attestations. Every published file is also keyless-signed with Sigstore
+and logged to the public Rekor transparency log; the release page itself only carries
+the installers, checksums, and SBOMs (not a redundant `.sigstore.json` bundle per file)
+— verify a download with `cosign verify-blob` against Rekor or `gh attestation verify`
+against the GitHub attestation store. Actions are pinned to immutable revisions and
+workflows use least-privilege job permissions.
 
 These controls do not replace Apple notarization, Windows Authenticode signing, Linux
 package-repository signing, or hands-on native smoke testing. Releases remain drafts

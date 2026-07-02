@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Copy, ImageIcon, Link2, Tag, X } from "lucide-react";
 import { HealthPanel } from "./health-panel";
@@ -96,6 +97,17 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
   const diff = useQuery({ queryKey: ["git-diff", project.path, diffPath], queryFn: () => desktopApi.gitDiff(project.path, diffPath as string), enabled: native && !!diffPath, retry: false });
   const [expandedCommit, setExpandedCommit] = useState<string | null>(null);
   const commitFiles = useQuery({ queryKey: ["git-commit-files", project.path, expandedCommit], queryFn: () => desktopApi.gitCommitFiles(project.path, expandedCommit as string), enabled: native && !!expandedCommit, retry: false });
+  const [historySelection, setHistorySelection] = useState<{ hash: string; path: string } | null>(null);
+  const historyDiff = useQuery({
+    queryKey: ["git-commit-diff", project.path, historySelection?.hash, historySelection?.path],
+    queryFn: () => desktopApi.gitCommitDiff(project.path, historySelection!.hash, historySelection!.path),
+    enabled: native && !!historySelection,
+    retry: false,
+  });
+  const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const stashes = useQuery({ queryKey: ["git-stash-list", project.path], queryFn: () => desktopApi.gitStashList(project.path), enabled: native, retry: false });
+  const notifiedStashRef = useRef<string | null>(null);
   const [health, setHealth] = useState<HealthIssue[]>([]);
   const [healthCheckedAt, setHealthCheckedAt] = useState<string | null>(null);
   const [ws, setWs] = useState<ProjectWorkspace>(() => (native ? EMPTY_WORKSPACE : loadWorkspace(project.path)));
@@ -251,6 +263,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
   // one and shows its diff — drives bulk actions like "Discard selected".
   function selectFile(index: number, path: string, event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) {
     const changed = git.data?.changedFiles ?? [];
+    setHistorySelection(null);
     if (event.shiftKey && anchorRef.current != null) {
       const [from, to] = [anchorRef.current, index].sort((a, b) => a - b);
       setMarked(new Set(changed.slice(from, to + 1).map((file) => file.path)));
@@ -263,6 +276,10 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
       setDiffPath(path);
       anchorRef.current = index;
     }
+  }
+  function selectHistoryFile(hash: string, path: string) {
+    setDiffPath(null);
+    setHistorySelection({ hash, path });
   }
   function discardMarked() {
     const paths = [...marked];
@@ -310,12 +327,41 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
   const refreshGit = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ["git-status", project.path] }),
     queryClient.invalidateQueries({ queryKey: ["git-branches", project.path] }),
+    queryClient.invalidateQueries({ queryKey: ["git-stash-list", project.path] }),
   ]);
+  const STASH_PREFIX = "vantadeck-autostash: from ";
+  // Mirrors GitHub Desktop: switching with a clean tree is instant; a dirty
+  // tree prompts to bring changes along or leave them stashed on this branch.
   function switchBranch(name: string) {
     if (name === git.data?.branch) return;
-    if (window.confirm(`Switch ${project.name} to ${name}?`)) {
+    const dirty = (git.data?.changedFiles.length ?? 0) > 0;
+    if (!dirty) {
       void run(`Switching to ${name}`, async () => { await desktopApi.gitSwitch(project.path, name, true); await refreshGit(); });
+      return;
     }
+    setPendingSwitch(name);
+  }
+  async function resolveSwitch(strategy: "bring" | "leave") {
+    const target = pendingSwitch;
+    setPendingSwitch(null);
+    if (!target) return;
+    const from = git.data?.branch ?? "the current branch";
+    setSwitching(true);
+    await run(`Switching to ${target}`, async () => {
+      await desktopApi.gitStashPush(project.path, `${STASH_PREFIX}${from}`, true);
+      try {
+        await desktopApi.gitSwitch(project.path, target, true);
+      } catch (error) {
+        await desktopApi.gitStashPop(project.path, true).catch(() => undefined);
+        throw error;
+      }
+      if (strategy === "bring") {
+        try { await desktopApi.gitStashPop(project.path, true); }
+        catch { toast.error("Switched branches, but your changes couldn't be reapplied automatically — find them in the stash list and resolve manually."); }
+      }
+      await refreshGit();
+    });
+    setSwitching(false);
   }
   function newBranch() {
     const name = window.prompt("New branch name");
@@ -323,6 +369,22 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
       void run(`Creating ${name.trim()}`, async () => { await desktopApi.gitCreateBranch(project.path, name.trim(), true); await refreshGit(); });
     }
   }
+
+  // If changes were left stashed here on a previous branch switch, offer to
+  // restore them once (per branch landing) rather than leaving them buried in
+  // the stash list.
+  useEffect(() => {
+    const branch = git.data?.branch;
+    if (!branch || !stashes.data) return;
+    const marker = `${STASH_PREFIX}${branch}`;
+    const match = stashes.data.find((entry) => entry.includes(marker));
+    if (!match || notifiedStashRef.current === `${branch}:${match}`) return;
+    notifiedStashRef.current = `${branch}:${match}`;
+    toast(`You left changes on "${branch}" during an earlier branch switch.`, {
+      action: { label: "Restore", onClick: () => void run("Restoring changes", async () => { await desktopApi.gitStashPop(project.path, true); await refreshGit(); }) },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [git.data?.branch, stashes.data]);
 
   const profiles = cfg.data?.launch_profiles ?? [];
   const engine = cfg.data?.project_type ?? "project";
@@ -332,6 +394,29 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
   const engineAppId = linkedApps.map((app) => app.app_id).find((id) => knownEngines.includes(id)) ?? linkedApps[0]?.app_id;
   const engineName = managedApps.find((app) => app.id === engineAppId)?.name ?? engineAppId;
   const canOpenInEngine = Boolean(engineAppId);
+
+  // "Project apps" only surfaces apps actually installed on this machine —
+  // linked-but-uninstalled apps would just be clutter with nothing to open.
+  const installedLinkedApps = linkedApps.map((linked) => {
+    const managed = managedApps.find((app) => app.id === linked.app_id);
+    const runnable = (managed?.installations.filter((item) => item.runnable) ?? []).slice().sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }));
+    return { linked, managed, runnable };
+  }).filter((entry) => entry.runnable.length > 0);
+  // Apps installed on this machine but not yet linked — manual "Add app".
+  const addableApps = managedApps.filter((app) => app.installations.some((item) => item.runnable) && !linkedApps.some((linked) => linked.app_id === app.id));
+  const detectedApps = useQuery({ queryKey: ["detect-apps", project.path], queryFn: () => desktopApi.detectProjectApps(project.path), enabled: native, retry: false });
+  // Auto-detected candidates (by file extension), narrowed to ones actually
+  // installed — an uninstalled suggestion would have nothing to open with.
+  const detectedSuggestions = (detectedApps.data ?? [])
+    .map((id) => managedApps.find((app) => app.id === id))
+    .filter((app): app is NonNullable<typeof app> => !!app && app.installations.some((item) => item.runnable));
+  function addApp(appId: string) {
+    void run("Adding app", async () => { await desktopApi.addLinkedApp(project.path, appId); await queryClient.invalidateQueries({ queryKey: ["project-config", project.path] }); await queryClient.invalidateQueries({ queryKey: ["detect-apps", project.path] }); });
+  }
+  function removeApp(appId: string) {
+    if (!window.confirm("Unlink this app from the project? Its files won't be affected.")) return;
+    void run("Unlinking app", async () => { await desktopApi.removeLinkedApp(project.path, appId); await queryClient.invalidateQueries({ queryKey: ["project-config", project.path] }); await queryClient.invalidateQueries({ queryKey: ["detect-apps", project.path] }); });
+  }
 
   return (
     <section className="space-y-5">
@@ -386,12 +471,26 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
               : healthCheckedAt ? <p className="text-sm text-muted-foreground">No health issues found. Engine versions, launch profiles, and source control all look good.</p>
               : <p className="text-sm text-muted-foreground">Run checks to validate engine versions, launch profiles, and source control. You can dismiss issues you don't care about and unhide them here later.</p>}
           </CardContent></Card>
-          {cfg.data?.linked_apps.length ? <Card className="lg:col-span-2"><CardContent className="space-y-3 p-5">
-            <h2 className="text-base font-semibold">Project apps</h2>
-            <p className="-mt-1 text-sm text-muted-foreground">Applications linked to this project. Choose the version to open the project in — it's saved to the project.</p>
-            <div className="grid gap-2 sm:grid-cols-2">{cfg.data.linked_apps.map((linked) => {
-              const managed = managedApps.find((app) => app.id === linked.app_id);
-              const runnable = (managed?.installations.filter((item) => item.runnable) ?? []).slice().sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }));
+          {installedLinkedApps.length || addableApps.length || detectedSuggestions.length ? <Card className="lg:col-span-2"><CardContent className="space-y-3 p-5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold">Project apps</h2>
+                <p className="text-sm text-muted-foreground">Engines and creative tools linked to this project — each with its own project files. Choose the version to open in; it's saved to the project.</p>
+              </div>
+              {addableApps.length ? <DropdownMenu>
+                <DropdownMenuTrigger asChild><Button variant="outline" size="sm" disabled={!native}><Plus size={14} /> Add app</Button></DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-72 w-56 overflow-y-auto">
+                  {addableApps.map((app) => <DropdownMenuItem key={app.id} onClick={() => void addApp(app.id)}>{app.name}</DropdownMenuItem>)}
+                </DropdownMenuContent>
+              </DropdownMenu> : null}
+            </div>
+            {detectedSuggestions.length ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-sm">
+              <span className="text-muted-foreground">Detected in this project's files:</span>
+              {detectedSuggestions.map((app) => (
+                <Button key={app.id} variant="secondary" size="sm" className="h-7" onClick={() => void addApp(app.id)}><Plus size={12} /> {app.name}</Button>
+              ))}
+            </div> : null}
+            {installedLinkedApps.length ? <div className="grid gap-2 sm:grid-cols-2">{installedLinkedApps.map(({ linked, managed, runnable }) => {
               const selectedVersion = linked.preferred_version && runnable.some((item) => item.version === linked.preferred_version) ? linked.preferred_version : runnable[0]?.version ?? "";
               const selectedExe = runnable.find((item) => item.version === selectedVersion)?.executable ?? runnable[0]?.executable;
               return (
@@ -399,17 +498,18 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
                   <div className="flex items-center gap-2">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary text-primary"><Box size={16} /></span>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{managed?.name ?? linked.app_id}</span>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" aria-label={`Unlink ${managed?.name ?? linked.app_id}`} title="Unlink from project" disabled={!native} onClick={() => void removeApp(linked.app_id)}><X size={13} /></Button>
                   </div>
-                  {runnable.length ? <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5">
                     <select aria-label={`Version for ${managed?.name ?? linked.app_id}`} className="h-8 min-w-0 flex-1 rounded-md border border-border bg-secondary px-2 text-sm" value={selectedVersion} onChange={(event) => saveEngineVersion(linked.app_id, event.target.value)}>
                       {runnable.map((item) => <option key={item.executable} value={item.version}>{item.version}</option>)}
                     </select>
                     <Button variant="outline" size="sm" className="shrink-0" disabled={!native} onClick={() => void run(`Opening ${managed?.name ?? linked.app_id}`, () => desktopApi.openInEngine(project.path, linked.app_id))}><Play size={13} /> Open</Button>
-                  </div> : <p className="text-xs text-muted-foreground">{native ? "Not detected on this machine. Scan applications to enable opening." : "Open the desktop app to detect installed versions."}</p>}
+                  </div>
                   <AppFiles projectPath={project.path} appId={linked.app_id} appName={managed?.name ?? linked.app_id} executable={selectedExe} native={native} run={run} />
                 </div>
               );
-            })}</div>
+            })}</div> : <p className="text-sm text-muted-foreground">No linked apps are installed on this machine yet.</p>}
           </CardContent></Card> : null}
           <Card className="lg:col-span-2"><CardContent className="space-y-3 p-5">
             <div className="flex flex-wrap items-center gap-2">
@@ -532,11 +632,11 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
                           {isOpen ? <div className="border-t border-border bg-muted/20 px-3 py-1.5">
                             {commitFiles.isLoading ? <p className="py-1 text-xs text-muted-foreground">Loading files…</p>
                               : commitFiles.data && commitFiles.data.length ? commitFiles.data.map((file) => (
-                                <div key={file.path} className="flex items-center gap-2 py-1 text-sm">
+                                <button key={file.path} onClick={() => selectHistoryFile(entry.hash, file.path)} className={`flex w-full items-center gap-2 rounded py-1 text-left text-sm hover:bg-muted/40 ${historySelection?.hash === entry.hash && historySelection?.path === file.path ? "bg-muted/50" : ""}`} title="Click to view this file's changes in the commit">
                                   <FileCode2 size={13} className="shrink-0 text-muted-foreground" />
                                   <span className="min-w-0 flex-1 truncate" title={file.path}>{file.path}</span>
                                   <Badge variant="outline" className="shrink-0 text-[10px] uppercase">{file.status}</Badge>
-                                </div>
+                                </button>
                               )) : <p className="py-1 text-xs text-muted-foreground">No file changes.</p>}
                           </div> : null}
                         </div>
@@ -546,9 +646,11 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
                 )}
               </CardContent></Card>
               <Card><CardContent className="p-0">
-                <div className="truncate border-b border-border px-4 py-2.5 text-sm font-semibold">{diffPath ?? "Diff"}</div>
+                <div className="truncate border-b border-border px-4 py-2.5 text-sm font-semibold">{historySelection?.path ?? diffPath ?? "Diff"}</div>
                 <div className="max-h-[480px] overflow-auto p-3">
-                  {diffPath ? (diff.data !== undefined ? <pre className="overflow-x-auto font-mono text-xs leading-relaxed">{(diff.data || "").split("\n").map((line, index) => <div key={index} className={diffLineClass(line)}>{line || " "}</div>)}</pre> : <p className="text-sm text-muted-foreground">{diff.isLoading ? "Loading diff…" : "No diff to show."}</p>) : <p className="text-sm text-muted-foreground">Select a file to view its changes.</p>}
+                  {historySelection ? (historyDiff.data !== undefined ? <pre className="overflow-x-auto font-mono text-xs leading-relaxed">{(historyDiff.data || "").split("\n").map((line, index) => <div key={index} className={diffLineClass(line)}>{line || " "}</div>)}</pre> : <p className="text-sm text-muted-foreground">{historyDiff.isLoading ? "Loading diff…" : "No diff to show."}</p>)
+                    : diffPath ? (diff.data !== undefined ? <pre className="overflow-x-auto font-mono text-xs leading-relaxed">{(diff.data || "").split("\n").map((line, index) => <div key={index} className={diffLineClass(line)}>{line || " "}</div>)}</pre> : <p className="text-sm text-muted-foreground">{diff.isLoading ? "Loading diff…" : "No diff to show."}</p>)
+                    : <p className="text-sm text-muted-foreground">Select a file to view its changes.</p>}
                 </div>
               </CardContent></Card>
             </div>
@@ -616,6 +718,24 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
           </CardContent></Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!pendingSwitch} onOpenChange={(open) => { if (!open) setPendingSwitch(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Switch to "{pendingSwitch}"?</DialogTitle>
+            <DialogDescription>
+              {project.name} has uncommitted changes on "{git.data?.branch}". Bring them along to "{pendingSwitch}", or leave them here — they'll be offered back next time you're on this branch.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-between">
+            <Button variant="ghost" disabled={switching} onClick={() => setPendingSwitch(null)}>Cancel</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" disabled={switching} onClick={() => void resolveSwitch("leave")}>Leave my changes on "{git.data?.branch}"</Button>
+              <Button disabled={switching} onClick={() => void resolveSwitch("bring")}>Bring my changes to "{pendingSwitch}"</Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
