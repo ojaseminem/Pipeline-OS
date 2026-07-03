@@ -118,6 +118,16 @@ pub struct BranchInfo {
     pub remote: Option<String>,
 }
 
+/// Commit counts comparing another branch to the current `HEAD`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchComparison {
+    /// Commits the other branch has that `HEAD` doesn't — what merging would bring in.
+    pub ahead: u32,
+    /// Commits `HEAD` has that the other branch doesn't.
+    pub behind: u32,
+}
+
 #[async_trait]
 pub trait VersionControlProvider: Send + Sync {
     async fn detect(&self, root: &Path) -> bool;
@@ -194,7 +204,8 @@ impl GitProvider {
     /// outcome (not an error) — the caller resolves them via
     /// `resolve_conflict`/`abort_merge`/`continue_merge`.
     pub async fn merge_branch(&self, root: &Path, branch: &str) -> Result<MergeOutcome, VcsError> {
-        let output = self.run_raw(root, &["merge", "--no-edit", branch]).await?;
+        let target = self.resolve_branch_ref(root, branch).await?;
+        let output = self.run_raw(root, &["merge", "--no-edit", &target]).await?;
         if output.status.success() {
             return Ok(MergeOutcome::Merged {
                 message: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
@@ -206,9 +217,83 @@ impl GitProvider {
             });
         }
         Err(VcsError::CommandFailed {
-            command: format!("git merge {branch}"),
+            command: format!("git merge {target}"),
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
         })
+    }
+
+    /// Resolves a branch short name to a ref `git merge`/`git rev-list` can
+    /// actually use. Unlike `git switch`/`git checkout`, `git merge` has no
+    /// DWIM fallback for a remote-only branch — `git merge feature` fails
+    /// with "not something we can merge" if only `origin/feature` exists. If
+    /// there's already a local branch with this name, use it as-is;
+    /// otherwise, if exactly one remote has a matching branch, qualify it
+    /// (`origin/feature`) the same way Git resolves it for switch/checkout.
+    async fn resolve_branch_ref(&self, root: &Path, branch: &str) -> Result<String, VcsError> {
+        let local_exists = self
+            .run_raw(
+                root,
+                &[
+                    "rev-parse",
+                    "-q",
+                    "--verify",
+                    &format!("refs/heads/{branch}"),
+                ],
+            )
+            .await
+            .is_ok_and(|output| output.status.success());
+        if local_exists {
+            return Ok(branch.to_owned());
+        }
+        let output = self
+            .run(root, &["branch", "-r", "--format=%(refname:short)"])
+            .await?;
+        let matches: Vec<String> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let full = line.trim();
+                let (_, name) = full.split_once('/')?;
+                (name == branch).then(|| full.to_owned())
+            })
+            .collect();
+        match matches.as_slice() {
+            [only] => Ok(only.clone()),
+            _ => Ok(branch.to_owned()),
+        }
+    }
+
+    /// How `branch` compares to the current `HEAD` — shown before merging so
+    /// the user knows what they're about to bring in (mirrors GitHub
+    /// Desktop's "This branch is N commits ahead/behind" preview).
+    pub async fn compare_branch(
+        &self,
+        root: &Path,
+        branch: &str,
+    ) -> Result<BranchComparison, VcsError> {
+        let target = self.resolve_branch_ref(root, branch).await?;
+        let output = self
+            .run(
+                root,
+                &[
+                    "rev-list",
+                    "--left-right",
+                    "--count",
+                    &format!("HEAD...{target}"),
+                ],
+            )
+            .await?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut counts = text.split_whitespace();
+        // `HEAD...target` with --left-right reports "<only-in-HEAD>\t<only-in-target>".
+        let behind: u32 = counts
+            .next()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        let ahead: u32 = counts
+            .next()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        Ok(BranchComparison { ahead, behind })
     }
 
     /// Whether a merge is currently in progress (survives an app restart —

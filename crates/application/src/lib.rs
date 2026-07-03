@@ -35,9 +35,9 @@ use vantadeck_storage::{
     ActivityRecord, ManualOverrideRecord, RegisteredProject, Storage, StorageError,
 };
 use vantadeck_vcs::{
-    BranchInfo, ChangedFile, ConflictResolution, GitCommit, GitProvider, MergeOutcome, MergeStatus,
-    VcsError, VcsOperationResult, VcsStatus, VersionControlProvider, evaluate_lfs_health,
-    evaluate_repo_size_health,
+    BranchComparison, BranchInfo, ChangedFile, ConflictResolution, GitCommit, GitProvider,
+    MergeOutcome, MergeStatus, VcsError, VcsOperationResult, VcsStatus, VersionControlProvider,
+    evaluate_lfs_health, evaluate_repo_size_health,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -953,6 +953,14 @@ impl ApplicationService {
 
     pub async fn vcs_merge_status(&self, root: &Path) -> MergeStatus {
         self.git.merge_status(root).await
+    }
+
+    pub async fn vcs_compare_branch(
+        &self,
+        root: &Path,
+        branch: &str,
+    ) -> Result<BranchComparison, ApplicationError> {
+        Ok(self.git.compare_branch(root, branch).await?)
     }
 
     pub async fn vcs_resolve_conflict(

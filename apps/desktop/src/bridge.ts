@@ -62,6 +62,7 @@ export type GitStatus = { branch?: string; ahead: number; behind: number; change
 export type GitCommit = { hash: string; shortHash: string; author: string; date: string; subject: string };
 export type MergeOutcome = { status: "merged"; message: string } | { status: "conflicts"; files: string[] };
 export type MergeStatus = { inProgress: boolean; conflictedFiles: string[] };
+export type BranchComparison = { ahead: number; behind: number };
 export type ConflictResolution = "ours" | "theirs" | "resolved";
 /** A branch the UI can switch to or merge. `remote` is set (e.g. "origin")
  *  for a remote-tracking branch with no local copy yet; unset for local. */
@@ -178,6 +179,7 @@ export const desktopApi = {
   gitSwitch: (root: string, branch: string, confirmed: boolean) => invokeDesktop("git_switch", { root, branch, confirmed }),
   gitMerge: (root: string, branch: string, confirmed: boolean) => invokeDesktop<MergeOutcome>("git_merge", { root, branch, confirmed }),
   gitMergeStatus: (root: string) => invokeDesktop<MergeStatus>("git_merge_status", { root }),
+  gitCompareBranch: (root: string, branch: string) => invokeDesktop<BranchComparison>("git_compare_branch", { root, branch }),
   gitResolveConflict: (root: string, path: string, resolution: ConflictResolution, confirmed: boolean) => invokeDesktop("git_resolve_conflict", { root, path, resolution, confirmed }),
   gitAbortMerge: (root: string, confirmed: boolean) => invokeDesktop("git_abort_merge", { root, confirmed }),
   gitContinueMerge: (root: string, confirmed: boolean) => invokeDesktop("git_continue_merge", { root, confirmed }),

@@ -16,7 +16,7 @@ use vantadeck_manifests::{AppManifest, ToolManifest};
 use vantadeck_storage::{RegisteredProject, Storage};
 use vantadeck_vcs::GitProvider;
 use vantadeck_vcs::{
-    BranchInfo, ConflictResolution, MergeOutcome, MergeStatus, VcsOperationResult,
+    BranchComparison, BranchInfo, ConflictResolution, MergeOutcome, MergeStatus, VcsOperationResult,
 };
 
 /// Categories that represent launchable creative applications. Version-control
@@ -1194,6 +1194,21 @@ async fn git_merge_status(
     Ok(state.service.vcs_merge_status(Path::new(&root)).await)
 }
 
+/// Ahead/behind commit counts for a candidate merge branch, shown before the
+/// user commits to merging it.
+#[tauri::command(rename_all = "camelCase")]
+async fn git_compare_branch(
+    root: String,
+    branch: String,
+    state: State<'_, DesktopState>,
+) -> Result<BranchComparison, String> {
+    state
+        .service
+        .vcs_compare_branch(Path::new(&root), &branch)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn git_resolve_conflict(
     root: String,
@@ -2041,6 +2056,7 @@ pub fn run() {
             git_switch,
             git_merge,
             git_merge_status,
+            git_compare_branch,
             git_resolve_conflict,
             git_abort_merge,
             git_continue_merge,

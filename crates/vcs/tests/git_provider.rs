@@ -277,3 +277,63 @@ async fn lists_remote_branches_without_a_local_counterpart() {
     assert_eq!(remote[0].name, "feature");
     assert_eq!(remote[0].remote.as_deref(), Some("origin"));
 }
+
+#[tokio::test]
+async fn merges_a_remote_only_branch_by_short_name() {
+    // Regression: `git merge feature` fails with "not something we can
+    // merge" when only `origin/feature` exists — unlike switch/checkout,
+    // merge has no DWIM fallback. merge_branch must resolve it itself.
+    let remote_dir = tempfile::tempdir().expect("bare remote dir");
+    git(remote_dir.path(), &["init", "--bare"]);
+
+    let root = repository();
+    let provider = GitProvider::new("git");
+    git(
+        root.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            &remote_dir.path().display().to_string(),
+        ],
+    );
+    let base = current_branch(root.path());
+    git(root.path(), &["push", "origin", &base]);
+    git(root.path(), &["switch", "-c", "feature"]);
+    fs::write(root.path().join("feature.txt"), "feature\n").expect("feature file");
+    git(root.path(), &["add", "feature.txt"]);
+    git(root.path(), &["commit", "-m", "add feature file"]);
+    git(root.path(), &["push", "origin", "feature"]);
+    git(root.path(), &["switch", &base]);
+    git(root.path(), &["branch", "-D", "feature"]);
+
+    let outcome = provider
+        .merge_branch(root.path(), "feature")
+        .await
+        .expect("merge resolves the remote-only branch");
+
+    assert!(matches!(outcome, MergeOutcome::Merged { .. }));
+    assert!(root.path().join("feature.txt").is_file());
+}
+
+#[tokio::test]
+async fn compares_ahead_behind_against_another_branch() {
+    let root = repository();
+    let provider = GitProvider::new("git");
+    let base = current_branch(root.path());
+    git(root.path(), &["switch", "-c", "feature"]);
+    fs::write(root.path().join("feature.txt"), "feature\n").expect("feature file");
+    git(root.path(), &["add", "feature.txt"]);
+    git(root.path(), &["commit", "-m", "add feature file"]);
+    git(root.path(), &["switch", &base]);
+    fs::write(root.path().join("tracked.txt"), "main change\n").expect("main edit");
+    git(root.path(), &["commit", "-am", "main edit"]);
+
+    let comparison = provider
+        .compare_branch(root.path(), "feature")
+        .await
+        .expect("compare branches");
+
+    assert_eq!(comparison.ahead, 1);
+    assert_eq!(comparison.behind, 1);
+}

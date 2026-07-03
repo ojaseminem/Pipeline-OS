@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowLeft, Box, Check, ChevronDown, ChevronRight, CircleSlash, Cloud, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
+  AlertTriangle, ArrowLeft, Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Cloud, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
   GitCommitHorizontal, GitMerge, ListTodo, MoreHorizontal, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Search, Trash2, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import { Copy, ImageIcon, Link2, Tag, X } from "lucide-react";
 import { HealthPanel } from "./health-panel";
-import { browsePath, desktopApi, isNativeRuntime, openExternal, type ConflictResolution, type HealthIssue } from "../bridge";
+import { browsePath, desktopApi, isNativeRuntime, openExternal, type BranchInfo, type ConflictResolution, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
 import { PROJECT_CATEGORIES } from "../lib/categories";
 import { loadTags, loadWorkspace, newId, saveTags, saveWorkspace, type ProjectWorkspace } from "../lib/local-store";
@@ -89,6 +89,9 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   const remoteBranches = (branches.data ?? []).filter((branch) => branch.remote);
   const [mergePickerOpen, setMergePickerOpen] = useState(false);
   const [mergeFilter, setMergeFilter] = useState("");
+  const [mergeTarget, setMergeTarget] = useState<BranchInfo | null>(null);
+  const [merging, setMerging] = useState(false);
+  const mergeComparison = useQuery({ queryKey: ["git-compare-branch", project.path, mergeTarget?.name], queryFn: () => desktopApi.gitCompareBranch(project.path, mergeTarget!.name), enabled: native && !!mergeTarget, retry: false });
   const gitInstalled = useQuery({ queryKey: ["git-available"], queryFn: () => desktopApi.gitAvailable(), enabled: native && git.isError, retry: false });
   const [setupMode, setSetupMode] = useState<"local" | "online">("local");
   const [remoteUrl, setRemoteUrl] = useState("");
@@ -381,17 +384,19 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   }
   // Merge doesn't use the run() helper — a conflict is a normal outcome, not
   // a thrown error, so success/conflict need different toasts rather than a
-  // blanket "complete" message.
+  // blanket "complete" message. No window.confirm here: the merge picker's
+  // ahead/behind preview step is the confirmation.
   async function mergeBranchInto(name: string) {
     const current = git.data?.branch;
     if (!current || name === current) return;
-    if (!window.confirm(`Merge "${name}" into "${current}"?`)) return;
+    setMerging(true);
     try {
       const outcome = await desktopApi.gitMerge(project.path, name, true);
       if (outcome.status === "conflicts") toast.error(`Merging "${name}" produced ${outcome.files.length} conflict${outcome.files.length === 1 ? "" : "s"} — resolve them below.`);
       else toast.success(`Merged "${name}" into "${current}".`);
       await refreshGit();
     } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+    finally { setMerging(false); }
   }
   async function resolveConflict(path: string, resolution: ConflictResolution) {
     try {
@@ -435,6 +440,13 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   const profiles = cfg.data?.launch_profiles ?? [];
   const engine = cfg.data?.project_type ?? "project";
   const managedApps = apps.data ?? [];
+  // Installed code editors/IDEs, for "Open with" on a conflicted file —
+  // matches whatever's actually detected (VS Code, Rider, ...), not a
+  // hardcoded list.
+  const codeEditors = managedApps
+    .filter((app) => app.category === "code")
+    .map((app) => ({ app, executable: app.installations.filter((item) => item.runnable).sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0]?.executable }))
+    .filter((entry): entry is { app: (typeof managedApps)[number]; executable: string } => !!entry.executable);
   const linkedApps = cfg.data?.linked_apps ?? [];
   const knownEngines = ["unity", "unreal-engine", "godot", "blender", "maya"];
   const engineAppId = linkedApps.map((app) => app.app_id).find((id) => knownEngines.includes(id)) ?? linkedApps[0]?.app_id;
@@ -649,7 +661,18 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                           <li key={path} className="flex items-center gap-2 rounded-md bg-background/60 px-2 py-1 text-sm">
                             <FileCode2 size={13} className="shrink-0 text-muted-foreground" />
                             <span className="min-w-0 flex-1 truncate" title={path}>{path}</span>
-                            <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void run("Opening file", () => desktopApi.openPath(`${project.path}/${path}`))}><ExternalLink size={12} /> Open</Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native}><ExternalLink size={12} /> Open with <ChevronDown size={11} /></Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuItem onClick={() => void run("Opening file", () => desktopApi.openPath(`${project.path}/${path}`))}>Default app</DropdownMenuItem>
+                                {codeEditors.length ? <DropdownMenuSeparator /> : null}
+                                {codeEditors.map(({ app, executable }) => (
+                                  <DropdownMenuItem key={app.id} onClick={() => void run(`Opening in ${app.name}`, () => desktopApi.launchAppFile(app.id, executable, `${project.path}/${path}`, project.path))}>{app.name}</DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                             <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void resolveConflict(path, "ours")}>Use mine</Button>
                             <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void resolveConflict(path, "theirs")}>Use theirs</Button>
                             <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void resolveConflict(path, "resolved")}>Mark resolved</Button>
@@ -816,28 +839,53 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
         </DialogContent>
       </Dialog>
 
-      <Dialog open={mergePickerOpen} onOpenChange={setMergePickerOpen}>
+      <Dialog open={mergePickerOpen} onOpenChange={(open) => { setMergePickerOpen(open); if (!open) setMergeTarget(null); }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Choose a branch to merge into "{git.data?.branch}"</DialogTitle>
-            <DialogDescription>Bring another branch's changes into "{git.data?.branch}". Conflicts, if any, can be resolved right here afterward.</DialogDescription>
-          </DialogHeader>
-          <div className="relative">
-            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input autoFocus aria-label="Filter branches" placeholder="Filter branches…" value={mergeFilter} onChange={(event) => setMergeFilter(event.target.value)} className="pl-8" />
-          </div>
-          <div className="max-h-72 space-y-0.5 overflow-y-auto">
-            {[...localBranches, ...remoteBranches]
-              .filter((branch) => branch.name !== git.data?.branch && branch.name.toLowerCase().includes(mergeFilter.trim().toLowerCase()))
-              .map((branch) => (
-                <button key={`${branch.remote ?? "local"}/${branch.name}`} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60" onClick={() => { setMergePickerOpen(false); void mergeBranchInto(branch.name); }}>
-                  {branch.remote ? <Cloud size={13} className="shrink-0 text-muted-foreground" /> : <GitBranch size={13} className="shrink-0 text-muted-foreground" />}
-                  <span className="min-w-0 flex-1 truncate">{branch.name}</span>
-                  {branch.remote ? <Badge variant="outline" className="shrink-0 text-[10px]">{branch.remote}</Badge> : null}
-                </button>
-              ))}
-            {[...localBranches, ...remoteBranches].filter((branch) => branch.name !== git.data?.branch).length === 0 ? <p className="px-2 py-4 text-center text-sm text-muted-foreground">No other branches to merge.</p> : null}
-          </div>
+          {mergeTarget ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 font-normal">
+                  <button onClick={() => setMergeTarget(null)} className="rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="Back to branch list"><ChevronLeft size={16} /></button>
+                  Merge <span className="font-semibold">"{mergeTarget.name}"</span> into <span className="font-semibold">"{git.data?.branch}"</span>
+                </DialogTitle>
+              </DialogHeader>
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                {mergeComparison.isLoading ? <p className="text-muted-foreground">Comparing branches…</p>
+                  : mergeComparison.data ? (
+                    mergeComparison.data.ahead === 0
+                      ? <p className="text-muted-foreground">"{git.data?.branch}" already has everything from "{mergeTarget.name}" — nothing to merge.</p>
+                      : <p>"{mergeTarget.name}" is <strong>{mergeComparison.data.ahead}</strong> commit{mergeComparison.data.ahead === 1 ? "" : "s"} ahead{mergeComparison.data.behind ? <> and <strong>{mergeComparison.data.behind}</strong> commit{mergeComparison.data.behind === 1 ? "" : "s"} behind</> : ""} of "{git.data?.branch}". Merging will bring {mergeComparison.data.ahead === 1 ? "that commit" : "those commits"} in.</p>
+                  ) : <p className="text-muted-foreground">Couldn't compare branches.</p>}
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" disabled={merging} onClick={() => setMergeTarget(null)}>Back</Button>
+                <Button disabled={merging || mergeComparison.data?.ahead === 0} onClick={() => { const target = mergeTarget; setMergePickerOpen(false); setMergeTarget(null); void mergeBranchInto(target.name); }}><GitMerge size={14} /> {merging ? "Merging…" : `Merge into "${git.data?.branch}"`}</Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Choose a branch to merge into "{git.data?.branch}"</DialogTitle>
+                <DialogDescription>Bring another branch's changes into "{git.data?.branch}". Conflicts, if any, can be resolved right here afterward.</DialogDescription>
+              </DialogHeader>
+              <div className="relative">
+                <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input autoFocus aria-label="Filter branches" placeholder="Filter branches…" value={mergeFilter} onChange={(event) => setMergeFilter(event.target.value)} className="pl-8" />
+              </div>
+              <div className="max-h-72 space-y-0.5 overflow-y-auto">
+                {[...localBranches, ...remoteBranches]
+                  .filter((branch) => branch.name !== git.data?.branch && branch.name.toLowerCase().includes(mergeFilter.trim().toLowerCase()))
+                  .map((branch) => (
+                    <button key={`${branch.remote ?? "local"}/${branch.name}`} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60" onClick={() => setMergeTarget(branch)}>
+                      {branch.remote ? <Cloud size={13} className="shrink-0 text-muted-foreground" /> : <GitBranch size={13} className="shrink-0 text-muted-foreground" />}
+                      <span className="min-w-0 flex-1 truncate">{branch.name}</span>
+                      {branch.remote ? <Badge variant="outline" className="shrink-0 text-[10px]">{branch.remote}</Badge> : null}
+                    </button>
+                  ))}
+                {[...localBranches, ...remoteBranches].filter((branch) => branch.name !== git.data?.branch).length === 0 ? <p className="px-2 py-4 text-center text-sm text-muted-foreground">No other branches to merge.</p> : null}
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </section>
