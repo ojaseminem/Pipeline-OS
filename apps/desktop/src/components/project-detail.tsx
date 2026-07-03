@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { toast } from "sonner";
 import { Copy, ImageIcon, Link2, Tag, X } from "lucide-react";
 import { HealthPanel } from "./health-panel";
@@ -615,8 +616,9 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
               )}
             </CardContent></Card>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-              <Card><CardContent className="p-0">
+            <ResizablePanelGroup direction="horizontal" className="min-h-[320px] gap-4" style={{ height: "calc(100vh - 230px)" }}>
+              <ResizablePanel defaultSize={62} minSize={30} className="flex min-w-0 flex-col">
+              <Card className="flex h-full flex-col overflow-hidden"><CardContent className="flex min-h-0 flex-1 flex-col p-0">
                 <div className="flex items-center justify-between border-b border-border px-3 py-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -656,7 +658,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                       </span>
                     </div>
                     {mergeStatus.data.conflictedFiles.length ? (
-                      <ul className="space-y-1">
+                      <ul className="max-h-40 space-y-1 overflow-y-auto">
                         {mergeStatus.data.conflictedFiles.map((path) => (
                           <li key={path} className="flex items-center gap-2 rounded-md bg-background/60 px-2 py-1 text-sm">
                             <FileCode2 size={13} className="shrink-0 text-muted-foreground" />
@@ -692,7 +694,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                       <span className="text-muted-foreground">{marked.size} selected</span>
                       <span className="flex items-center gap-1"><Button variant="ghost" size="sm" className="h-7" onClick={() => setMarked(new Set())}>Clear</Button><Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={!native} onClick={discardMarked}><Trash2 size={14} /> Discard selected</Button></span>
                     </div> : null}
-                    <div className="max-h-[300px] overflow-y-auto">
+                    <div className="flex-1 overflow-y-auto">
                       {git.data && git.data.changedFiles.length ? git.data.changedFiles.map((file, index) => {
                         const info = statusLabel(file.status);
                         return (
@@ -722,7 +724,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                     </div>
                   </>
                 ) : (
-                  <div className="max-h-[420px] overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto">
                     {commits.data && commits.data.length ? commits.data.map((entry) => {
                       const isOpen = expandedCommit === entry.hash;
                       return (
@@ -747,15 +749,19 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                   </div>
                 )}
               </CardContent></Card>
-              <Card><CardContent className="p-0">
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel defaultSize={38} minSize={20} className="flex min-w-0 flex-col">
+              <Card className="flex h-full flex-col overflow-hidden"><CardContent className="flex min-h-0 flex-1 flex-col p-0">
                 <div className="truncate border-b border-border px-4 py-2.5 text-sm font-semibold">{historySelection?.path ?? diffPath ?? "Diff"}</div>
-                <div className="max-h-[480px] overflow-auto p-3">
+                <div className="flex-1 overflow-auto p-3">
                   {historySelection ? (historyDiff.data !== undefined ? <pre className="overflow-x-auto font-mono text-xs leading-relaxed">{(historyDiff.data || "").split("\n").map((line, index) => <div key={index} className={diffLineClass(line)}>{line || " "}</div>)}</pre> : <p className="text-sm text-muted-foreground">{historyDiff.isLoading ? "Loading diff…" : "No diff to show."}</p>)
                     : diffPath ? (diff.data !== undefined ? <pre className="overflow-x-auto font-mono text-xs leading-relaxed">{(diff.data || "").split("\n").map((line, index) => <div key={index} className={diffLineClass(line)}>{line || " "}</div>)}</pre> : <p className="text-sm text-muted-foreground">{diff.isLoading ? "Loading diff…" : "No diff to show."}</p>)
                     : <p className="text-sm text-muted-foreground">Select a file to view its changes.</p>}
                 </div>
               </CardContent></Card>
-            </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
           )}
         </TabsContent>
 

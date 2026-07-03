@@ -707,7 +707,7 @@ function AppShell() {
                 {allTags.map((tag) => <button key={tag} onClick={() => setTagFilter(tag)} className={cn("rounded-full px-2.5 py-0.5 text-xs", tagFilter === tag ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground")}>{tag}</button>)}
               </div> : null}
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">{shown.length ? shown.map((project) => {
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{shown.length ? shown.map((project) => {
               const projectTags = project.tags;
               return (
                 <Card key={project.path} className="cursor-pointer transition-colors hover:border-primary/50" onClick={() => openProject({ path: project.path, name: project.name })}>
@@ -853,7 +853,7 @@ function AppShell() {
             ))}</ul> : <p className="text-sm text-muted-foreground">No custom sources yet. Add a local folder of tool manifests, or register a Git repo.</p>}
           </Panel>
           <SectionLabel>Available tools ({allTools.length})</SectionLabel>
-          <div className="grid gap-3 sm:grid-cols-2">{allTools.length ? allTools.map((tool) => (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{allTools.length ? allTools.map((tool) => (
             <Card key={tool.id}><CardContent className="flex items-start gap-3 p-4">
               <Wrench className="text-primary" />
               <div className="min-w-0 flex-1"><h3 className="font-medium">{tool.name}</h3><p className="text-sm text-muted-foreground">{tool.description}</p><small className="text-xs text-muted-foreground">{tool.reviewState} · {tool.license} · checked {tool.lastVerifiedAt}</small></div>
