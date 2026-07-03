@@ -108,6 +108,16 @@ pub enum ConflictResolution {
     Resolved,
 }
 
+/// A branch the UI can switch to or merge in. `remote` is `Some("origin")`
+/// etc. for a remote-tracking branch with no local counterpart yet; `None`
+/// for a local branch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchInfo {
+    pub name: String,
+    pub remote: Option<String>,
+}
+
 #[async_trait]
 pub trait VersionControlProvider: Send + Sync {
     async fn detect(&self, root: &Path) -> bool;
@@ -265,7 +275,7 @@ impl GitProvider {
     }
 
     /// Local branch names for the repository.
-    pub async fn branches(&self, root: &Path) -> Result<Vec<String>, VcsError> {
+    async fn local_branch_names(&self, root: &Path) -> Result<Vec<String>, VcsError> {
         let output = self
             .run(root, &["branch", "--format=%(refname:short)"])
             .await?;
@@ -274,6 +284,40 @@ impl GitProvider {
             .map(|line| line.trim().to_string())
             .filter(|line| !line.is_empty())
             .collect())
+    }
+
+    /// Every branch worth showing in the UI: local branches, plus
+    /// remote-tracking branches that don't already have a local counterpart
+    /// (switching to one auto-creates a local tracking branch via Git's
+    /// single-remote-match DWIM resolution, the same as GitHub Desktop).
+    /// Excludes each remote's `HEAD` symref, which isn't a real branch.
+    pub async fn branches(&self, root: &Path) -> Result<Vec<BranchInfo>, VcsError> {
+        let local = self.local_branch_names(root).await?;
+        let remote_output = self
+            .run(root, &["branch", "-r", "--format=%(refname:short)"])
+            .await?;
+        let mut remote_only: Vec<BranchInfo> = String::from_utf8_lossy(&remote_output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let full = line.trim();
+                let (remote, name) = full.split_once('/')?;
+                if name.is_empty() || name == "HEAD" || local.iter().any(|l| l == name) {
+                    return None;
+                }
+                Some(BranchInfo {
+                    name: name.to_owned(),
+                    remote: Some(remote.to_owned()),
+                })
+            })
+            .collect();
+        remote_only.sort_by(|a, b| a.name.cmp(&b.name));
+        remote_only.dedup_by(|a, b| a.name == b.name);
+        let mut branches: Vec<BranchInfo> = local
+            .into_iter()
+            .map(|name| BranchInfo { name, remote: None })
+            .collect();
+        branches.extend(remote_only);
+        Ok(branches)
     }
 
     /// Recent commit history.

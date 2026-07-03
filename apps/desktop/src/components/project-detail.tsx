@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowLeft, Box, Check, ChevronDown, ChevronRight, CircleSlash, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
-  GitCommitHorizontal, GitMerge, ListTodo, MoreHorizontal, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
+  AlertTriangle, ArrowLeft, Box, Check, ChevronDown, ChevronRight, CircleSlash, Cloud, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
+  GitCommitHorizontal, GitMerge, ListTodo, MoreHorizontal, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Search, Trash2, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -85,6 +85,10 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   const files = useQuery({ queryKey: ["recent-files", project.path], queryFn: () => desktopApi.recentFiles(project.path, 25), enabled: native });
   const branches = useQuery({ queryKey: ["git-branches", project.path], queryFn: () => desktopApi.gitBranches(project.path), enabled: native, retry: false });
   const mergeStatus = useQuery({ queryKey: ["git-merge-status", project.path], queryFn: () => desktopApi.gitMergeStatus(project.path), enabled: native, retry: false });
+  const localBranches = (branches.data ?? []).filter((branch) => !branch.remote);
+  const remoteBranches = (branches.data ?? []).filter((branch) => branch.remote);
+  const [mergePickerOpen, setMergePickerOpen] = useState(false);
+  const [mergeFilter, setMergeFilter] = useState("");
   const gitInstalled = useQuery({ queryKey: ["git-available"], queryFn: () => desktopApi.gitAvailable(), enabled: native && git.isError, retry: false });
   const [setupMode, setSetupMode] = useState<"local" | "online">("local");
   const [remoteUrl, setRemoteUrl] = useState("");
@@ -606,28 +610,25 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="sm" className="min-w-0 gap-1.5 font-semibold" disabled={!native}><GitBranch size={15} className="shrink-0" /><span className="truncate">{git.data?.branch ?? "—"}</span><ChevronDown size={13} className="shrink-0 text-muted-foreground" /></Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="max-h-80 w-60 overflow-y-auto">
-                      {(branches.data ?? []).map((name) => (
-                        <DropdownMenuItem key={name} onClick={() => switchBranch(name)}>
-                          <Check size={14} className={name === git.data?.branch ? "opacity-100" : "opacity-0"} /> <span className="truncate">{name}</span>
+                    <DropdownMenuContent align="start" className="max-h-96 w-64 overflow-y-auto">
+                      {localBranches.length ? <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Local</div> : null}
+                      {localBranches.map((branch) => (
+                        <DropdownMenuItem key={branch.name} onClick={() => switchBranch(branch.name)}>
+                          <Check size={14} className={branch.name === git.data?.branch ? "opacity-100" : "opacity-0"} /> <span className="min-w-0 flex-1 truncate">{branch.name}</span>
                         </DropdownMenuItem>
                       ))}
-                      {branches.data && branches.data.length ? <DropdownMenuSeparator /> : null}
+                      {remoteBranches.length ? <div className="mt-1 border-t border-border px-2 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Remote</div> : null}
+                      {remoteBranches.map((branch) => (
+                        <DropdownMenuItem key={`${branch.remote}/${branch.name}`} onClick={() => switchBranch(branch.name)} title={`Checks out a new local branch tracking ${branch.remote}/${branch.name}`}>
+                          <Cloud size={13} className="shrink-0 text-muted-foreground" /> <span className="min-w-0 flex-1 truncate">{branch.name}</span> <Badge variant="outline" className="shrink-0 text-[10px]">{branch.remote}</Badge>
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={newBranch}><GitBranchPlus size={14} /> New branch…</DropdownMenuItem>
+                      <DropdownMenuItem disabled={mergeStatus.data?.inProgress || (branches.data?.length ?? 0) < 2} onClick={() => { setMergeFilter(""); setMergePickerOpen(true); }}><GitMerge size={14} /> Choose a branch to merge into "{git.data?.branch}"…</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <div className="flex shrink-0 items-center gap-1">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" disabled={!native || mergeStatus.data?.inProgress || (branches.data?.length ?? 0) < 2} title="Merge another branch into this one"><GitMerge size={14} /> Merge</Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="max-h-80 w-64 overflow-y-auto">
-                        <div className="px-2 py-1 text-xs text-muted-foreground">Merge into "{git.data?.branch}"</div>
-                        {(branches.data ?? []).filter((name) => name !== git.data?.branch).map((name) => (
-                          <DropdownMenuItem key={name} onClick={() => void mergeBranchInto(name)}><span className="truncate">{name}</span></DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
                     <Button variant="ghost" size="sm" disabled={!native} onClick={() => { if (window.confirm(`Pull changes into ${project.name}?`)) void run("Pulling", async () => { await desktopApi.gitSync(project.path, true); await refreshGit(); }); }}><Download size={14} /> Pull{git.data?.behind ? ` ${git.data.behind}` : ""}</Button>
                     <Button variant="ghost" size="sm" disabled={!native} onClick={() => { if (window.confirm(`Push ${project.name} to its remote?`)) void run("Pushing", () => desktopApi.gitPush(project.path, true)); }}><Upload size={14} /> Push{git.data?.ahead ? ` ${git.data.ahead}` : ""}</Button>
                     <Button variant="ghost" size="icon" disabled={!native} aria-label="Refresh status" onClick={() => void refreshGit()}><RefreshCw size={14} /></Button>
@@ -812,6 +813,31 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
               <Button disabled={switching} onClick={() => void resolveSwitch("bring")}>Bring my changes to "{pendingSwitch}"</Button>
             </div>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={mergePickerOpen} onOpenChange={setMergePickerOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Choose a branch to merge into "{git.data?.branch}"</DialogTitle>
+            <DialogDescription>Bring another branch's changes into "{git.data?.branch}". Conflicts, if any, can be resolved right here afterward.</DialogDescription>
+          </DialogHeader>
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input autoFocus aria-label="Filter branches" placeholder="Filter branches…" value={mergeFilter} onChange={(event) => setMergeFilter(event.target.value)} className="pl-8" />
+          </div>
+          <div className="max-h-72 space-y-0.5 overflow-y-auto">
+            {[...localBranches, ...remoteBranches]
+              .filter((branch) => branch.name !== git.data?.branch && branch.name.toLowerCase().includes(mergeFilter.trim().toLowerCase()))
+              .map((branch) => (
+                <button key={`${branch.remote ?? "local"}/${branch.name}`} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60" onClick={() => { setMergePickerOpen(false); void mergeBranchInto(branch.name); }}>
+                  {branch.remote ? <Cloud size={13} className="shrink-0 text-muted-foreground" /> : <GitBranch size={13} className="shrink-0 text-muted-foreground" />}
+                  <span className="min-w-0 flex-1 truncate">{branch.name}</span>
+                  {branch.remote ? <Badge variant="outline" className="shrink-0 text-[10px]">{branch.remote}</Badge> : null}
+                </button>
+              ))}
+            {[...localBranches, ...remoteBranches].filter((branch) => branch.name !== git.data?.branch).length === 0 ? <p className="px-2 py-4 text-center text-sm text-muted-foreground">No other branches to merge.</p> : null}
+          </div>
         </DialogContent>
       </Dialog>
     </section>

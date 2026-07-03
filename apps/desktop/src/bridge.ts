@@ -63,6 +63,9 @@ export type GitCommit = { hash: string; shortHash: string; author: string; date:
 export type MergeOutcome = { status: "merged"; message: string } | { status: "conflicts"; files: string[] };
 export type MergeStatus = { inProgress: boolean; conflictedFiles: string[] };
 export type ConflictResolution = "ours" | "theirs" | "resolved";
+/** A branch the UI can switch to or merge. `remote` is set (e.g. "origin")
+ *  for a remote-tracking branch with no local copy yet; unset for local. */
+export type BranchInfo = { name: string; remote?: string | null };
 export type ToolManifest = {
   id: string;
   name: string;
@@ -178,7 +181,7 @@ export const desktopApi = {
   gitResolveConflict: (root: string, path: string, resolution: ConflictResolution, confirmed: boolean) => invokeDesktop("git_resolve_conflict", { root, path, resolution, confirmed }),
   gitAbortMerge: (root: string, confirmed: boolean) => invokeDesktop("git_abort_merge", { root, confirmed }),
   gitContinueMerge: (root: string, confirmed: boolean) => invokeDesktop("git_continue_merge", { root, confirmed }),
-  gitBranches: (root: string) => invokeDesktop<string[]>("git_branches", { root }),
+  gitBranches: (root: string) => invokeDesktop<BranchInfo[]>("git_branches", { root }),
   gitCreateBranch: (root: string, branch: string, confirmed: boolean) => invokeDesktop("git_create_branch", { root, branch, confirmed }),
   gitLog: (root: string, limit: number) => invokeDesktop<GitCommit[]>("git_log", { root, limit }),
   gitDiff: (root: string, path: string) => invokeDesktop<string>("git_diff", { root, path }),

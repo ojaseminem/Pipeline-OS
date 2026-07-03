@@ -236,3 +236,44 @@ async fn abort_merge_restores_pre_merge_state() {
     // check the file out with CRLF regardless of what we wrote.
     assert_eq!(content.replace("\r\n", "\n"), "main change\n");
 }
+
+#[tokio::test]
+async fn lists_remote_branches_without_a_local_counterpart() {
+    let remote_dir = tempfile::tempdir().expect("bare remote dir");
+    git(remote_dir.path(), &["init", "--bare"]);
+
+    let root = repository();
+    let provider = GitProvider::new("git");
+    git(
+        root.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            &remote_dir.path().display().to_string(),
+        ],
+    );
+    let base = current_branch(root.path());
+    git(root.path(), &["push", "origin", &base]);
+    git(root.path(), &["switch", "-c", "feature"]);
+    fs::write(root.path().join("feature.txt"), "feature\n").expect("feature file");
+    git(root.path(), &["add", "feature.txt"]);
+    git(root.path(), &["commit", "-m", "add feature file"]);
+    git(root.path(), &["push", "origin", "feature"]);
+    git(root.path(), &["switch", &base]);
+    git(root.path(), &["branch", "-D", "feature"]);
+
+    let branches = provider.branches(root.path()).await.expect("list branches");
+    let local: Vec<&str> = branches
+        .iter()
+        .filter(|b| b.remote.is_none())
+        .map(|b| b.name.as_str())
+        .collect();
+    let remote: Vec<_> = branches.iter().filter(|b| b.remote.is_some()).collect();
+
+    assert!(local.contains(&base.as_str()));
+    assert!(!local.contains(&"feature"));
+    assert_eq!(remote.len(), 1);
+    assert_eq!(remote[0].name, "feature");
+    assert_eq!(remote[0].remote.as_deref(), Some("origin"));
+}

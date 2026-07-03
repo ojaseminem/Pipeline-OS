@@ -35,8 +35,8 @@ use vantadeck_storage::{
     ActivityRecord, ManualOverrideRecord, RegisteredProject, Storage, StorageError,
 };
 use vantadeck_vcs::{
-    ChangedFile, ConflictResolution, GitCommit, GitProvider, MergeOutcome, MergeStatus, VcsError,
-    VcsOperationResult, VcsStatus, VersionControlProvider, evaluate_lfs_health,
+    BranchInfo, ChangedFile, ConflictResolution, GitCommit, GitProvider, MergeOutcome, MergeStatus,
+    VcsError, VcsOperationResult, VcsStatus, VersionControlProvider, evaluate_lfs_health,
     evaluate_repo_size_health,
 };
 
@@ -805,7 +805,7 @@ impl ApplicationService {
         Ok(result)
     }
 
-    pub async fn vcs_branches(&self, root: &Path) -> Result<Vec<String>, ApplicationError> {
+    pub async fn vcs_branches(&self, root: &Path) -> Result<Vec<BranchInfo>, ApplicationError> {
         Ok(self.git.branches(root).await?)
     }
 

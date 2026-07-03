@@ -15,7 +15,9 @@ use vantadeck_launcher::LaunchSpec;
 use vantadeck_manifests::{AppManifest, ToolManifest};
 use vantadeck_storage::{RegisteredProject, Storage};
 use vantadeck_vcs::GitProvider;
-use vantadeck_vcs::{ConflictResolution, MergeOutcome, MergeStatus, VcsOperationResult};
+use vantadeck_vcs::{
+    BranchInfo, ConflictResolution, MergeOutcome, MergeStatus, VcsOperationResult,
+};
 
 /// Categories that represent launchable creative applications. Version-control
 /// tooling is detected for project workflows but is never launched directly.
@@ -1237,7 +1239,10 @@ async fn git_continue_merge(
 }
 
 #[tauri::command(rename_all = "camelCase")]
-async fn git_branches(root: String, state: State<'_, DesktopState>) -> Result<Vec<String>, String> {
+async fn git_branches(
+    root: String,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<BranchInfo>, String> {
     state
         .service
         .vcs_branches(Path::new(&root))
