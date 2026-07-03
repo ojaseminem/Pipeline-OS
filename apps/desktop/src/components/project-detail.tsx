@@ -337,6 +337,42 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
     try { await action(); toast.success(`${label} complete.`); }
     catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
   }
+  // A push rejected because the remote moved (a normal non-fast-forward, or a
+  // ref-lock race from someone else pushing mid-operation) surfaces a raw git
+  // error by default — translate the common patterns into something actionable.
+  function describeGitError(message: string): string {
+    if (/cannot lock ref|non-fast-forward|\[rejected\]|fetch first/i.test(message)) {
+      return "Push rejected — the remote has commits you don't have locally. Pull to update, then push again.";
+    }
+    return message;
+  }
+  const [gitAction, setGitAction] = useState<"pull" | "push" | null>(null);
+  async function pullChanges() {
+    if (!window.confirm(`Pull changes into ${project.name}?`)) return;
+    setGitAction("pull");
+    try {
+      await desktopApi.gitSync(project.path, true);
+      await refreshGit();
+      toast.success("Pulling complete.");
+    } catch (error) {
+      toast.error(describeGitError(error instanceof Error ? error.message : String(error)));
+    } finally {
+      setGitAction(null);
+    }
+  }
+  async function pushChanges() {
+    if (!window.confirm(`Push ${project.name} to its remote?`)) return;
+    setGitAction("push");
+    try {
+      await desktopApi.gitPush(project.path, true);
+      await refreshGit();
+      toast.success("Pushing complete.");
+    } catch (error) {
+      toast.error(describeGitError(error instanceof Error ? error.message : String(error)));
+    } finally {
+      setGitAction(null);
+    }
+  }
   const refreshGit = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ["git-status", project.path] }),
     queryClient.invalidateQueries({ queryKey: ["git-branches", project.path] }),
@@ -622,7 +658,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                 <div className="flex items-center justify-between border-b border-border px-3 py-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="min-w-0 gap-1.5 font-semibold" disabled={!native}><GitBranch size={15} className="shrink-0" /><span className="truncate">{git.data?.branch ?? "—"}</span><ChevronDown size={13} className="shrink-0 text-muted-foreground" /></Button>
+                      <Button variant="ghost" size="sm" className="min-w-0 gap-1.5 font-semibold" disabled={!native || gitAction !== null}><GitBranch size={15} className="shrink-0" /><span className="truncate">{git.data?.branch ?? "—"}</span><ChevronDown size={13} className="shrink-0 text-muted-foreground" /></Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" className="max-h-96 w-64 overflow-y-auto">
                       {localBranches.length ? <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Local</div> : null}
@@ -643,9 +679,13 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <div className="flex shrink-0 items-center gap-1">
-                    <Button variant="ghost" size="sm" disabled={!native} onClick={() => { if (window.confirm(`Pull changes into ${project.name}?`)) void run("Pulling", async () => { await desktopApi.gitSync(project.path, true); await refreshGit(); }); }}><Download size={14} /> Pull{git.data?.behind ? ` ${git.data.behind}` : ""}</Button>
-                    <Button variant="ghost" size="sm" disabled={!native} onClick={() => { if (window.confirm(`Push ${project.name} to its remote?`)) void run("Pushing", () => desktopApi.gitPush(project.path, true)); }}><Upload size={14} /> Push{git.data?.ahead ? ` ${git.data.ahead}` : ""}</Button>
-                    <Button variant="ghost" size="icon" disabled={!native} aria-label="Refresh status" onClick={() => void refreshGit()}><RefreshCw size={14} /></Button>
+                    <Button variant="ghost" size="sm" disabled={!native || gitAction !== null} onClick={() => void pullChanges()}>
+                      {gitAction === "pull" ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />} {gitAction === "pull" ? "Pulling…" : `Pull${git.data?.behind ? ` ${git.data.behind}` : ""}`}
+                    </Button>
+                    <Button variant="ghost" size="sm" disabled={!native || gitAction !== null} onClick={() => void pushChanges()}>
+                      {gitAction === "push" ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />} {gitAction === "push" ? "Pushing…" : `Push${git.data?.ahead ? ` ${git.data.ahead}` : ""}`}
+                    </Button>
+                    <Button variant="ghost" size="icon" disabled={!native || gitAction !== null} aria-label="Refresh status" onClick={() => void refreshGit()}><RefreshCw size={14} /></Button>
                   </div>
                 </div>
                 {mergeStatus.data?.inProgress ? (
