@@ -77,6 +77,37 @@ pub struct VcsOperationResult {
     pub stderr: String,
 }
 
+/// Result of attempting a merge. Conflicts are a normal outcome, not a
+/// `VcsError` — the caller resolves them via `resolve_conflict` and friends.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum MergeOutcome {
+    Merged { message: String },
+    Conflicts { files: Vec<String> },
+}
+
+/// Whether a merge is currently in progress and, if so, which files still
+/// have unresolved conflicts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeStatus {
+    pub in_progress: bool,
+    pub conflicted_files: Vec<String>,
+}
+
+/// How to resolve a single conflicted file.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictResolution {
+    /// Take the current branch's version of the file wholesale.
+    Ours,
+    /// Take the incoming branch's version of the file wholesale.
+    Theirs,
+    /// The user already edited the file to remove the conflict markers —
+    /// just stage it as-is.
+    Resolved,
+}
+
 #[async_trait]
 pub trait VersionControlProvider: Send + Sync {
     async fn detect(&self, root: &Path) -> bool;
@@ -147,6 +178,90 @@ impl GitProvider {
         branch: &str,
     ) -> Result<VcsOperationResult, VcsError> {
         self.operation(root, &["switch", "-c", branch]).await
+    }
+
+    /// Merges `branch` into the current branch. Conflicts are a normal
+    /// outcome (not an error) — the caller resolves them via
+    /// `resolve_conflict`/`abort_merge`/`continue_merge`.
+    pub async fn merge_branch(&self, root: &Path, branch: &str) -> Result<MergeOutcome, VcsError> {
+        let output = self.run_raw(root, &["merge", "--no-edit", branch]).await?;
+        if output.status.success() {
+            return Ok(MergeOutcome::Merged {
+                message: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+            });
+        }
+        if self.has_merge_in_progress(root).await {
+            return Ok(MergeOutcome::Conflicts {
+                files: self.conflicted_files(root).await?,
+            });
+        }
+        Err(VcsError::CommandFailed {
+            command: format!("git merge {branch}"),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        })
+    }
+
+    /// Whether a merge is currently in progress (survives an app restart —
+    /// state lives in `.git/MERGE_HEAD`, not in-memory).
+    pub async fn merge_status(&self, root: &Path) -> MergeStatus {
+        let in_progress = self.has_merge_in_progress(root).await;
+        let conflicted_files = if in_progress {
+            self.conflicted_files(root).await.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        MergeStatus {
+            in_progress,
+            conflicted_files,
+        }
+    }
+
+    async fn has_merge_in_progress(&self, root: &Path) -> bool {
+        self.run_raw(root, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+            .await
+            .is_ok_and(|output| output.status.success())
+    }
+
+    async fn conflicted_files(&self, root: &Path) -> Result<Vec<String>, VcsError> {
+        let output = self
+            .run(root, &["diff", "--name-only", "--diff-filter=U"])
+            .await?;
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect())
+    }
+
+    /// Resolves a single conflicted file by taking "ours"/"theirs" wholesale,
+    /// or staging it as-is after the user manually edited out the conflict
+    /// markers (`Resolved`).
+    pub async fn resolve_conflict(
+        &self,
+        root: &Path,
+        path: &str,
+        resolution: ConflictResolution,
+    ) -> Result<VcsOperationResult, VcsError> {
+        let flag = match resolution {
+            ConflictResolution::Ours => Some("--ours"),
+            ConflictResolution::Theirs => Some("--theirs"),
+            ConflictResolution::Resolved => None,
+        };
+        if let Some(flag) = flag {
+            self.run(root, &["checkout", flag, "--", path]).await?;
+        }
+        self.operation(root, &["add", "--", path]).await
+    }
+
+    /// Abandons an in-progress merge, restoring the pre-merge working tree.
+    pub async fn abort_merge(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
+        self.operation(root, &["merge", "--abort"]).await
+    }
+
+    /// Completes an in-progress merge once every conflict has been resolved
+    /// and staged, using the prepared merge commit message.
+    pub async fn continue_merge(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
+        self.operation(root, &["commit", "--no-edit"]).await
     }
 
     /// Local branch names for the repository.

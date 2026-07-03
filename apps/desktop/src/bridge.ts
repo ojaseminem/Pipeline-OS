@@ -60,6 +60,9 @@ export function formatVersion(version: string): string {
 }
 export type GitStatus = { branch?: string; ahead: number; behind: number; changedFiles: Array<{ path: string; status: string }> };
 export type GitCommit = { hash: string; shortHash: string; author: string; date: string; subject: string };
+export type MergeOutcome = { status: "merged"; message: string } | { status: "conflicts"; files: string[] };
+export type MergeStatus = { inProgress: boolean; conflictedFiles: string[] };
+export type ConflictResolution = "ours" | "theirs" | "resolved";
 export type ToolManifest = {
   id: string;
   name: string;
@@ -170,6 +173,11 @@ export const desktopApi = {
   gitCommit: (root: string, message: string, confirmed: boolean) => invokeDesktop("git_commit", { root, message, confirmed }),
   gitPush: (root: string, confirmed: boolean) => invokeDesktop("git_push", { root, confirmed }),
   gitSwitch: (root: string, branch: string, confirmed: boolean) => invokeDesktop("git_switch", { root, branch, confirmed }),
+  gitMerge: (root: string, branch: string, confirmed: boolean) => invokeDesktop<MergeOutcome>("git_merge", { root, branch, confirmed }),
+  gitMergeStatus: (root: string) => invokeDesktop<MergeStatus>("git_merge_status", { root }),
+  gitResolveConflict: (root: string, path: string, resolution: ConflictResolution, confirmed: boolean) => invokeDesktop("git_resolve_conflict", { root, path, resolution, confirmed }),
+  gitAbortMerge: (root: string, confirmed: boolean) => invokeDesktop("git_abort_merge", { root, confirmed }),
+  gitContinueMerge: (root: string, confirmed: boolean) => invokeDesktop("git_continue_merge", { root, confirmed }),
   gitBranches: (root: string) => invokeDesktop<string[]>("git_branches", { root }),
   gitCreateBranch: (root: string, branch: string, confirmed: boolean) => invokeDesktop("git_create_branch", { root, branch, confirmed }),
   gitLog: (root: string, limit: number) => invokeDesktop<GitCommit[]>("git_log", { root, limit }),

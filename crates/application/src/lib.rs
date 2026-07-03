@@ -35,8 +35,9 @@ use vantadeck_storage::{
     ActivityRecord, ManualOverrideRecord, RegisteredProject, Storage, StorageError,
 };
 use vantadeck_vcs::{
-    ChangedFile, GitCommit, GitProvider, VcsError, VcsOperationResult, VcsStatus,
-    VersionControlProvider, evaluate_lfs_health, evaluate_repo_size_health,
+    ChangedFile, ConflictResolution, GitCommit, GitProvider, MergeOutcome, MergeStatus, VcsError,
+    VcsOperationResult, VcsStatus, VersionControlProvider, evaluate_lfs_health,
+    evaluate_repo_size_health,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -938,6 +939,49 @@ impl ApplicationService {
     ) -> Result<VcsOperationResult, ApplicationError> {
         require_confirmation("Git branch switch", confirmed)?;
         Ok(self.git.switch_branch(root, branch).await?)
+    }
+
+    pub async fn vcs_merge_branch(
+        &self,
+        root: &Path,
+        branch: &str,
+        confirmed: bool,
+    ) -> Result<MergeOutcome, ApplicationError> {
+        require_confirmation("Git merge", confirmed)?;
+        Ok(self.git.merge_branch(root, branch).await?)
+    }
+
+    pub async fn vcs_merge_status(&self, root: &Path) -> MergeStatus {
+        self.git.merge_status(root).await
+    }
+
+    pub async fn vcs_resolve_conflict(
+        &self,
+        root: &Path,
+        path: &str,
+        resolution: ConflictResolution,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("Resolving a merge conflict", confirmed)?;
+        Ok(self.git.resolve_conflict(root, path, resolution).await?)
+    }
+
+    pub async fn vcs_abort_merge(
+        &self,
+        root: &Path,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("Aborting the merge", confirmed)?;
+        Ok(self.git.abort_merge(root).await?)
+    }
+
+    pub async fn vcs_continue_merge(
+        &self,
+        root: &Path,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("Completing the merge", confirmed)?;
+        Ok(self.git.continue_merge(root).await?)
     }
 
     /// Full project health, including Git and Git-LFS checks. Runs Git

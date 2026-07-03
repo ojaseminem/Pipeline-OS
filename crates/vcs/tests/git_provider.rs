@@ -1,6 +1,9 @@
 use std::{fs, process::Command};
 
-use vantadeck_vcs::{GitProvider, LfsProbe, evaluate_lfs_health, evaluate_repo_size_health};
+use vantadeck_vcs::{
+    ConflictResolution, GitProvider, LfsProbe, MergeOutcome, evaluate_lfs_health,
+    evaluate_repo_size_health,
+};
 
 fn git(root: &std::path::Path, arguments: &[&str]) {
     let output = Command::new("git")
@@ -28,6 +31,15 @@ fn repository() -> tempfile::TempDir {
     git(root.path(), &["add", "tracked.txt"]);
     git(root.path(), &["commit", "-m", "initial"]);
     root
+}
+
+fn current_branch(root: &std::path::Path) -> String {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["branch", "--show-current"])
+        .output()
+        .expect("git command");
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
 #[tokio::test]
@@ -127,4 +139,100 @@ fn still_flags_missing_lfs_install_when_the_project_already_opted_in() {
         .collect::<Vec<_>>();
     assert!(codes.contains(&"GIT_LFS_NOT_INSTALLED"));
     assert!(!codes.contains(&"GIT_LFS_NOT_INITIALIZED"));
+}
+
+#[tokio::test]
+async fn merges_a_branch_cleanly_when_there_is_no_conflict() {
+    let root = repository();
+    let provider = GitProvider::new("git");
+    let base = current_branch(root.path());
+    git(root.path(), &["switch", "-c", "feature"]);
+    fs::write(root.path().join("feature.txt"), "feature\n").expect("feature file");
+    git(root.path(), &["add", "feature.txt"]);
+    git(root.path(), &["commit", "-m", "add feature file"]);
+    git(root.path(), &["switch", &base]);
+
+    let outcome = provider
+        .merge_branch(root.path(), "feature")
+        .await
+        .expect("merge succeeds");
+
+    assert!(matches!(outcome, MergeOutcome::Merged { .. }));
+    assert!(root.path().join("feature.txt").is_file());
+    assert!(!provider.merge_status(root.path()).await.in_progress);
+}
+
+#[tokio::test]
+async fn merge_conflicts_are_reported_and_resolvable() {
+    let root = repository();
+    let provider = GitProvider::new("git");
+    let base = current_branch(root.path());
+    git(root.path(), &["switch", "-c", "feature"]);
+    fs::write(root.path().join("tracked.txt"), "feature change\n").expect("feature edit");
+    git(root.path(), &["commit", "-am", "feature edit"]);
+    git(root.path(), &["switch", &base]);
+    fs::write(root.path().join("tracked.txt"), "main change\n").expect("main edit");
+    git(root.path(), &["commit", "-am", "main edit"]);
+
+    let outcome = provider
+        .merge_branch(root.path(), "feature")
+        .await
+        .expect("merge runs");
+    let files = match outcome {
+        MergeOutcome::Conflicts { files } => files,
+        MergeOutcome::Merged { .. } => panic!("expected a conflict"),
+    };
+    assert_eq!(files, vec!["tracked.txt".to_string()]);
+
+    let status = provider.merge_status(root.path()).await;
+    assert!(status.in_progress);
+    assert_eq!(status.conflicted_files, vec!["tracked.txt".to_string()]);
+
+    provider
+        .resolve_conflict(root.path(), "tracked.txt", ConflictResolution::Ours)
+        .await
+        .expect("resolve conflict");
+    assert!(
+        provider
+            .merge_status(root.path())
+            .await
+            .conflicted_files
+            .is_empty()
+    );
+
+    provider
+        .continue_merge(root.path())
+        .await
+        .expect("commit the merge");
+    assert!(!provider.merge_status(root.path()).await.in_progress);
+}
+
+#[tokio::test]
+async fn abort_merge_restores_pre_merge_state() {
+    let root = repository();
+    let provider = GitProvider::new("git");
+    let base = current_branch(root.path());
+    git(root.path(), &["switch", "-c", "feature"]);
+    fs::write(root.path().join("tracked.txt"), "feature change\n").expect("feature edit");
+    git(root.path(), &["commit", "-am", "feature edit"]);
+    git(root.path(), &["switch", &base]);
+    fs::write(root.path().join("tracked.txt"), "main change\n").expect("main edit");
+    git(root.path(), &["commit", "-am", "main edit"]);
+
+    provider
+        .merge_branch(root.path(), "feature")
+        .await
+        .expect("merge runs");
+    assert!(provider.merge_status(root.path()).await.in_progress);
+
+    provider
+        .abort_merge(root.path())
+        .await
+        .expect("abort merge");
+
+    assert!(!provider.merge_status(root.path()).await.in_progress);
+    let content = fs::read_to_string(root.path().join("tracked.txt")).expect("tracked file");
+    // Compare with normalized line endings — Windows git (core.autocrlf) may
+    // check the file out with CRLF regardless of what we wrote.
+    assert_eq!(content.replace("\r\n", "\n"), "main change\n");
 }

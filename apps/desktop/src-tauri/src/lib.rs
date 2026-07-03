@@ -15,7 +15,7 @@ use vantadeck_launcher::LaunchSpec;
 use vantadeck_manifests::{AppManifest, ToolManifest};
 use vantadeck_storage::{RegisteredProject, Storage};
 use vantadeck_vcs::GitProvider;
-use vantadeck_vcs::VcsOperationResult;
+use vantadeck_vcs::{ConflictResolution, MergeOutcome, MergeStatus, VcsOperationResult};
 
 /// Categories that represent launchable creative applications. Version-control
 /// tooling is detected for project workflows but is never launched directly.
@@ -1164,6 +1164,78 @@ async fn git_switch(
         .map_err(|e| e.to_string())
 }
 
+/// Merges a branch into the current one. Conflicts come back as a normal
+/// `MergeOutcome::Conflicts` result, not an error.
+#[tauri::command(rename_all = "camelCase")]
+async fn git_merge(
+    root: String,
+    branch: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<MergeOutcome, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_merge_branch(Path::new(&root), &branch, confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Whether a merge is in progress and which files still conflict — checked
+/// alongside git status so the source-control panel can show the conflict
+/// banner even after reopening the app mid-merge.
+#[tauri::command(rename_all = "camelCase")]
+async fn git_merge_status(
+    root: String,
+    state: State<'_, DesktopState>,
+) -> Result<MergeStatus, String> {
+    Ok(state.service.vcs_merge_status(Path::new(&root)).await)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn git_resolve_conflict(
+    root: String,
+    path: String,
+    resolution: ConflictResolution,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_resolve_conflict(Path::new(&root), &path, resolution, confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn git_abort_merge(
+    root: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_abort_merge(Path::new(&root), confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn git_continue_merge(
+    root: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_continue_merge(Path::new(&root), confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn git_branches(root: String, state: State<'_, DesktopState>) -> Result<Vec<String>, String> {
     state
@@ -1962,6 +2034,11 @@ pub fn run() {
             git_commit,
             git_push,
             git_switch,
+            git_merge,
+            git_merge_status,
+            git_resolve_conflict,
+            git_abort_merge,
+            git_continue_merge,
             git_branches,
             git_create_branch,
             git_log,

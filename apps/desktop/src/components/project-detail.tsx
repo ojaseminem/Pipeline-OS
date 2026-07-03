@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Box, Check, ChevronDown, ChevronRight, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
-  GitCommitHorizontal, ListTodo, MoreHorizontal, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
+  AlertTriangle, ArrowLeft, Box, Check, ChevronDown, ChevronRight, CircleSlash, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
+  GitCommitHorizontal, GitMerge, ListTodo, MoreHorizontal, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Trash2, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import { Copy, ImageIcon, Link2, Tag, X } from "lucide-react";
 import { HealthPanel } from "./health-panel";
-import { browsePath, desktopApi, isNativeRuntime, openExternal, type HealthIssue } from "../bridge";
+import { browsePath, desktopApi, isNativeRuntime, openExternal, type ConflictResolution, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
 import { PROJECT_CATEGORIES } from "../lib/categories";
 import { loadTags, loadWorkspace, newId, saveTags, saveWorkspace, type ProjectWorkspace } from "../lib/local-store";
@@ -76,7 +76,7 @@ function AppFiles({ projectPath, appId, appName, executable, native, run }: { pr
   );
 }
 
-export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { project: { path: string; name: string }; onBack: () => void; onRenamed?: (name: string) => void; onOpenInEngine?: (target: { path: string; name: string }) => void }) {
+export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHealthChanged }: { project: { path: string; name: string }; onBack: () => void; onRenamed?: (name: string) => void; onOpenInEngine?: (target: { path: string; name: string }) => void; onHealthChanged?: () => void }) {
   const native = isNativeRuntime();
   const queryClient = useQueryClient();
   const cfg = useQuery({ queryKey: ["project-config", project.path], queryFn: () => desktopApi.projectConfig(project.path), enabled: native, retry: false });
@@ -84,6 +84,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
   const git = useQuery({ queryKey: ["git-status", project.path], queryFn: () => desktopApi.gitStatus(project.path), enabled: native, retry: false });
   const files = useQuery({ queryKey: ["recent-files", project.path], queryFn: () => desktopApi.recentFiles(project.path, 25), enabled: native });
   const branches = useQuery({ queryKey: ["git-branches", project.path], queryFn: () => desktopApi.gitBranches(project.path), enabled: native, retry: false });
+  const mergeStatus = useQuery({ queryKey: ["git-merge-status", project.path], queryFn: () => desktopApi.gitMergeStatus(project.path), enabled: native, retry: false });
   const gitInstalled = useQuery({ queryKey: ["git-available"], queryFn: () => desktopApi.gitAvailable(), enabled: native && git.isError, retry: false });
   const [setupMode, setSetupMode] = useState<"local" | "online">("local");
   const [remoteUrl, setRemoteUrl] = useState("");
@@ -242,6 +243,10 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
       const issues = await desktopApi.projectHealth(project.path);
       setHealth(issues);
       setHealthCheckedAt(new Date().toISOString());
+      // The check already updated the cached-health row this project reads
+      // from on Home/Health — tell those screens to re-read it so they don't
+      // show a stale summary until the next focus-triggered refresh.
+      onHealthChanged?.();
     });
   }
 
@@ -328,6 +333,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
     queryClient.invalidateQueries({ queryKey: ["git-status", project.path] }),
     queryClient.invalidateQueries({ queryKey: ["git-branches", project.path] }),
     queryClient.invalidateQueries({ queryKey: ["git-stash-list", project.path] }),
+    queryClient.invalidateQueries({ queryKey: ["git-merge-status", project.path] }),
   ]);
   const STASH_PREFIX = "vantadeck-autostash: from ";
   // Mirrors GitHub Desktop: switching with a clean tree is instant; a dirty
@@ -368,6 +374,42 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
     if (name && name.trim()) {
       void run(`Creating ${name.trim()}`, async () => { await desktopApi.gitCreateBranch(project.path, name.trim(), true); await refreshGit(); });
     }
+  }
+  // Merge doesn't use the run() helper — a conflict is a normal outcome, not
+  // a thrown error, so success/conflict need different toasts rather than a
+  // blanket "complete" message.
+  async function mergeBranchInto(name: string) {
+    const current = git.data?.branch;
+    if (!current || name === current) return;
+    if (!window.confirm(`Merge "${name}" into "${current}"?`)) return;
+    try {
+      const outcome = await desktopApi.gitMerge(project.path, name, true);
+      if (outcome.status === "conflicts") toast.error(`Merging "${name}" produced ${outcome.files.length} conflict${outcome.files.length === 1 ? "" : "s"} — resolve them below.`);
+      else toast.success(`Merged "${name}" into "${current}".`);
+      await refreshGit();
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+  }
+  async function resolveConflict(path: string, resolution: ConflictResolution) {
+    try {
+      await desktopApi.gitResolveConflict(project.path, path, resolution, true);
+      toast.success(`Resolved ${path}.`);
+      await refreshGit();
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+  }
+  async function abortMerge() {
+    if (!window.confirm("Abort the merge and restore the pre-merge state? Any conflicts you've already resolved will be discarded.")) return;
+    try {
+      await desktopApi.gitAbortMerge(project.path, true);
+      toast.success("Merge aborted.");
+      await refreshGit();
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+  }
+  async function completeMerge() {
+    try {
+      await desktopApi.gitContinueMerge(project.path, true);
+      toast.success("Merge completed.");
+      await refreshGit();
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
   }
 
   // If changes were left stashed here on a previous branch switch, offer to
@@ -575,11 +617,47 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine }: { 
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <div className="flex shrink-0 items-center gap-1">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" disabled={!native || mergeStatus.data?.inProgress || (branches.data?.length ?? 0) < 2} title="Merge another branch into this one"><GitMerge size={14} /> Merge</Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="max-h-80 w-64 overflow-y-auto">
+                        <div className="px-2 py-1 text-xs text-muted-foreground">Merge into "{git.data?.branch}"</div>
+                        {(branches.data ?? []).filter((name) => name !== git.data?.branch).map((name) => (
+                          <DropdownMenuItem key={name} onClick={() => void mergeBranchInto(name)}><span className="truncate">{name}</span></DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button variant="ghost" size="sm" disabled={!native} onClick={() => { if (window.confirm(`Pull changes into ${project.name}?`)) void run("Pulling", async () => { await desktopApi.gitSync(project.path, true); await refreshGit(); }); }}><Download size={14} /> Pull{git.data?.behind ? ` ${git.data.behind}` : ""}</Button>
                     <Button variant="ghost" size="sm" disabled={!native} onClick={() => { if (window.confirm(`Push ${project.name} to its remote?`)) void run("Pushing", () => desktopApi.gitPush(project.path, true)); }}><Upload size={14} /> Push{git.data?.ahead ? ` ${git.data.ahead}` : ""}</Button>
                     <Button variant="ghost" size="icon" disabled={!native} aria-label="Refresh status" onClick={() => void refreshGit()}><RefreshCw size={14} /></Button>
                   </div>
                 </div>
+                {mergeStatus.data?.inProgress ? (
+                  <div className="space-y-2 border-b border-border bg-destructive/5 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-destructive"><AlertTriangle size={15} className="shrink-0" /> Merge in progress{mergeStatus.data.conflictedFiles.length ? ` — ${mergeStatus.data.conflictedFiles.length} conflict${mergeStatus.data.conflictedFiles.length === 1 ? "" : "s"} left` : ""}</p>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <Button variant="outline" size="sm" className="h-7" disabled={!native} onClick={() => void abortMerge()}><CircleSlash size={13} /> Abort</Button>
+                        <Button size="sm" className="h-7" disabled={!native || mergeStatus.data.conflictedFiles.length > 0} onClick={() => void completeMerge()}><Check size={13} /> Complete merge</Button>
+                      </span>
+                    </div>
+                    {mergeStatus.data.conflictedFiles.length ? (
+                      <ul className="space-y-1">
+                        {mergeStatus.data.conflictedFiles.map((path) => (
+                          <li key={path} className="flex items-center gap-2 rounded-md bg-background/60 px-2 py-1 text-sm">
+                            <FileCode2 size={13} className="shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1 truncate" title={path}>{path}</span>
+                            <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void run("Opening file", () => desktopApi.openPath(`${project.path}/${path}`))}><ExternalLink size={12} /> Open</Button>
+                            <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void resolveConflict(path, "ours")}>Use mine</Button>
+                            <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void resolveConflict(path, "theirs")}>Use theirs</Button>
+                            <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void resolveConflict(path, "resolved")}>Mark resolved</Button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : <p className="text-xs text-muted-foreground">All conflicts resolved — complete the merge to finish.</p>}
+                  </div>
+                ) : null}
                 <div className="flex items-center gap-3 border-t border-border px-4 py-1.5 text-sm">
                   <button onClick={() => setSourceView("changes")} className={sourceView === "changes" ? "font-medium" : "text-muted-foreground hover:text-foreground"}>Changes{git.data ? ` (${git.data.changedFiles.length})` : ""}</button>
                   <button onClick={() => setSourceView("history")} className={sourceView === "history" ? "font-medium" : "text-muted-foreground hover:text-foreground"}>History</button>
