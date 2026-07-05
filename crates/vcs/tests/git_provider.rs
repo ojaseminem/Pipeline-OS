@@ -337,3 +337,107 @@ async fn compares_ahead_behind_against_another_branch() {
     assert_eq!(comparison.ahead, 1);
     assert_eq!(comparison.behind, 1);
 }
+
+#[tokio::test]
+async fn status_reports_no_upstream_until_the_branch_is_published() {
+    let remote_dir = tempfile::tempdir().expect("bare remote dir");
+    git(remote_dir.path(), &["init", "--bare"]);
+
+    let root = repository();
+    let provider = GitProvider::new("git");
+    let base = current_branch(root.path());
+    let status = provider.status(root.path()).await.expect("status");
+    assert!(!status.has_upstream);
+    assert!(status.last_fetched_at.is_none());
+
+    git(
+        root.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            &remote_dir.path().display().to_string(),
+        ],
+    );
+    provider
+        .publish_branch(root.path(), &base)
+        .await
+        .expect("publish branch");
+
+    let status = provider.status(root.path()).await.expect("status");
+    assert!(status.has_upstream);
+}
+
+#[tokio::test]
+async fn fetch_updates_last_fetched_at() {
+    let remote_dir = tempfile::tempdir().expect("bare remote dir");
+    git(remote_dir.path(), &["init", "--bare"]);
+
+    let root = repository();
+    let provider = GitProvider::new("git");
+    let base = current_branch(root.path());
+    git(
+        root.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            &remote_dir.path().display().to_string(),
+        ],
+    );
+    provider
+        .publish_branch(root.path(), &base)
+        .await
+        .expect("publish branch");
+
+    provider.fetch(root.path()).await.expect("fetch");
+
+    let status = provider.status(root.path()).await.expect("status");
+    assert!(status.last_fetched_at.is_some());
+}
+
+#[tokio::test]
+async fn pull_merges_cleanly_when_fast_forwardable() {
+    let remote_dir = tempfile::tempdir().expect("bare remote dir");
+    git(remote_dir.path(), &["init", "--bare"]);
+
+    let root = repository();
+    let provider = GitProvider::new("git");
+    let base = current_branch(root.path());
+    git(
+        root.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            &remote_dir.path().display().to_string(),
+        ],
+    );
+    provider
+        .publish_branch(root.path(), &base)
+        .await
+        .expect("publish branch");
+
+    // A second clone pushes a new commit that our first checkout doesn't have yet.
+    let other_root = tempfile::tempdir().expect("second clone dir");
+    git(
+        other_root.path(),
+        &["clone", &remote_dir.path().display().to_string(), "."],
+    );
+    git(
+        other_root.path(),
+        &["config", "user.name", "Vantadeck Test"],
+    );
+    git(
+        other_root.path(),
+        &["config", "user.email", "vantadeck@example.invalid"],
+    );
+    fs::write(other_root.path().join("other.txt"), "from elsewhere\n").expect("other file");
+    git(other_root.path(), &["add", "other.txt"]);
+    git(other_root.path(), &["commit", "-m", "add other file"]);
+    git(other_root.path(), &["push", "origin", &base]);
+
+    let outcome = provider.pull(root.path()).await.expect("pull succeeds");
+    assert!(matches!(outcome, MergeOutcome::Merged { .. }));
+    assert!(root.path().join("other.txt").is_file());
+}

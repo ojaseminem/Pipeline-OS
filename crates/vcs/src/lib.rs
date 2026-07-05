@@ -22,6 +22,16 @@ pub struct VcsStatus {
     pub ahead: u32,
     #[serde(default)]
     pub behind: u32,
+    /// Whether the current branch has an upstream (has ever been pushed with
+    /// `-u`/tracked). When `false`, there's nothing to fetch/pull/push yet —
+    /// the only meaningful action is publishing the branch.
+    #[serde(default)]
+    pub has_upstream: bool,
+    /// When the repository's remote-tracking refs were last updated (RFC
+    /// 3339), derived from `.git/FETCH_HEAD`'s modified time. `None` if this
+    /// repo has never been fetched (e.g. a fresh clone that hasn't synced).
+    #[serde(default)]
+    pub last_fetched_at: Option<String>,
     pub changed_files: Vec<ChangedFile>,
 }
 
@@ -161,7 +171,81 @@ impl GitProvider {
                 ],
             )
             .await?;
-        parse_git_porcelain_v2(&String::from_utf8_lossy(&output.stdout))
+        let mut status = parse_git_porcelain_v2(&String::from_utf8_lossy(&output.stdout))?;
+        status.last_fetched_at = self.last_fetched_at(root).await;
+        Ok(status)
+    }
+
+    /// When remote-tracking refs were last updated, derived from
+    /// `.git/FETCH_HEAD`'s modified time (touched by both `fetch` and
+    /// `pull`). `None` if this repo has never fetched from a remote.
+    async fn last_fetched_at(&self, root: &Path) -> Option<String> {
+        let git_dir = self.git_dir(root).await?;
+        let modified = std::fs::metadata(git_dir.join("FETCH_HEAD"))
+            .ok()?
+            .modified()
+            .ok()?;
+        Some(chrono::DateTime::<Utc>::from(modified).to_rfc3339())
+    }
+
+    /// Resolves the repository's actual `.git` directory (handles worktrees,
+    /// where `.git` is a file pointing elsewhere, not a directory).
+    async fn git_dir(&self, root: &Path) -> Option<PathBuf> {
+        let output = self
+            .run_raw(root, &["rev-parse", "--git-common-dir"])
+            .await
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let git_dir = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        Some(if Path::new(&git_dir).is_absolute() {
+            PathBuf::from(git_dir)
+        } else {
+            root.join(git_dir)
+        })
+    }
+
+    /// Fetches from the remote without merging — updates remote-tracking
+    /// refs (and `last_fetched_at`) so the UI can show accurate ahead/behind
+    /// counts before the user decides to pull or push.
+    pub async fn fetch(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
+        self.operation(root, &["fetch"]).await
+    }
+
+    /// Pulls with a real merge (not fast-forward-only): fast-forwards when
+    /// possible, creates a merge commit when the branch has diverged, and
+    /// surfaces conflicts the same way `merge_branch` does — via
+    /// `MergeOutcome::Conflicts`, resolved through the same
+    /// `resolve_conflict`/`abort_merge`/`continue_merge` flow.
+    pub async fn pull(&self, root: &Path) -> Result<MergeOutcome, VcsError> {
+        let output = self.run_raw(root, &["pull", "--no-edit"]).await?;
+        if output.status.success() {
+            return Ok(MergeOutcome::Merged {
+                message: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+            });
+        }
+        if self.has_merge_in_progress(root).await {
+            return Ok(MergeOutcome::Conflicts {
+                files: self.conflicted_files(root).await?,
+            });
+        }
+        Err(VcsError::CommandFailed {
+            command: "git pull".into(),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        })
+    }
+
+    /// Publishes a new local branch to `origin`, setting it as the upstream
+    /// (`git push -u`) — the first push for a branch that doesn't exist on
+    /// the remote yet.
+    pub async fn publish_branch(
+        &self,
+        root: &Path,
+        branch: &str,
+    ) -> Result<VcsOperationResult, VcsError> {
+        self.operation(root, &["push", "-u", "origin", branch])
+            .await
     }
 
     pub async fn commit_all(
@@ -868,18 +952,7 @@ impl GitProvider {
     /// remote's actual default branch. Never surfaces failures to the caller —
     /// worst case, the retried command fails again with its original error.
     async fn repair_corrupt_refs(&self, root: &Path) {
-        let git_dir = self
-            .run_raw(root, &["rev-parse", "--git-common-dir"])
-            .await
-            .ok()
-            .filter(|output| output.status.success())
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
-        if let Some(git_dir) = git_dir {
-            let git_dir = if Path::new(&git_dir).is_absolute() {
-                PathBuf::from(git_dir)
-            } else {
-                root.join(git_dir)
-            };
+        if let Some(git_dir) = self.git_dir(root).await {
             let bad_head = git_dir
                 .join("refs")
                 .join("remotes")
@@ -1034,11 +1107,15 @@ pub fn parse_git_porcelain_v2(input: &str) -> Result<VcsStatus, VcsError> {
         branch: None,
         ahead: 0,
         behind: 0,
+        has_upstream: false,
+        last_fetched_at: None,
         changed_files: Vec::new(),
     };
     for line in input.lines() {
         if let Some(branch) = line.strip_prefix("# branch.head ") {
             status.branch = (branch != "(detached)").then(|| branch.to_owned());
+        } else if line.starts_with("# branch.upstream ") {
+            status.has_upstream = true;
         } else if let Some(ab) = line.strip_prefix("# branch.ab ") {
             // Format: "+<ahead> -<behind>"
             for token in ab.split_whitespace() {

@@ -58,7 +58,7 @@ export const APP_CATEGORY_LABELS: Record<string, string> = {
 export function formatVersion(version: string): string {
   return version === "0.0.0" ? "Unknown version" : version;
 }
-export type GitStatus = { branch?: string; ahead: number; behind: number; changedFiles: Array<{ path: string; status: string }> };
+export type GitStatus = { branch?: string; ahead: number; behind: number; hasUpstream: boolean; lastFetchedAt?: string | null; changedFiles: Array<{ path: string; status: string }> };
 export type GitCommit = { hash: string; shortHash: string; author: string; date: string; subject: string };
 export type MergeOutcome = { status: "merged"; message: string } | { status: "conflicts"; files: string[] };
 export type MergeStatus = { inProgress: boolean; conflictedFiles: string[] };
@@ -174,6 +174,9 @@ export const desktopApi = {
   engineOptions: (root: string, appId?: string) => invokeDesktop<EngineChoice | null>("engine_options", { root, appId: appId ?? null }),
   setProjectEngineVersion: (root: string, appId: string, version: string) => invokeDesktop<void>("set_project_engine_version", { root, appId, version }),
   gitSync: (root: string, confirmed: boolean) => invokeDesktop("git_sync", { root, confirmed }),
+  gitFetch: (root: string) => invokeDesktop("git_fetch", { root }),
+  gitPull: (root: string, confirmed: boolean) => invokeDesktop<MergeOutcome>("git_pull", { root, confirmed }),
+  gitPublishBranch: (root: string, branch: string, confirmed: boolean) => invokeDesktop("git_publish_branch", { root, branch, confirmed }),
   gitCommit: (root: string, message: string, confirmed: boolean) => invokeDesktop("git_commit", { root, message, confirmed }),
   gitPush: (root: string, confirmed: boolean) => invokeDesktop("git_push", { root, confirmed }),
   gitSwitch: (root: string, branch: string, confirmed: boolean) => invokeDesktop("git_switch", { root, branch, confirmed }),

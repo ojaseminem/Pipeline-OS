@@ -912,6 +912,33 @@ impl ApplicationService {
         Ok(self.git.sync(root).await?)
     }
 
+    /// Updates remote-tracking refs without merging — no confirmation needed,
+    /// this never touches the working tree or history.
+    pub async fn vcs_fetch(&self, root: &Path) -> Result<VcsOperationResult, ApplicationError> {
+        Ok(self.git.fetch(root).await?)
+    }
+
+    /// A real merge pull (fast-forwards when possible, otherwise merges and
+    /// may produce conflicts) — the desktop UI's "Pull" action.
+    pub async fn vcs_pull(
+        &self,
+        root: &Path,
+        confirmed: bool,
+    ) -> Result<MergeOutcome, ApplicationError> {
+        require_confirmation("Git pull", confirmed)?;
+        Ok(self.git.pull(root).await?)
+    }
+
+    pub async fn vcs_publish_branch(
+        &self,
+        root: &Path,
+        branch: &str,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("Publishing the branch", confirmed)?;
+        Ok(self.git.publish_branch(root, branch).await?)
+    }
+
     pub async fn vcs_commit(
         &self,
         root: &Path,

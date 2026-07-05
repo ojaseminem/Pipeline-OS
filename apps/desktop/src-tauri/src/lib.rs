@@ -1122,6 +1122,53 @@ async fn git_sync(
         .map_err(|e| e.to_string())
 }
 
+/// Updates remote-tracking refs without merging (no working-tree/history
+/// mutation, so no confirmation gate) — the unified sync button's first step.
+#[tauri::command(rename_all = "camelCase")]
+async fn git_fetch(
+    root: String,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    state
+        .service
+        .vcs_fetch(Path::new(&root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// A real merge pull — fast-forwards when possible, otherwise merges (and
+/// may produce conflicts, reported the same way `git_merge` does).
+#[tauri::command(rename_all = "camelCase")]
+async fn git_pull(
+    root: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<MergeOutcome, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_pull(Path::new(&root), confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Publishes a new local branch to `origin` (`git push -u`) — the fix for
+/// "the current branch has no upstream branch" push failures.
+#[tauri::command(rename_all = "camelCase")]
+async fn git_publish_branch(
+    root: String,
+    branch: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_publish_branch(Path::new(&root), &branch, confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn git_commit(
     root: String,
@@ -2051,6 +2098,9 @@ pub fn run() {
             open_url,
             launch_executable,
             git_sync,
+            git_fetch,
+            git_pull,
+            git_publish_branch,
             git_commit,
             git_push,
             git_switch,

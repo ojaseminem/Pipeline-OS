@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowLeft, Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Cloud, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
-  GitCommitHorizontal, GitMerge, ListTodo, MoreHorizontal, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Search, Trash2, Upload,
+  GitCommitHorizontal, GitMerge, ListTodo, MoreHorizontal, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Search, Trash2, Upload, UploadCloud,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -337,41 +337,86 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
     try { await action(); toast.success(`${label} complete.`); }
     catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
   }
-  // A push rejected because the remote moved (a normal non-fast-forward, or a
-  // ref-lock race from someone else pushing mid-operation) surfaces a raw git
-  // error by default — translate the common patterns into something actionable.
+  // A push/pull rejected because the remote moved (a normal non-fast-forward,
+  // or a ref-lock race from someone else pushing mid-operation) surfaces a
+  // raw git error by default — translate the common patterns into something
+  // actionable rather than showing "cannot lock ref ...".
   function describeGitError(message: string): string {
     if (/cannot lock ref|non-fast-forward|\[rejected\]|fetch first/i.test(message)) {
-      return "Push rejected — the remote has commits you don't have locally. Pull to update, then push again.";
+      return "The remote has commits you don't have locally. Fetching and pulling again should resolve it.";
     }
     return message;
   }
-  const [gitAction, setGitAction] = useState<"pull" | "push" | null>(null);
-  async function pullChanges() {
-    if (!window.confirm(`Pull changes into ${project.name}?`)) return;
-    setGitAction("pull");
+  type GitSyncStage = "fetching" | "pulling" | "pushing" | "publishing" | null;
+  const [gitStage, setGitStage] = useState<GitSyncStage>(null);
+  // Fetch/pull/push don't make sense with an unresolved merge sitting in the
+  // working tree — block them (and branch switching) until it's resolved or
+  // aborted, rather than letting git reject the command with a confusing error.
+  const gitBusy = gitStage !== null || Boolean(mergeStatus.data?.inProgress);
+  // Publishing is the one step worth an explicit heads-up: unlike fetch/pull/
+  // push (routine, low-friction, like GitHub Desktop's single sync button),
+  // it creates a brand-new branch on the remote that's now visible to others.
+  async function publishBranch() {
+    const branch = git.data?.branch;
+    if (!branch) return;
+    if (!window.confirm(`Publish "${branch}" to the remote? This creates the branch on origin and starts tracking it — from now on it behaves like any other branch here.`)) return;
+    setGitStage("publishing");
     try {
-      await desktopApi.gitSync(project.path, true);
+      await desktopApi.gitPublishBranch(project.path, branch, true);
       await refreshGit();
-      toast.success("Pulling complete.");
+      toast.success(`Published "${branch}" to the remote.`);
     } catch (error) {
       toast.error(describeGitError(error instanceof Error ? error.message : String(error)));
     } finally {
-      setGitAction(null);
+      setGitStage(null);
     }
   }
-  async function pushChanges() {
-    if (!window.confirm(`Push ${project.name} to its remote?`)) return;
-    setGitAction("push");
+  // The unified sync action: fetch to refresh remote-tracking state, pull if
+  // behind (handing off to the merge-conflict banner if it can't fast-forward),
+  // then push if there's anything to push — so a branch that's diverged in
+  // both directions gets pulled AND pushed from a single click, same as
+  // GitHub Desktop's combined fetch/pull/push button.
+  async function syncRepo() {
+    if (!git.data?.hasUpstream) { await publishBranch(); return; }
+    setGitStage("fetching");
     try {
-      await desktopApi.gitPush(project.path, true);
+      await desktopApi.gitFetch(project.path);
+      let fresh = await desktopApi.gitStatus(project.path);
+      if (fresh.behind > 0) {
+        setGitStage("pulling");
+        const outcome = await desktopApi.gitPull(project.path, true);
+        if (outcome.status === "conflicts") {
+          toast.error(`Pulling produced ${outcome.files.length} conflict${outcome.files.length === 1 ? "" : "s"} — resolve them below.`);
+          await refreshGit();
+          return;
+        }
+        fresh = await desktopApi.gitStatus(project.path);
+      }
+      if (fresh.ahead > 0) {
+        setGitStage("pushing");
+        await desktopApi.gitPush(project.path, true);
+      }
       await refreshGit();
-      toast.success("Pushing complete.");
+      toast.success("Sync complete.");
     } catch (error) {
       toast.error(describeGitError(error instanceof Error ? error.message : String(error)));
     } finally {
-      setGitAction(null);
+      setGitStage(null);
     }
+  }
+  // Single button, priority-ordered like GitHub Desktop: publish (no
+  // upstream yet) > pull+push (diverged both ways) > pull > push > fetch
+  // (up to date — still useful to refresh ahead/behind and last-fetched).
+  function syncButtonContent() {
+    if (gitStage) {
+      const label = gitStage === "fetching" ? "Fetching…" : gitStage === "pulling" ? "Pulling…" : gitStage === "pushing" ? "Pushing…" : "Publishing…";
+      return { label, icon: <RefreshCw size={14} className="animate-spin" /> };
+    }
+    if (!git.data?.hasUpstream) return { label: "Publish branch", icon: <UploadCloud size={14} /> };
+    if (git.data.behind > 0 && git.data.ahead > 0) return { label: `Pull ${git.data.behind} & Push ${git.data.ahead}`, icon: <RefreshCw size={14} /> };
+    if (git.data.behind > 0) return { label: `Pull ${git.data.behind}`, icon: <Download size={14} /> };
+    if (git.data.ahead > 0) return { label: `Push ${git.data.ahead}`, icon: <Upload size={14} /> };
+    return { label: "Fetch", icon: <RefreshCw size={14} /> };
   }
   const refreshGit = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ["git-status", project.path] }),
@@ -658,7 +703,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                 <div className="flex items-center justify-between border-b border-border px-3 py-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="min-w-0 gap-1.5 font-semibold" disabled={!native || gitAction !== null}><GitBranch size={15} className="shrink-0" /><span className="truncate">{git.data?.branch ?? "—"}</span><ChevronDown size={13} className="shrink-0 text-muted-foreground" /></Button>
+                      <Button variant="ghost" size="sm" className="min-w-0 gap-1.5 font-semibold" disabled={!native || gitBusy}><GitBranch size={15} className="shrink-0" /><span className="truncate">{git.data?.branch ?? "—"}</span><ChevronDown size={13} className="shrink-0 text-muted-foreground" /></Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" className="max-h-96 w-64 overflow-y-auto">
                       {localBranches.length ? <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Local</div> : null}
@@ -675,18 +720,26 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                       ))}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={newBranch}><GitBranchPlus size={14} /> New branch…</DropdownMenuItem>
-                      <DropdownMenuItem disabled={mergeStatus.data?.inProgress || (branches.data?.length ?? 0) < 2} onClick={() => { setMergeFilter(""); setMergePickerOpen(true); }}><GitMerge size={14} /> Choose a branch to merge into "{git.data?.branch}"…</DropdownMenuItem>
+                      <DropdownMenuItem disabled={gitBusy || (branches.data?.length ?? 0) < 2} onClick={() => { setMergeFilter(""); setMergePickerOpen(true); }}><GitMerge size={14} /> Choose a branch to merge into "{git.data?.branch}"…</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button variant="ghost" size="sm" disabled={!native || gitAction !== null} onClick={() => void pullChanges()}>
-                      {gitAction === "pull" ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />} {gitAction === "pull" ? "Pulling…" : `Pull${git.data?.behind ? ` ${git.data.behind}` : ""}`}
-                    </Button>
-                    <Button variant="ghost" size="sm" disabled={!native || gitAction !== null} onClick={() => void pushChanges()}>
-                      {gitAction === "push" ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />} {gitAction === "push" ? "Pushing…" : `Push${git.data?.ahead ? ` ${git.data.ahead}` : ""}`}
-                    </Button>
-                    <Button variant="ghost" size="icon" disabled={!native || gitAction !== null} aria-label="Refresh status" onClick={() => void refreshGit()}><RefreshCw size={14} /></Button>
-                  </div>
+                  {(() => {
+                    const sync = syncButtonContent();
+                    return (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!native || gitBusy}
+                          title={git.data?.hasUpstream ? `Last fetched ${git.data.lastFetchedAt ? formatLastOpened(git.data.lastFetchedAt) : "never"}` : "This branch hasn't been published to the remote yet"}
+                          onClick={() => void syncRepo()}
+                        >
+                          {sync.icon} {sync.label}
+                        </Button>
+                        <Button variant="ghost" size="icon" disabled={!native || gitBusy} aria-label="Refresh status" onClick={() => void refreshGit()}><RefreshCw size={14} /></Button>
+                      </div>
+                    );
+                  })()}
                 </div>
                 {mergeStatus.data?.inProgress ? (
                   <div className="space-y-2 border-b border-border bg-destructive/5 px-3 py-2.5">
