@@ -98,6 +98,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   const [remoteUrl, setRemoteUrl] = useState("");
   const [settingUp, setSettingUp] = useState(false);
   const [sourceView, setSourceView] = useState<"changes" | "history">("changes");
+  const [activeTab, setActiveTab] = useState("overview");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [marked, setMarked] = useState<Set<string>>(new Set());
   const anchorRef = useRef<number | null>(null);
@@ -345,6 +346,9 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
     if (/cannot lock ref|non-fast-forward|\[rejected\]|fetch first/i.test(message)) {
       return "The remote has commits you don't have locally. Fetching and pulling again should resolve it.";
     }
+    if (/terminal prompts disabled|could not read username|could not read password|authentication failed/i.test(message)) {
+      return "Git needs you to sign in to the remote. Push or pull once from a terminal in this folder to set up your credentials (Git Credential Manager will prompt there), then try again here.";
+    }
     return message;
   }
   type GitSyncStage = "fetching" | "pulling" | "pushing" | "publishing" | null;
@@ -519,6 +523,20 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [git.data?.branch, stashes.data]);
 
+  // Keep Source Control current: refetch the moment the user switches into
+  // it (status left stale from earlier, or changed by another tool/terminal
+  // in the meantime, self-corrects instead of showing an outdated "Publish
+  // branch" label or ahead/behind count), and again whenever the app window
+  // regains focus while it's the active tab.
+  useEffect(() => {
+    if (activeTab !== "source" || !native) return;
+    void refreshGit();
+    const onFocus = () => void refreshGit();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, native]);
+
   const profiles = cfg.data?.launch_profiles ?? [];
   const engine = cfg.data?.project_type ?? "project";
   const managedApps = apps.data ?? [];
@@ -587,7 +605,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
         <Button disabled={!native || !canOpenInEngine} title={canOpenInEngine ? undefined : "This project isn't connected to an engine."} onClick={() => onOpenInEngine?.({ path: project.path, name })}><Rocket size={15} /> Open in {engineName ?? "Engine"}</Button>
       </div>
 
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="source">Source Control</TabsTrigger>

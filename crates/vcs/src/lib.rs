@@ -210,7 +210,7 @@ impl GitProvider {
     /// refs (and `last_fetched_at`) so the UI can show accurate ahead/behind
     /// counts before the user decides to pull or push.
     pub async fn fetch(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
-        self.operation(root, &["fetch"]).await
+        self.operation_allow_prompt(root, &["fetch"]).await
     }
 
     /// Pulls with a real merge (not fast-forward-only): fast-forwards when
@@ -219,7 +219,9 @@ impl GitProvider {
     /// `MergeOutcome::Conflicts`, resolved through the same
     /// `resolve_conflict`/`abort_merge`/`continue_merge` flow.
     pub async fn pull(&self, root: &Path) -> Result<MergeOutcome, VcsError> {
-        let output = self.run_raw(root, &["pull", "--no-edit"]).await?;
+        let output = self
+            .run_raw_inner(root, &["pull", "--no-edit"], true)
+            .await?;
         if output.status.success() {
             return Ok(MergeOutcome::Merged {
                 message: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
@@ -244,7 +246,7 @@ impl GitProvider {
         root: &Path,
         branch: &str,
     ) -> Result<VcsOperationResult, VcsError> {
-        self.operation(root, &["push", "-u", "origin", branch])
+        self.operation_allow_prompt(root, &["push", "-u", "origin", branch])
             .await
     }
 
@@ -261,11 +263,12 @@ impl GitProvider {
     }
 
     pub async fn sync(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
-        self.operation(root, &["pull", "--ff-only"]).await
+        self.operation_allow_prompt(root, &["pull", "--ff-only"])
+            .await
     }
 
     pub async fn push(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
-        self.operation(root, &["push"]).await
+        self.operation_allow_prompt(root, &["push"]).await
     }
 
     pub async fn switch_branch(
@@ -711,7 +714,8 @@ impl GitProvider {
         if let Some(url) = remote.filter(|value| !value.trim().is_empty()) {
             let _ = self.run(root, &["remote", "remove", "origin"]).await;
             self.run(root, &["remote", "add", "origin", url]).await?;
-            self.run(root, &["push", "-u", "origin", "HEAD"]).await?;
+            self.run_allow_prompt(root, &["push", "-u", "origin", "HEAD"])
+                .await?;
         }
         Ok(VcsOperationResult {
             stdout: "Repository initialized".into(),
@@ -901,7 +905,30 @@ impl GitProvider {
         root: &Path,
         arguments: &[&str],
     ) -> Result<VcsOperationResult, VcsError> {
-        let output = self.run(root, arguments).await?;
+        self.operation_inner(root, arguments, false).await
+    }
+
+    /// Like `operation`, but permits Git Credential Manager to show its own
+    /// sign-in UI (a real window, not a blocking terminal prompt) if the
+    /// remote needs fresh auth. Reserved for explicit, user-initiated network
+    /// operations (fetch/pull/push/publish) — see `run_inner` for why.
+    async fn operation_allow_prompt(
+        &self,
+        root: &Path,
+        arguments: &[&str],
+    ) -> Result<VcsOperationResult, VcsError> {
+        self.operation_inner(root, arguments, true).await
+    }
+
+    async fn operation_inner(
+        &self,
+        root: &Path,
+        arguments: &[&str],
+        allow_credential_prompt: bool,
+    ) -> Result<VcsOperationResult, VcsError> {
+        let output = self
+            .run_inner(root, arguments, allow_credential_prompt)
+            .await?;
         Ok(VcsOperationResult {
             stdout: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
@@ -909,7 +936,22 @@ impl GitProvider {
     }
 
     async fn run(&self, root: &Path, arguments: &[&str]) -> Result<Output, VcsError> {
-        let output = self.run_raw(root, arguments).await?;
+        self.run_inner(root, arguments, false).await
+    }
+
+    async fn run_allow_prompt(&self, root: &Path, arguments: &[&str]) -> Result<Output, VcsError> {
+        self.run_inner(root, arguments, true).await
+    }
+
+    async fn run_inner(
+        &self,
+        root: &Path,
+        arguments: &[&str],
+        allow_credential_prompt: bool,
+    ) -> Result<Output, VcsError> {
+        let output = self
+            .run_raw_inner(root, arguments, allow_credential_prompt)
+            .await?;
         if output.status.success() {
             return Ok(output);
         }
@@ -921,7 +963,9 @@ impl GitProvider {
         // repair the ref state and retry once before surfacing an error.
         if Self::looks_like_corrupt_ref_error(&stderr) {
             self.repair_corrupt_refs(root).await;
-            let retry = self.run_raw(root, arguments).await?;
+            let retry = self
+                .run_raw_inner(root, arguments, allow_credential_prompt)
+                .await?;
             if retry.status.success() {
                 return Ok(retry);
             }
@@ -968,13 +1012,30 @@ impl GitProvider {
     }
 
     async fn run_raw(&self, root: &Path, arguments: &[&str]) -> io::Result<Output> {
+        self.run_raw_inner(root, arguments, false).await
+    }
+
+    async fn run_raw_inner(
+        &self,
+        root: &Path,
+        arguments: &[&str],
+        allow_credential_prompt: bool,
+    ) -> io::Result<Output> {
         let mut command = Command::new(&self.binary);
         command.current_dir(root).args(arguments);
-        // Never block on an interactive credential/terminal prompt: fail fast
-        // instead, so a repo needing auth can't hang status/health scans.
-        command
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GCM_INTERACTIVE", "never");
+        // A raw terminal prompt can never work here regardless — this process
+        // has no attached console for git to prompt on — so this stays off
+        // unconditionally. Git Credential Manager's own sign-in window is a
+        // separate mechanism (`GCM_INTERACTIVE`): for passive/frequent calls
+        // (status, log, diff, health scans) we keep it off too, so those can
+        // never surprise the user with a login window mid-scan. Explicit,
+        // user-initiated network actions (fetch/pull/push/publish) allow it
+        // through, since that's exactly when prompting for credentials is
+        // expected and desired.
+        command.env("GIT_TERMINAL_PROMPT", "0");
+        if !allow_credential_prompt {
+            command.env("GCM_INTERACTIVE", "never");
+        }
         // Run git without flashing a console window on Windows.
         #[cfg(windows)]
         command.creation_flags(0x0800_0000);
