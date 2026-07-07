@@ -1,13 +1,18 @@
 // Machine-local, per-project workspace data (notes, to-dos, references) and
-// user-added custom apps. Kept in localStorage to stay local-first; a future
-// iteration can persist team-shared data into .vantadeck/.
+// user-added custom apps. Kept in localStorage to stay local-first in the web
+// preview; the native app persists the git-shared half in
+// `.pipelineos/workspace.json` and the local-only half in
+// `.pipelineos/local.json` (see readWorkspace/readLocalConfig in bridge.ts).
 
 export type Todo = { id: string; text: string; done: boolean };
 export type Reference = { id: string; label: string; url: string };
 export type ProjectWorkspace = { notes: string; todos: Todo[]; references: Reference[] };
+/** Local-only, machine-specific project data — never synced via git. */
+export type ProjectLocal = { todos: Todo[] };
 export type CustomApp = { id: string; name: string; category: string; executable: string };
 
 const EMPTY_WORKSPACE: ProjectWorkspace = { notes: "", todos: [], references: [] };
+const EMPTY_LOCAL: ProjectLocal = { todos: [] };
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -24,6 +29,14 @@ export function loadWorkspace(projectPath: string): ProjectWorkspace {
 
 export function saveWorkspace(projectPath: string, data: ProjectWorkspace): void {
   localStorage.setItem(`vantadeck.workspace:${projectPath}`, JSON.stringify(data));
+}
+
+export function loadLocalConfig(projectPath: string): ProjectLocal {
+  return read(`vantadeck.local:${projectPath}`, EMPTY_LOCAL);
+}
+
+export function saveLocalConfig(projectPath: string, data: ProjectLocal): void {
+  localStorage.setItem(`vantadeck.local:${projectPath}`, JSON.stringify(data));
 }
 
 export function loadCustomApps(): CustomApp[] {

@@ -20,7 +20,9 @@ Thumbs.db
 /apps/desktop/.tauri/
 *.key
 
-# Vantadeck project metadata if the repo is imported as a project
+# Pipeline OS project metadata if this repo is imported as a project (legacy
+# .vantadeck/ too, for anyone who imported it before the rename)
+.pipelineos/
 .vantadeck/
 
 # Local release staging (built artifacts, not source)

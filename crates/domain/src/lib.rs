@@ -94,7 +94,7 @@ pub struct ProjectConfig {
     #[serde(default)]
     pub enabled_health_checks: Vec<String>,
     /// Project-relative path to a team-shared thumbnail image (e.g.
-    /// `.vantadeck/thumbnail.png`). Stored in the portable config so the
+    /// `.pipelineos/thumbnail.png`). Stored in the portable config so the
     /// thumbnail travels with the repository to other machines.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,

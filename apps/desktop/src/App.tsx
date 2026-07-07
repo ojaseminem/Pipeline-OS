@@ -42,7 +42,7 @@ import { Input } from "@/components/ui/input";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { installedApps as defaultApps, pinnedProjects as defaultPinned, recentProjects as defaultRecent, type Project } from "./data";
-import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onScanProgress, openExternal, type ActivityRecord, type EngineVersionOption, type HealthSummary, type ProjectHealthOverview, type RecentFile, type ScanProgress, type ToolManifest, type UpdateInfo } from "./bridge";
+import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode, isNativeRuntime, loadDashboard, onProjectScanProgress, onScanProgress, openExternal, type ActivityRecord, type EngineVersionOption, type HealthSummary, type ProjectHealthOverview, type RecentFile, type ScanProgress, type ToolManifest, type UpdateInfo } from "./bridge";
 import { formatLastOpened, timeAgo } from "./lib/format";
 import { categoryClass } from "./lib/categories";
 import { ProjectThumb } from "./components/thumbnail";
@@ -218,6 +218,10 @@ function AppShell() {
   const [selectedDrives, setSelectedDrives] = useState<Set<string>>(new Set());
   const [scanDriveLabel, setScanDriveLabel] = useState("");
   const cancelScanRef = useRef(false);
+  const [projectScanning, setProjectScanning] = useState(false);
+  const [projectScanProgress, setProjectScanProgress] = useState<ScanProgress | null>(null);
+  const [projectScanDriveLabel, setProjectScanDriveLabel] = useState("");
+  const cancelProjectScanRef = useRef(false);
   const [onboarding, setOnboarding] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -424,6 +428,51 @@ function AppShell() {
   function cancelDriveScan() {
     cancelScanRef.current = true;
     void desktopApi.cancelScan();
+  }
+
+  // Scans the chosen drives for Pipeline OS projects already on disk (e.g.
+  // after a reinstall, or a second drive with prior projects) and registers
+  // any that aren't already known. Mirrors scanDrives' one-drive-at-a-time,
+  // cancellable, additive approach.
+  async function scanForProjects() {
+    if (projectScanning) return;
+    const targets = drives.filter((drive) => selectedDrives.has(drive));
+    if (!targets.length) { toast.message("Select at least one drive to scan."); return; }
+    setProjectScanning(true);
+    cancelProjectScanRef.current = false;
+    setProjectScanProgress({ completed: 0, total: 0, current: "", done: false });
+    const unsubscribe = await onProjectScanProgress(setProjectScanProgress);
+    let foundCount = 0;
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        if (cancelProjectScanRef.current) break;
+        const drive = targets[i];
+        setProjectScanDriveLabel(`${drive} (${i + 1}/${targets.length})`);
+        setProjectScanProgress({ completed: 0, total: 0, current: "", done: false });
+        try {
+          const found = await desktopApi.scanProjects([drive]);
+          foundCount += found.length;
+        } catch (error) {
+          if (cancelProjectScanRef.current) break;
+          toast.error(`Could not scan ${drive}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        await invalidate.projects();
+        reloadDashboard();
+      }
+      if (!cancelProjectScanRef.current) {
+        toast.success(foundCount ? `Found and added ${foundCount} project${foundCount === 1 ? "" : "s"}.` : "No new projects found on the scanned drives.");
+      }
+    } finally {
+      unsubscribe();
+      setProjectScanning(false);
+      setProjectScanProgress(null);
+      setProjectScanDriveLabel("");
+    }
+  }
+
+  function cancelProjectScan() {
+    cancelProjectScanRef.current = true;
+    void desktopApi.cancelProjectScan();
   }
 
   function toggleDrive(drive: string) {
@@ -675,7 +724,7 @@ function AppShell() {
 
   async function submitImport(event: FormEvent) {
     event.preventDefault();
-    if (!window.confirm(`Import ${rootInput} and create its local PipelineOS metadata?`)) return;
+    if (!window.confirm(`Import ${rootInput}? This registers it with Pipeline OS — using its existing metadata if it has any, or creating fresh metadata otherwise.`)) return;
     await run("Importing project", async () => { await desktopApi.importProject(rootInput, nameInput); await invalidate.projects(); });
   }
 
@@ -689,13 +738,49 @@ function AppShell() {
       </div>
 
       {activeScreen === "Projects" ? <div className="space-y-4">
-        <form onSubmit={submitImport}><Panel title="Import a local project" description="Creates a .vantadeck/project.toml file and registers the project in local storage.">
+        <form onSubmit={submitImport}><Panel title="Import a local project" description="Registers the project in local storage. If it already has Pipeline OS metadata (e.g. cloned from git), that's used as-is; otherwise a fresh .pipelineos/project.toml is created.">
           <div className="flex flex-wrap items-start gap-2">
             <PathInput ariaLabel="Project path" required directory placeholder="D:/Projects/MyGame" value={rootInput} onChange={setRootInput} />
             <Input aria-label="Project name" placeholder="Optional display name" value={nameInput} onChange={(e) => setNameInput(e.target.value)} className="flex-1 min-w-48" />
             <Button type="submit">Import project</Button>
           </div>
         </Panel></form>
+        <Panel title="Find projects already on disk" description="Scans the chosen drives for existing Pipeline OS projects (e.g. after a reinstall, or a drive with prior projects) and registers any that aren't already known.">
+          <div className="flex flex-wrap items-start gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" disabled={projectScanning || drives.length === 0} className="gap-2">
+                  <HardDrive size={15} />
+                  {(() => {
+                    const count = drives.filter((drive) => selectedDrives.has(drive)).length;
+                    if (drives.length === 0) return "No drives found";
+                    if (count === 0) return "No drives selected";
+                    if (count === drives.length) return `All drives (${count})`;
+                    return drives.filter((drive) => selectedDrives.has(drive)).join(", ");
+                  })()}
+                  <ChevronDown size={15} className="opacity-70" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel>Drives to scan</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {drives.map((drive) => (
+                  <DropdownMenuCheckboxItem key={drive} checked={selectedDrives.has(drive)} onCheckedChange={() => toggleDrive(drive)} onSelect={(event) => event.preventDefault()}>
+                    {drive}
+                  </DropdownMenuCheckboxItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setSelectedDrives(new Set(drives))}>Select all</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSelectedDrives(new Set())}>Clear selection</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button disabled={projectScanning} aria-busy={projectScanning} onClick={() => void scanForProjects()}>{projectScanning ? <><RefreshCw size={15} className="animate-spin" /> Scanning…</> : "Scan now"}</Button>
+          </div>
+          {projectScanning ? <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border bg-secondary/40 px-3 py-2 text-sm">
+            <span className="flex min-w-0 items-center gap-2"><RefreshCw size={14} className="shrink-0 animate-spin" /><span className="truncate">{projectScanDriveLabel ? `Scanning ${projectScanDriveLabel}${projectScanProgress?.current ? ` — ${projectScanProgress.current}` : "…"}` : "Scanning your drives…"}</span></span>
+            <span className="flex shrink-0 items-center gap-3"><Button variant="outline" size="sm" onClick={cancelProjectScan}>Cancel</Button></span>
+          </div> : null}
+        </Panel>
         {(() => {
           const allTags = [...new Set(registeredProjects.flatMap((p) => p.tags))].sort();
           const shown = tagFilter ? registeredProjects.filter((p) => p.tags.includes(tagFilter)) : registeredProjects;
@@ -718,7 +803,7 @@ function AppShell() {
                       <div className="mt-3 flex gap-2">
                         <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); openProject({ path: project.path, name: project.name }); }}>Open</Button>
                         <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); void performUndoable(project.pinned ? "Unpinned project" : "Pinned project", async () => { await desktopApi.pinProject(project.path, !project.pinned); await invalidate.projects(); reloadDashboard(); }, async () => { await desktopApi.pinProject(project.path, project.pinned); await invalidate.projects(); reloadDashboard(); }); }}>{project.pinned ? "Unpin" : "Pin"}</Button>
-                        <Button variant="ghost" size="sm" className="ml-auto text-muted-foreground hover:text-destructive" onClick={(e) => { e.stopPropagation(); if (window.confirm(`Remove "${project.name}" from Pipeline OS? This unregisters it — your files and .vantadeck config stay on disk.`)) void run("Removing project", async () => { await desktopApi.removeProject(project.path); await invalidate.projects(); reloadDashboard(); }); }}>Remove</Button>
+                        <Button variant="ghost" size="sm" className="ml-auto text-muted-foreground hover:text-destructive" onClick={(e) => { e.stopPropagation(); if (window.confirm(`Remove "${project.name}" from Pipeline OS? This unregisters it — your files and .pipelineos config stay on disk, and you can add it back later.`)) void run("Removing project", async () => { await desktopApi.removeProject(project.path); await invalidate.projects(); reloadDashboard(); }); }}>Remove</Button>
                       </div>
                     </div>
                   </CardContent></Card>

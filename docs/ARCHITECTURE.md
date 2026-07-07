@@ -10,7 +10,7 @@ surfaces: manifest catalog scanning, override precedence, project import and
 registration, Git operations, and combined health results. The CLI does not recreate
 these workflows from lower-level crates.
 
-`.vantadeck/project.toml` is canonical team-owned state. SQLite stores machine-local
+`.pipelineos/project.toml` is canonical team-owned state. SQLite stores machine-local
 paths, overrides, preferences, activity, and disposable caches. Absolute machine
 paths and credentials never enter project files.
 

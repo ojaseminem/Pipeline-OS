@@ -5,7 +5,19 @@ use vantadeck_domain::{LinkedApp, ProjectConfig};
 use vantadeck_security::resolve_within_root;
 use walkdir::WalkDir;
 
-const PROJECT_FILE: &str = ".vantadeck/project.toml";
+/// Current per-project metadata folder name. Visible in end users' own project
+/// directories (and their git history), so it carries the Pipeline OS brand —
+/// unlike internal code identifiers (crate names, bundle id), which stay
+/// "Vantadeck" by design.
+const CONFIG_DIR: &str = ".pipelineos";
+/// Legacy folder name from before the Pipeline OS rename. Projects that still
+/// have this (and no `.pipelineos` yet) are migrated automatically on first
+/// touch; see [`migrate_legacy_config`].
+const LEGACY_CONFIG_DIR: &str = ".vantadeck";
+const PROJECT_FILE: &str = ".pipelineos/project.toml";
+/// Local-only, machine-specific project data (e.g. a personal to-do list).
+/// Never synced via git — callers must gitignore this path.
+pub const LOCAL_FILE: &str = ".pipelineos/local.json";
 
 #[derive(Debug, Error)]
 pub enum ProjectError {
@@ -23,8 +35,20 @@ pub enum ProjectError {
     InvalidRoot,
     #[error("project metadata already exists")]
     AlreadyExists,
-    #[error("project metadata changed outside Vantadeck; reload before saving")]
+    #[error("project metadata changed outside Pipeline OS; reload before saving")]
     ExternallyModified,
+}
+
+/// If a project still has the legacy `.vantadeck/` config folder and hasn't
+/// been migrated to `.pipelineos/` yet, renames it in place. A no-op if
+/// `.pipelineos` already exists (never clobbers a newer config) or if there's
+/// no legacy folder to begin with.
+pub fn migrate_legacy_config(root: &Path) {
+    let legacy = root.join(LEGACY_CONFIG_DIR);
+    let current = root.join(CONFIG_DIR);
+    if legacy.is_dir() && !current.exists() {
+        let _ = fs::rename(&legacy, &current);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,7 +106,9 @@ pub fn infer_project(root: &Path, name: Option<&str>) -> Result<ProjectConfig, P
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
     {
-        if entry.path().starts_with(root.join(".vantadeck")) {
+        if entry.path().starts_with(root.join(CONFIG_DIR))
+            || entry.path().starts_with(root.join(LEGACY_CONFIG_DIR))
+        {
             continue;
         }
         let app_id = match entry
@@ -140,7 +166,7 @@ pub fn infer_project(root: &Path, name: Option<&str>) -> Result<ProjectConfig, P
     })
 }
 
-/// Copies a chosen image into the project's `.vantadeck/` directory and records
+/// Copies a chosen image into the project's `.pipelineos/` directory and records
 /// the project-relative path in `project.toml`, so the thumbnail is portable and
 /// travels with the repository. Returns the stored project-relative path.
 pub fn set_project_thumbnail(root: &Path, source: &Path) -> Result<String, ProjectError> {
@@ -150,6 +176,7 @@ pub fn set_project_thumbnail(root: &Path, source: &Path) -> Result<String, Proje
             "thumbnail source image does not exist",
         )));
     }
+    migrate_legacy_config(root);
     let extension = source
         .extension()
         .and_then(|value| value.to_str())
@@ -161,7 +188,7 @@ pub fn set_project_thumbnail(root: &Path, source: &Path) -> Result<String, Proje
             )
         })
         .unwrap_or_else(|| "png".into());
-    let directory = root.join(".vantadeck");
+    let directory = root.join(CONFIG_DIR);
     fs::create_dir_all(&directory)?;
     // Remove any prior thumbnail with a different extension so only one remains.
     for previous in ["png", "jpg", "jpeg", "gif", "webp", "bmp"] {
@@ -170,7 +197,7 @@ pub fn set_project_thumbnail(root: &Path, source: &Path) -> Result<String, Proje
             let _ = fs::remove_file(candidate);
         }
     }
-    let relative = format!(".vantadeck/thumbnail.{extension}");
+    let relative = format!("{CONFIG_DIR}/thumbnail.{extension}");
     fs::copy(source, root.join(&relative))?;
     let mut config = load_project(root)?;
     config.thumbnail = Some(relative.clone());
@@ -178,10 +205,12 @@ pub fn set_project_thumbnail(root: &Path, source: &Path) -> Result<String, Proje
     Ok(relative)
 }
 
-/// Reads the project's portable workspace document (notes, to-dos, references)
-/// from `.vantadeck/workspace.json`. Returns `None` when it doesn't exist yet.
+/// Reads the project's git-shared workspace document (notes, global to-dos,
+/// references) from `.pipelineos/workspace.json`. Returns `None` when it
+/// doesn't exist yet.
 pub fn read_project_workspace(root: &Path) -> Result<Option<String>, ProjectError> {
-    let file = root.join(".vantadeck/workspace.json");
+    migrate_legacy_config(root);
+    let file = root.join(CONFIG_DIR).join("workspace.json");
     match fs::read_to_string(&file) {
         Ok(content) => Ok(Some(content)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -189,13 +218,42 @@ pub fn read_project_workspace(root: &Path) -> Result<Option<String>, ProjectErro
     }
 }
 
-/// Writes the project's portable workspace document. The caller supplies the
-/// serialized JSON; this only owns the file location under `.vantadeck/`.
+/// Writes the project's git-shared workspace document. The caller supplies
+/// the serialized JSON; this only owns the file location under `.pipelineos/`.
 pub fn write_project_workspace(root: &Path, contents: &str) -> Result<(), ProjectError> {
-    let directory = root.join(".vantadeck");
+    migrate_legacy_config(root);
+    let directory = root.join(CONFIG_DIR);
     fs::create_dir_all(&directory)?;
     fs::write(directory.join("workspace.json"), contents.as_bytes())?;
     Ok(())
+}
+
+/// Reads the project's local-only document (e.g. a personal to-do list) from
+/// `.pipelineos/local.json`. Returns `None` when it doesn't exist yet. Never
+/// synced via git — see [`local_gitignore_pattern`].
+pub fn read_project_local(root: &Path) -> Result<Option<String>, ProjectError> {
+    migrate_legacy_config(root);
+    let file = root.join(LOCAL_FILE);
+    match fs::read_to_string(&file) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(ProjectError::Io(error)),
+    }
+}
+
+/// Writes the project's local-only document. The caller supplies the
+/// serialized JSON; this only owns the file location under `.pipelineos/`.
+pub fn write_project_local(root: &Path, contents: &str) -> Result<(), ProjectError> {
+    migrate_legacy_config(root);
+    let directory = root.join(CONFIG_DIR);
+    fs::create_dir_all(&directory)?;
+    fs::write(directory.join("local.json"), contents.as_bytes())?;
+    Ok(())
+}
+
+/// The `.gitignore` pattern that keeps local-only project data out of git.
+pub fn local_gitignore_pattern() -> &'static str {
+    "/.pipelineos/local.json"
 }
 
 /// Sets the project's tags in the portable `project.toml`.
@@ -257,22 +315,30 @@ pub fn clear_project_thumbnail(root: &Path) -> Result<(), ProjectError> {
     Ok(())
 }
 
+/// Registers a project folder. If it already has Pipeline OS metadata — a
+/// teammate's clone from git, a project previously removed from this
+/// machine's registry but never deleted from disk, or a legacy `.vantadeck`
+/// folder — that existing config is adopted (loaded, migrated if needed) and
+/// returned as-is rather than blocking the import. Only a folder with no
+/// metadata at all gets a freshly inferred `project.toml`.
 pub fn import_project(root: &Path, name: Option<&str>) -> Result<ProjectConfig, ProjectError> {
+    migrate_legacy_config(root);
     if root.join(PROJECT_FILE).exists() {
-        return Err(ProjectError::AlreadyExists);
+        return load_project(root);
     }
     let config = infer_project(root, name)?;
     save_project(root, &config)?;
     Ok(config)
 }
 
-/// Repairs a project whose `.vantadeck/project.toml` is missing or can't be
+/// Repairs a project whose `.pipelineos/project.toml` is missing or can't be
 /// read (e.g. the `PROJECT_CONFIG_INVALID` health check). Never deletes an
 /// existing file: if one is present, it's renamed aside (`project.toml.broken`,
 /// or `.broken.N` if that's already taken) so nothing is lost, then a fresh
 /// config is regenerated the same way `import_project` builds one for a new
 /// project and saved in its place.
 pub fn repair_project(root: &Path, name: Option<&str>) -> Result<ProjectConfig, ProjectError> {
+    migrate_legacy_config(root);
     let project_file = root.join(PROJECT_FILE);
     if project_file.is_file() {
         let mut backup = project_file.with_extension("toml.broken");
@@ -316,8 +382,9 @@ pub fn load_project(root: &Path) -> Result<ProjectConfig, ProjectError> {
 }
 
 pub fn load_project_versioned(root: &Path) -> Result<VersionedProject, ProjectError> {
+    migrate_legacy_config(root);
     let target = root.join(PROJECT_FILE);
-    let backup = root.join(".vantadeck/project.toml.bak");
+    let backup = root.join(CONFIG_DIR).join("project.toml.bak");
     if !target.exists() && backup.exists() {
         fs::rename(&backup, &target)?;
     }
@@ -363,7 +430,7 @@ fn write_project_with_publisher<F>(
 where
     F: FnOnce(&Path, &Path) -> io::Result<()>,
 {
-    let directory = root.join(".vantadeck");
+    let directory = root.join(CONFIG_DIR);
     fs::create_dir_all(&directory)?;
     let target = directory.join("project.toml");
     let proposal = directory.join("project.toml.proposal.tmp");
@@ -447,7 +514,7 @@ where
 }
 
 fn preserve_conflict(temporary: &Path, directory: &Path) -> Result<(), ProjectError> {
-    let conflict = directory.join("project.toml.vantadeck-conflict");
+    let conflict = directory.join("project.toml.conflict");
     if conflict.exists() {
         fs::remove_file(&conflict)?;
     }
@@ -527,11 +594,8 @@ mod tests {
 
         assert!(matches!(result, Err(ProjectError::ExternallyModified)));
         assert_eq!(load_project(root.path()).unwrap().name, "External Winner");
-        let conflict = fs::read_to_string(
-            root.path()
-                .join(".vantadeck/project.toml.vantadeck-conflict"),
-        )
-        .expect("proposal preserved");
+        let conflict = fs::read_to_string(root.path().join(".pipelineos/project.toml.conflict"))
+            .expect("proposal preserved");
         assert!(conflict.contains("name = \"Local Proposal\""));
     }
 
@@ -556,11 +620,8 @@ mod tests {
 
         assert!(matches!(result, Err(ProjectError::ExternallyModified)));
         assert_eq!(load_project(root.path()).unwrap().name, "External In Place");
-        let conflict = fs::read_to_string(
-            root.path()
-                .join(".vantadeck/project.toml.vantadeck-conflict"),
-        )
-        .expect("proposal preserved");
+        let conflict = fs::read_to_string(root.path().join(".pipelineos/project.toml.conflict"))
+            .expect("proposal preserved");
         assert!(conflict.contains("name = \"Immutable Local Proposal\""));
         assert!(!conflict.contains("External In Place"));
     }
@@ -585,12 +646,9 @@ mod tests {
 
         assert!(matches!(result, Err(ProjectError::Io(_))));
         assert_eq!(load_project(root.path()).unwrap().name, "Original");
-        assert!(!root.path().join(".vantadeck/project.toml.bak").exists());
-        let conflict = fs::read_to_string(
-            root.path()
-                .join(".vantadeck/project.toml.vantadeck-conflict"),
-        )
-        .expect("proposal preserved");
+        assert!(!root.path().join(".pipelineos/project.toml.bak").exists());
+        let conflict = fs::read_to_string(root.path().join(".pipelineos/project.toml.conflict"))
+            .expect("proposal preserved");
         assert!(conflict.contains("name = \"Local Proposal\""));
     }
 }

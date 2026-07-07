@@ -1,6 +1,6 @@
 use std::fs;
 
-use vantadeck_projects::{ProjectError, import_project, infer_project, repair_project};
+use vantadeck_projects::{import_project, infer_project, load_project, repair_project};
 
 #[test]
 fn infers_unity_version_from_project_settings() {
@@ -26,16 +26,36 @@ fn infers_unity_version_from_project_settings() {
 }
 
 #[test]
-fn refuses_to_overwrite_existing_project_metadata() {
+fn reimporting_a_configured_project_adopts_the_existing_metadata() {
     let root = tempfile::tempdir().expect("project root");
     import_project(root.path(), Some("Original")).expect("first import");
 
-    let error = import_project(root.path(), Some("Replacement"))
-        .expect_err("existing project metadata must be preserved");
+    // Re-importing (e.g. after removing the project from the local registry,
+    // or cloning a teammate's repo that already has the config) must not be
+    // blocked — it should load and return the config that's already there.
+    let adopted =
+        import_project(root.path(), Some("Replacement")).expect("re-import adopts existing");
 
-    assert!(matches!(error, ProjectError::AlreadyExists));
-    let loaded = vantadeck_projects::load_project(root.path()).expect("original project");
+    assert_eq!(adopted.name, "Original");
+    let loaded = load_project(root.path()).expect("original project");
     assert_eq!(loaded.name, "Original");
+}
+
+#[test]
+fn importing_a_legacy_vantadeck_folder_migrates_it_to_pipelineos() {
+    let root = tempfile::tempdir().expect("project root");
+    fs::create_dir_all(root.path().join(".vantadeck")).expect("legacy dir");
+    fs::write(
+        root.path().join(".vantadeck/project.toml"),
+        "schema_version = 1\nname = \"Legacy\"\nproject_type = \"general-creative\"\nlinked_apps = []\nlaunch_profiles = []\nshortcuts = []\nenabled_health_checks = []\ntags = []\n",
+    )
+    .expect("legacy project.toml");
+
+    let adopted = import_project(root.path(), None).expect("import migrates legacy config");
+
+    assert_eq!(adopted.name, "Legacy");
+    assert!(root.path().join(".pipelineos/project.toml").is_file());
+    assert!(!root.path().join(".vantadeck").exists());
 }
 
 #[test]
@@ -68,11 +88,11 @@ fn repairs_missing_project_file_without_losing_prior_config() {
     import_project(root.path(), Some("Northbreak")).expect("initial import");
     // Simulate the PROJECT_CONFIG_INVALID case: the metadata dir survives but
     // project.toml itself is gone (e.g. a bad sync or manual delete).
-    fs::remove_file(root.path().join(".vantadeck/project.toml")).expect("remove project file");
+    fs::remove_file(root.path().join(".pipelineos/project.toml")).expect("remove project file");
 
     let repaired = repair_project(root.path(), None).expect("repair succeeds");
 
-    assert!(root.path().join(".vantadeck/project.toml").is_file());
+    assert!(root.path().join(".pipelineos/project.toml").is_file());
     assert_eq!(repaired.project_type, "general-creative");
 }
 
@@ -81,7 +101,7 @@ fn repairs_corrupt_project_file_by_renaming_it_aside() {
     let root = tempfile::tempdir().expect("project root");
     import_project(root.path(), Some("Northbreak")).expect("initial import");
     fs::write(
-        root.path().join(".vantadeck/project.toml"),
+        root.path().join(".pipelineos/project.toml"),
         "not valid toml {{{",
     )
     .expect("corrupt file");
@@ -89,7 +109,11 @@ fn repairs_corrupt_project_file_by_renaming_it_aside() {
     repair_project(root.path(), None).expect("repair succeeds");
 
     // The corrupt file is preserved, not deleted, and the repaired one loads cleanly.
-    assert!(root.path().join(".vantadeck/project.toml.broken").is_file());
+    assert!(
+        root.path()
+            .join(".pipelineos/project.toml.broken")
+            .is_file()
+    );
     vantadeck_projects::load_project(root.path()).expect("repaired project loads");
 }
 
@@ -99,8 +123,8 @@ fn imports_generic_folder_as_portable_project() {
     let config = import_project(root.path(), Some("References")).expect("import project");
 
     assert_eq!(config.project_type, "general-creative");
-    assert!(root.path().join(".vantadeck/project.toml").is_file());
+    assert!(root.path().join(".pipelineos/project.toml").is_file());
     let file =
-        fs::read_to_string(root.path().join(".vantadeck/project.toml")).expect("project TOML");
+        fs::read_to_string(root.path().join(".pipelineos/project.toml")).expect("project TOML");
     assert!(!file.contains(&root.path().display().to_string()));
 }

@@ -24,7 +24,7 @@ async fn imports_project_through_shared_service() {
 
     assert!(envelope.success);
     assert_eq!(envelope.command, "project.import");
-    assert!(root.path().join(".vantadeck/project.toml").is_file());
+    assert!(root.path().join(".pipelineos/project.toml").is_file());
 }
 
 #[tokio::test]

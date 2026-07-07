@@ -24,7 +24,7 @@ fn saves_and_loads_canonical_project_toml() {
     let loaded = load_project(root.path()).expect("loaded project");
 
     assert_eq!(loaded, config);
-    assert!(root.path().join(".vantadeck/project.toml").is_file());
+    assert!(root.path().join(".pipelineos/project.toml").is_file());
 }
 
 #[test]
@@ -47,11 +47,8 @@ fn refuses_to_overwrite_an_external_project_edit() {
             .name,
         "Externally Renamed"
     );
-    let conflict = std::fs::read_to_string(
-        root.path()
-            .join(".vantadeck/project.toml.vantadeck-conflict"),
-    )
-    .expect("local proposal is preserved");
+    let conflict = std::fs::read_to_string(root.path().join(".pipelineos/project.toml.conflict"))
+        .expect("local proposal is preserved");
     assert!(conflict.contains("name = \"Local Rename\""));
 }
 
@@ -59,7 +56,7 @@ fn refuses_to_overwrite_an_external_project_edit() {
 fn recovers_backup_left_by_an_interrupted_save() {
     let root = tempfile::tempdir().expect("temp project");
     save_project(root.path(), &project("Before Interruption")).expect("initial save");
-    let directory = root.path().join(".vantadeck");
+    let directory = root.path().join(".pipelineos");
     std::fs::rename(
         directory.join("project.toml"),
         directory.join("project.toml.bak"),

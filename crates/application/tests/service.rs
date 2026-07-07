@@ -73,6 +73,64 @@ async fn imports_and_registers_project_with_activity() {
 }
 
 #[tokio::test]
+async fn removed_project_can_be_reimported_without_error() {
+    let root = tempfile::tempdir().expect("project root");
+    let storage = Storage::connect("sqlite::memory:").await.expect("storage");
+    let service = ApplicationService::new(storage, GitProvider::new("git"));
+
+    service
+        .import_project(root.path(), Some("Voidline"))
+        .await
+        .expect("first import");
+    assert_eq!(service.registered_projects().await.unwrap().len(), 1);
+
+    service
+        .remove_project(root.path())
+        .await
+        .expect("remove project");
+    assert_eq!(service.registered_projects().await.unwrap().len(), 0);
+    // The on-disk config from the first import must still be there — removal
+    // only unregisters, it never touches files.
+    assert!(root.path().join(".pipelineos/project.toml").is_file());
+
+    // Re-importing the same folder must succeed (not AlreadyExists) and adopt
+    // the config that's still on disk rather than erroring or overwriting it.
+    let readopted = service
+        .import_project(root.path(), Some("Ignored Name"))
+        .await
+        .expect("re-import after removal");
+    assert_eq!(readopted.name, "Voidline");
+    assert_eq!(service.registered_projects().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn import_gitignores_local_config_and_touch_rechecks_it() {
+    let root = tempfile::tempdir().expect("project root");
+    fs::write(root.path().join(".gitignore"), "target/\n").expect("seed gitignore");
+    let storage = Storage::connect("sqlite::memory:").await.expect("storage");
+    let service = ApplicationService::new(storage, GitProvider::new("git"));
+
+    service
+        .import_project(root.path(), Some("Voidline"))
+        .await
+        .expect("import project");
+
+    let gitignore = fs::read_to_string(root.path().join(".gitignore")).expect("gitignore");
+    assert!(gitignore.contains("/.pipelineos/local.json"));
+
+    // Simulate git being set up (or .gitignore edited) after the project was
+    // already registered: the entry should reappear on next open even if
+    // something stripped it out.
+    fs::write(root.path().join(".gitignore"), "target/\n").expect("strip entry");
+    service
+        .touch_project_opened(root.path())
+        .await
+        .expect("touch opened");
+    let gitignore = fs::read_to_string(root.path().join(".gitignore")).expect("gitignore");
+    assert!(gitignore.contains("/.pipelineos/local.json"));
+}
+
+#[tokio::test]
 async fn validates_and_serves_the_tool_index_offline() {
     let storage = Storage::connect("sqlite::memory:").await.expect("storage");
     let service = ApplicationService::new(storage, GitProvider::new("git"));
@@ -194,6 +252,52 @@ async fn health_reports_missing_linked_apps_and_broken_profiles() {
             .iter()
             .any(|issue| issue.code == "LAUNCH_PROFILE_BROKEN")
     );
+}
+
+#[tokio::test]
+async fn scan_projects_finds_and_registers_unregistered_and_legacy_projects() {
+    let drive = tempfile::tempdir().expect("fake drive root");
+    let known = drive.path().join("Known");
+    let unknown = drive.path().join("Unknown");
+    let legacy = drive.path().join("Legacy");
+    fs::create_dir_all(&known).unwrap();
+    fs::create_dir_all(&unknown).unwrap();
+    fs::create_dir_all(&legacy).unwrap();
+
+    let storage = Storage::connect("sqlite::memory:").await.expect("storage");
+    let service = ApplicationService::new(storage, GitProvider::new("git"));
+    service
+        .import_project(&known, Some("Known"))
+        .await
+        .expect("pre-register one project");
+
+    // A project never registered on this machine (e.g. re-plugged drive).
+    fs::create_dir_all(unknown.join(".pipelineos")).unwrap();
+    fs::write(
+        unknown.join(".pipelineos/project.toml"),
+        "schema_version = 1\nname = \"Unknown\"\nproject_type = \"general-creative\"\nlinked_apps = []\nlaunch_profiles = []\nshortcuts = []\nenabled_health_checks = []\ntags = []\n",
+    )
+    .unwrap();
+
+    // A project with only the legacy folder, which the scan should migrate.
+    fs::create_dir_all(legacy.join(".vantadeck")).unwrap();
+    fs::write(
+        legacy.join(".vantadeck/project.toml"),
+        "schema_version = 1\nname = \"Legacy\"\nproject_type = \"general-creative\"\nlinked_apps = []\nlaunch_profiles = []\nshortcuts = []\nenabled_health_checks = []\ntags = []\n",
+    )
+    .unwrap();
+
+    let found = service
+        .scan_projects_with_progress(&[drive.path().to_path_buf()], |_| {}, || false)
+        .await
+        .expect("scan for projects");
+
+    let names: Vec<_> = found.iter().map(|project| project.name.clone()).collect();
+    assert!(names.contains(&"Unknown".to_string()));
+    assert!(names.contains(&"Legacy".to_string()));
+    assert!(!names.contains(&"Known".to_string())); // already registered, not re-reported
+    assert!(legacy.join(".pipelineos/project.toml").is_file()); // migrated in place
+    assert_eq!(service.registered_projects().await.unwrap().len(), 3);
 }
 
 #[tokio::test]

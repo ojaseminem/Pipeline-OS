@@ -25,7 +25,7 @@ const FIX_ACTIONS: Record<string, FixAction> = {
   APP_CHECK_FAILED: { label: "Rescan applications", run: async () => { await desktopApi.scanApps([]); return "Applications rescanned."; } },
   PROJECT_CONFIG_INVALID: {
     label: "Repair project.toml",
-    confirmMessage: "Regenerate .vantadeck/project.toml from this project's files? An existing broken file is renamed aside, not deleted.",
+    confirmMessage: "Regenerate .pipelineos/project.toml from this project's files? An existing broken file is renamed aside, not deleted.",
     run: async (projectPath) => { await desktopApi.repairProjectConfig(projectPath, true); return "Project metadata repaired."; },
   },
   GIT_LFS_NOT_INSTALLED: { label: "Install Git LFS", run: async () => desktopApi.installGitLfs() },

@@ -383,6 +383,9 @@ impl ApplicationService {
         self.storage
             .record_activity("project-import", &format!("Imported {}", project.name))
             .await?;
+        // Best-effort: exclude local-only project data from the repo if the
+        // project already has a `.gitignore`. Failure here shouldn't block import.
+        let _ = self.ensure_local_config_gitignored(root).await;
         Ok(project)
     }
 
@@ -390,12 +393,104 @@ impl ApplicationService {
         Ok(self.storage.registered_projects().await?)
     }
 
+    /// Scans directory trees for existing Pipeline OS project folders
+    /// (including legacy `.vantadeck` ones, which get migrated in place) and
+    /// registers any that aren't already known — mirroring `scan_apps`'s
+    /// drive-scan UX, so a reinstall or a second drive full of prior projects
+    /// gets picked back up automatically. `should_cancel` is polled
+    /// periodically; when true the scan stops early with whatever it found.
+    pub async fn scan_projects_with_progress(
+        &self,
+        roots: &[PathBuf],
+        mut on_progress: impl FnMut(ScanProgress),
+        should_cancel: impl Fn() -> bool,
+    ) -> Result<Vec<RegisteredProject>, ApplicationError> {
+        let already_registered: std::collections::HashSet<PathBuf> = self
+            .storage
+            .registered_projects()
+            .await?
+            .into_iter()
+            .map(|project| project.root)
+            .collect();
+        let mut found = Vec::new();
+        let mut visited = 0usize;
+        'roots: for root in roots {
+            for entry in walkdir::WalkDir::new(root)
+                .follow_links(false)
+                .into_iter()
+                .filter_entry(|entry| {
+                    let name = entry.file_name().to_string_lossy();
+                    !matches!(
+                        name.as_ref(),
+                        "node_modules"
+                            | "$Recycle.Bin"
+                            | "System Volume Information"
+                            | "Windows"
+                            | "AppData"
+                            | "Library"
+                            | "Temp"
+                            | ".git"
+                    )
+                })
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().is_dir())
+            {
+                if should_cancel() {
+                    break 'roots;
+                }
+                visited += 1;
+                if visited.is_multiple_of(50) {
+                    on_progress(ScanProgress {
+                        completed: visited,
+                        total: 0,
+                        current: entry.path().display().to_string(),
+                        done: false,
+                    });
+                }
+                let path = entry.path();
+                let has_metadata = path.join(".pipelineos/project.toml").is_file()
+                    || path.join(".vantadeck/project.toml").is_file();
+                if !has_metadata || already_registered.contains(path) {
+                    continue;
+                }
+                let Ok(config) = import_project(path, None) else {
+                    continue;
+                };
+                let registered = RegisteredProject {
+                    root: path.to_path_buf(),
+                    name: config.name.clone(),
+                    pinned: false,
+                    last_opened: None,
+                };
+                if self.storage.register_project(&registered).await.is_ok() {
+                    let _ = self.ensure_local_config_gitignored(path).await;
+                    found.push(registered);
+                }
+            }
+        }
+        on_progress(ScanProgress {
+            completed: visited,
+            total: visited,
+            current: String::new(),
+            done: true,
+        });
+        if !found.is_empty() {
+            self.storage
+                .record_activity(
+                    "project-scan",
+                    &format!("Found {} project(s) already on disk", found.len()),
+                )
+                .await?;
+        }
+        Ok(found)
+    }
+
     /// Loads the portable project configuration for a single project.
     pub async fn project_config(&self, root: &Path) -> Result<ProjectConfig, ApplicationError> {
         Ok(load_project(root)?)
     }
 
-    /// Repairs a project whose `.vantadeck/project.toml` is missing or
+    /// Repairs a project whose `.pipelineos/project.toml` is missing or
     /// unreadable (the `PROJECT_CONFIG_INVALID` health check) by regenerating
     /// it via the same inference used on import. A broken existing file is
     /// renamed aside, never deleted.
@@ -409,8 +504,11 @@ impl ApplicationService {
     }
 
     /// Records that a project was just opened (for "last opened" display/order).
+    /// Also re-checks that local-only data is gitignored, in case git was set
+    /// up (or a `.gitignore` was added) after the project was first imported.
     pub async fn touch_project_opened(&self, root: &Path) -> Result<(), ApplicationError> {
         self.storage.touch_project_opened(root).await?;
+        let _ = self.ensure_local_config_gitignored(root).await;
         Ok(())
     }
 
@@ -490,7 +588,7 @@ impl ApplicationService {
         Ok(vantadeck_projects::read_project_workspace(root)?)
     }
 
-    /// Writes the portable workspace document.
+    /// Writes the portable, git-shared workspace document.
     pub async fn save_project_workspace(
         &self,
         root: &Path,
@@ -498,6 +596,40 @@ impl ApplicationService {
     ) -> Result<(), ApplicationError> {
         vantadeck_projects::write_project_workspace(root, contents)?;
         Ok(())
+    }
+
+    /// Reads the project's local-only document (e.g. a personal to-do list).
+    pub async fn read_project_local(
+        &self,
+        root: &Path,
+    ) -> Result<Option<String>, ApplicationError> {
+        Ok(vantadeck_projects::read_project_local(root)?)
+    }
+
+    /// Writes the project's local-only document. Never synced via git.
+    pub async fn save_project_local(
+        &self,
+        root: &Path,
+        contents: &str,
+    ) -> Result<(), ApplicationError> {
+        vantadeck_projects::write_project_local(root, contents)?;
+        Ok(())
+    }
+
+    /// Ensures the project's `.gitignore` (if any) excludes local-only
+    /// Pipeline OS data. Safe to call repeatedly: a no-op once the entry is
+    /// present, and a no-op entirely when the project has no `.gitignore` yet
+    /// (nothing to manage until version control exists). Called on import and
+    /// on every project open, so a repo that gains git later still gets it.
+    /// Returns `true` if the entry was just added.
+    pub async fn ensure_local_config_gitignored(
+        &self,
+        root: &Path,
+    ) -> Result<bool, ApplicationError> {
+        Ok(vantadeck_vcs::ensure_gitignore_entry(
+            root,
+            vantadeck_projects::local_gitignore_pattern(),
+        )?)
     }
 
     /// Sets a portable, team-shared thumbnail for a project from a source image.
@@ -1127,7 +1259,7 @@ impl ApplicationService {
                 title: "Project metadata is invalid".into(),
                 detail: error.to_string(),
                 remediation: Some(
-                    "Repair .vantadeck/project.toml or restore it from source control.".into(),
+                    "Repair .pipelineos/project.toml or restore it from source control.".into(),
                 ),
                 checked_at: Utc::now(),
             }),

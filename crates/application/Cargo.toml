@@ -20,6 +20,7 @@ vantadeck-manifests = { path = "../manifests" }
 vantadeck-projects = { path = "../projects" }
 vantadeck-storage = { path = "../storage" }
 vantadeck-vcs = { path = "../vcs" }
+walkdir.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

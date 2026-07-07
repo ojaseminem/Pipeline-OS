@@ -85,6 +85,7 @@ struct DesktopState {
     service: ApplicationService,
     manifest_dir: PathBuf,
     scan_cancel: Arc<AtomicBool>,
+    project_scan_cancel: Arc<AtomicBool>,
 }
 
 #[derive(Serialize)]
@@ -552,6 +553,33 @@ async fn save_project_workspace(
         .map_err(|e| e.to_string())
 }
 
+/// Reads the project's local-only document (never synced via git).
+#[tauri::command(rename_all = "camelCase")]
+async fn read_project_local(
+    root: String,
+    state: State<'_, DesktopState>,
+) -> Result<Option<String>, String> {
+    state
+        .service
+        .read_project_local(Path::new(&root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Writes the project's local-only document.
+#[tauri::command(rename_all = "camelCase")]
+async fn save_project_local(
+    root: String,
+    contents: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    state
+        .service
+        .save_project_local(Path::new(&root), &contents)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Recent durable activity (imports, scans, launches, commits, …).
 #[tauri::command]
 async fn recent_activity(
@@ -909,6 +937,58 @@ async fn list_drives() -> Result<Vec<String>, String> {
 #[tauri::command]
 async fn cancel_scan(state: State<'_, DesktopState>) -> Result<(), String> {
     state.scan_cancel.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Scans directory trees for existing Pipeline OS projects (`.pipelineos/` or
+/// legacy `.vantadeck/` metadata) and registers any not already known —
+/// mirroring the app drive-scan UX, so a reinstall or a second drive with
+/// prior projects is picked up automatically.
+#[tauri::command]
+async fn scan_projects(
+    app: tauri::AppHandle,
+    roots: Vec<String>,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<DesktopProject>, String> {
+    let roots = roots.into_iter().map(PathBuf::from).collect::<Vec<_>>();
+    state.project_scan_cancel.store(false, Ordering::SeqCst);
+    let cancel = state.project_scan_cancel.clone();
+    let found = state
+        .service
+        .scan_projects_with_progress(
+            &roots,
+            |progress| {
+                let _ = app.emit("scan-projects://progress", progress);
+            },
+            || cancel.load(Ordering::SeqCst),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut result = Vec::with_capacity(found.len());
+    for project in found {
+        let config = state.service.project_config(&project.root).await.ok();
+        let tags = config
+            .as_ref()
+            .map(|config| config.tags.clone())
+            .unwrap_or_default();
+        let category = config
+            .as_ref()
+            .map(derive_category)
+            .unwrap_or_else(|| "Other".into());
+        result.push(DesktopProject {
+            name: project.name,
+            path: project.root.display().to_string(),
+            pinned: project.pinned,
+            tags,
+            category,
+        });
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+async fn cancel_project_scan(state: State<'_, DesktopState>) -> Result<(), String> {
+    state.project_scan_cancel.store(true, Ordering::SeqCst);
     Ok(())
 }
 
@@ -1489,7 +1569,7 @@ async fn project_config(
         .map_err(|e| e.to_string())
 }
 
-/// Repairs a project's `.vantadeck/project.toml` when it's missing or
+/// Repairs a project's `.pipelineos/project.toml` when it's missing or
 /// unreadable — the fix action behind the `PROJECT_CONFIG_INVALID` health
 /// issue.
 #[tauri::command(rename_all = "camelCase")]
@@ -2040,6 +2120,7 @@ pub fn run() {
                 service: ApplicationService::new(storage, GitProvider::new(resolve_git_binary())),
                 manifest_dir,
                 scan_cancel: Arc::new(AtomicBool::new(false)),
+                project_scan_cancel: Arc::new(AtomicBool::new(false)),
             });
             Ok(())
         })
@@ -2055,6 +2136,8 @@ pub fn run() {
             detect_project_apps,
             read_project_workspace,
             save_project_workspace,
+            read_project_local,
+            save_project_local,
             recent_activity,
             project_health,
             cached_health,
@@ -2076,6 +2159,8 @@ pub fn run() {
             list_drives,
             set_manual_override,
             cancel_scan,
+            scan_projects,
+            cancel_project_scan,
             launch_app,
             app_icon,
             list_tools,

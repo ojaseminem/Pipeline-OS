@@ -37,6 +37,13 @@ export async function onScanProgress(handler: (progress: ScanProgress) => void):
   return listen<ScanProgress>("scan://progress", (event) => handler(event.payload));
 }
 
+/** Subscribes to live project-scan progress; returns an unsubscribe function. */
+export async function onProjectScanProgress(handler: (progress: ScanProgress) => void): Promise<() => void> {
+  if (!isNativeRuntime()) return () => undefined;
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<ScanProgress>("scan-projects://progress", (event) => handler(event.payload));
+}
+
 /** Opens a native folder or file picker; returns the chosen path, or null. */
 export async function browsePath(opts: { directory?: boolean; title?: string }): Promise<string | null> {
   if (!isNativeRuntime()) return null;
@@ -131,6 +138,8 @@ export const desktopApi = {
   detectProjectApps: (root: string) => invokeDesktop<string[]>("detect_project_apps", { root }),
   readWorkspace: (root: string) => invokeDesktop<string | null>("read_project_workspace", { root }),
   saveWorkspace: (root: string, contents: string) => invokeDesktop<void>("save_project_workspace", { root, contents }),
+  readLocalConfig: (root: string) => invokeDesktop<string | null>("read_project_local", { root }),
+  saveLocalConfig: (root: string, contents: string) => invokeDesktop<void>("save_project_local", { root, contents }),
   recentActivity: (limit: number) => invokeDesktop<ActivityRecord[]>("recent_activity", { limit }),
   projectHealth: (root: string) => invokeDesktop<HealthIssue[]>("project_health", { root }),
   cachedHealth: (root: string) => invokeDesktop<CachedHealth | null>("cached_health", { root }),
@@ -151,6 +160,8 @@ export const desktopApi = {
   scanApps: (roots: string[]) => invokeDesktop<unknown[]>("scan_apps", { roots }),
   cancelScan: () => invokeDesktop<void>("cancel_scan"),
   listDrives: () => invokeDesktop<string[]>("list_drives"),
+  scanProjects: (roots: string[]) => invokeDesktop<RegisteredProject[]>("scan_projects", { roots }),
+  cancelProjectScan: () => invokeDesktop<void>("cancel_project_scan"),
   setManualOverride: (appId: string, version: string, executable: string) => invokeDesktop<void>("set_manual_override", { appId, version, executable }),
   launchApp: (appId: string, executable: string) => invokeDesktop<void>("launch_app", { appId, executable }),
   appIcon: (executable: string) => invokeDesktop<string | null>("app_icon", { executable }),

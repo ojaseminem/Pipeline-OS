@@ -18,7 +18,7 @@ import { HealthPanel } from "./health-panel";
 import { browsePath, desktopApi, isNativeRuntime, openExternal, type BranchInfo, type ConflictResolution, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
 import { PROJECT_CATEGORIES } from "../lib/categories";
-import { loadTags, loadWorkspace, newId, saveTags, saveWorkspace, type ProjectWorkspace } from "../lib/local-store";
+import { loadLocalConfig, loadTags, loadWorkspace, newId, saveLocalConfig, saveTags, saveWorkspace, type ProjectLocal, type ProjectWorkspace } from "../lib/local-store";
 
 // Maps a Git status to a friendly label + an explanatory tooltip. Codes come
 // from `git status --porcelain=v2`: a two-char XY field where X is the staged
@@ -43,6 +43,7 @@ function diffLineClass(line: string): string {
 }
 
 const EMPTY_WORKSPACE: ProjectWorkspace = { notes: "", todos: [], references: [] };
+const EMPTY_LOCAL: ProjectLocal = { todos: [] };
 
 function timeAgo(epochSeconds: number): string {
   if (!epochSeconds) return "";
@@ -122,6 +123,9 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   const [healthCheckedAt, setHealthCheckedAt] = useState<string | null>(null);
   const [ws, setWs] = useState<ProjectWorkspace>(() => (native ? EMPTY_WORKSPACE : loadWorkspace(project.path)));
   const wsLoaded = useRef(false);
+  const [local, setLocal] = useState<ProjectLocal>(() => (native ? EMPTY_LOCAL : loadLocalConfig(project.path)));
+  const localLoaded = useRef(false);
+  const [localTodoText, setLocalTodoText] = useState("");
   const thumbnail = cfg.data?.thumbnail ?? null;
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [name, setName] = useState(project.name);
@@ -134,9 +138,10 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   const [refUrl, setRefUrl] = useState("");
   const [commit, setCommit] = useState("");
 
-  // Portable workspace (notes/to-dos/references) lives in .vantadeck/workspace.json
-  // so it travels with the repo. Load on mount; in the web demo, fall back to
-  // localStorage. Migrate any prior localStorage workspace into the file once.
+  // Git-shared workspace (notes/global to-dos/references) lives in
+  // .pipelineos/workspace.json so it travels with the repo. Load on mount; in
+  // the web demo, fall back to localStorage. Migrate any prior localStorage
+  // workspace into the file once.
   useEffect(() => {
     wsLoaded.current = false;
     if (!native) { setWs(loadWorkspace(project.path)); wsLoaded.current = true; return; }
@@ -160,6 +165,32 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
     const timer = setTimeout(() => { void desktopApi.saveWorkspace(project.path, JSON.stringify(ws)).catch(() => undefined); }, 500);
     return () => clearTimeout(timer);
   }, [ws, native, project.path]);
+
+  // Local-only project data (e.g. a personal to-do list) lives in
+  // .pipelineos/local.json, which is gitignored and never shared with the team.
+  useEffect(() => {
+    localLoaded.current = false;
+    if (!native) { setLocal(loadLocalConfig(project.path)); localLoaded.current = true; return; }
+    let active = true;
+    desktopApi.readLocalConfig(project.path).then((json) => {
+      if (!active) return;
+      if (json) {
+        try { setLocal({ ...EMPTY_LOCAL, ...(JSON.parse(json) as ProjectLocal) }); } catch { setLocal(EMPTY_LOCAL); }
+      } else {
+        setLocal(EMPTY_LOCAL);
+      }
+      localLoaded.current = true;
+    }).catch(() => { localLoaded.current = true; });
+    return () => { active = false; };
+  }, [native, project.path]);
+
+  // Persist local-only edits (debounced for the native file write).
+  useEffect(() => {
+    if (!localLoaded.current) return;
+    if (!native) { saveLocalConfig(project.path, local); return; }
+    const timer = setTimeout(() => { void desktopApi.saveLocalConfig(project.path, JSON.stringify(local)).catch(() => undefined); }, 500);
+    return () => clearTimeout(timer);
+  }, [local, native, project.path]);
 
   // Tags are portable (in project.toml); reflect the loaded config.
   useEffect(() => { if (native) setTags(cfg.data?.tags ?? []); }, [native, cfg.data?.tags]);
@@ -618,7 +649,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
           <Card><CardContent className="space-y-3 p-5">
             <h2 className="text-base font-semibold">Launch</h2>
             {profiles.length ? <div className="flex flex-wrap gap-2">{profiles.map((profile) => <Button key={profile.id} variant="outline" size="sm" onClick={() => void run(`Launching ${profile.name}`, () => desktopApi.launchProjectProfile(project.path, profile.id))}><Play size={14} /> {profile.name}</Button>)}</div>
-              : <p className="text-sm text-muted-foreground">No launch profiles defined in this project's <code>.vantadeck/project.toml</code> yet.</p>}
+              : <p className="text-sm text-muted-foreground">No launch profiles defined in this project's <code>.pipelineos/project.toml</code> yet.</p>}
           </CardContent></Card>
           <Card><CardContent className="space-y-3 p-5">
             <div className="flex items-center justify-between gap-2">
@@ -883,6 +914,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
           </CardContent></Card>
           <Card><CardContent className="space-y-3 p-5">
             <h2 className="flex items-center gap-2 text-base font-semibold"><ListTodo size={17} /> To-dos</h2>
+            <p className="text-xs text-muted-foreground">Shared with the team via git.</p>
             <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (!todoText.trim()) return; setWs({ ...ws, todos: [...ws.todos, { id: newId(), text: todoText.trim(), done: false }] }); setTodoText(""); }}>
               <Input aria-label="New to-do" placeholder="Add a task…" value={todoText} onChange={(e) => setTodoText(e.target.value)} className="flex-1" />
               <Button type="submit" size="icon" aria-label="Add task"><Plus size={16} /></Button>
@@ -894,6 +926,21 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                 <Button variant="ghost" size="icon" aria-label="Delete task" onClick={() => setWs({ ...ws, todos: ws.todos.filter((t) => t.id !== todo.id) })}><Trash2 size={14} /></Button>
               </div>
             )) : <p className="text-sm text-muted-foreground">No tasks yet.</p>}</div>
+          </CardContent></Card>
+          <Card><CardContent className="space-y-3 p-5">
+            <h2 className="flex items-center gap-2 text-base font-semibold"><ListTodo size={17} /> Local to-dos</h2>
+            <p className="text-xs text-muted-foreground">Only on this machine — never committed to git.</p>
+            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (!localTodoText.trim()) return; setLocal({ ...local, todos: [...local.todos, { id: newId(), text: localTodoText.trim(), done: false }] }); setLocalTodoText(""); }}>
+              <Input aria-label="New local to-do" placeholder="Add a personal task…" value={localTodoText} onChange={(e) => setLocalTodoText(e.target.value)} className="flex-1" />
+              <Button type="submit" size="icon" aria-label="Add local task"><Plus size={16} /></Button>
+            </form>
+            <div className="space-y-1">{local.todos.length ? local.todos.map((todo) => (
+              <div key={todo.id} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted/40">
+                <input type="checkbox" checked={todo.done} onChange={() => setLocal({ ...local, todos: local.todos.map((t) => t.id === todo.id ? { ...t, done: !t.done } : t) })} className="size-4 accent-[var(--primary)]" />
+                <span className={`flex-1 text-sm ${todo.done ? "text-muted-foreground line-through" : ""}`}>{todo.text}</span>
+                <Button variant="ghost" size="icon" aria-label="Delete local task" onClick={() => setLocal({ ...local, todos: local.todos.filter((t) => t.id !== todo.id) })}><Trash2 size={14} /></Button>
+              </div>
+            )) : <p className="text-sm text-muted-foreground">No local tasks yet.</p>}</div>
           </CardContent></Card>
         </TabsContent>
 

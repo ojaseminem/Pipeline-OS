@@ -396,7 +396,7 @@ impl Storage {
     }
 
     /// Unregisters a project and drops its cached health. Does not touch the
-    /// project's files on disk (its `.vantadeck/` config stays intact).
+    /// project's files on disk (its `.pipelineos/` config stays intact).
     pub async fn remove_project(&self, root: &std::path::Path) -> Result<(), StorageError> {
         let path = root.to_string_lossy();
         sqlx::query("DELETE FROM registered_projects WHERE root_path = ?")

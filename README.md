@@ -4,7 +4,7 @@
 
 **The local-first creative launcher for game development, CG, VFX, animation, and technical art.**
 
-<sub>The product is **Pipeline OS**. This repository and its crates/packages are named `Vantadeck` (links, paths, and `.vantadeck/` config keep that name).</sub>
+<sub>The product is **Pipeline OS**. This repository and its crates/packages are named `Vantadeck` (links and internal paths keep that name). The per-project metadata folder is user-facing, though, so it's branded `.pipelineos/` (older `.vantadeck/` folders are migrated automatically).</sub>
 
 Manage projects, creative applications, health checks, launch profiles, and source-control workflows from one open-source desktop app and automation-friendly CLI.
 
@@ -36,7 +36,7 @@ Creative projects rarely use one application. A game project may depend on multi
 - **Local-first:** project discovery, preferences, caches, and activity remain on your machine.
 - **Account-free:** no sign-in is required for core workflows.
 - **Private by default:** no telemetry, advertising, analytics, or background network traffic.
-- **Portable projects:** team-owned configuration uses relative paths in `.vantadeck/project.toml`.
+- **Portable projects:** team-owned configuration uses relative paths in `.pipelineos/project.toml`.
 - **Machine-aware:** absolute executable paths and local overrides remain outside source-controlled project files.
 - **Automation-ready:** desktop and CLI clients use the same Rust application services.
 - **Open governance:** roadmap, RFCs, security policy, funding disclosures, and contribution rules are public.
@@ -78,7 +78,7 @@ Creative projects rarely use one application. A game project may depend on multi
 ### Portable Projects
 
 - Imports Unity, Unreal Engine, Godot, Blender/Maya, and generic creative folders.
-- Stores canonical team configuration in `.vantadeck/project.toml`.
+- Stores canonical team configuration in `.pipelineos/project.toml`.
 - Supports linked applications, preferred versions, fallbacks, launch profiles, shortcuts, VCS configuration, and enabled health checks.
 - Auto-detects DCC tools used in a project (Maya, Substance Painter, ZBrush, Houdini, and any app with a manifest) by matching file extensions found in the project, with a one-click "add" suggestion and manual override.
 - Shows each linked app's own project files (not just the engine's), with a version picker and one-click open.
@@ -239,7 +239,7 @@ See [HEADLESS_MODE.md](docs/HEADLESS_MODE.md) for automation and exit-code detai
 
 ## Project Configuration
 
-Portable project metadata lives at `.vantadeck/project.toml`:
+Portable project metadata lives at `.pipelineos/project.toml`:
 
 ```toml
 schema_version = 1

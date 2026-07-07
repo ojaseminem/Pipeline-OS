@@ -35,9 +35,10 @@ pub struct VcsStatus {
     pub changed_files: Vec<ChangedFile>,
 }
 
-/// Starter ignore rules for a fresh creative-project repo. Keeps `.vantadeck/`
-/// tracked (it's the portable project config) while excluding engine caches and
-/// build output. Written only when the project has no `.gitignore` yet.
+/// Starter ignore rules for a fresh creative-project repo. Keeps `.pipelineos/`
+/// tracked (it's the portable, team-shared project config) except for the
+/// local-only file within it, while excluding engine caches and build output.
+/// Written only when the project has no `.gitignore` yet.
 const DEFAULT_GITIGNORE: &str = "# Engine caches and build output\n\
 Library/\n\
 Temp/\n\
@@ -51,7 +52,32 @@ Saved/\n\
 DerivedDataCache/\n\
 node_modules/\n\
 __pycache__/\n\
-*.tmp\n";
+*.tmp\n\
+\n\
+# Pipeline OS local-only project data (not shared with the team)\n\
+/.pipelineos/local.json\n";
+
+/// Ensures `pattern` is present in the project's `.gitignore`, appending it if
+/// the file exists and doesn't already list it (exact-line match). Returns
+/// `true` if it was added. A no-op when there's no `.gitignore` yet — nothing
+/// to manage until the project has version control set up.
+pub fn ensure_gitignore_entry(root: &Path, pattern: &str) -> io::Result<bool> {
+    let path = root.join(".gitignore");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Ok(false);
+    };
+    if content.lines().any(|line| line.trim() == pattern) {
+        return Ok(false);
+    }
+    let mut updated = content;
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(pattern);
+    updated.push('\n');
+    std::fs::write(&path, updated)?;
+    Ok(true)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -781,6 +807,7 @@ impl GitProvider {
                 !matches!(
                     name.as_ref(),
                     ".git"
+                        | ".pipelineos"
                         | ".vantadeck"
                         | "node_modules"
                         | "Library"
