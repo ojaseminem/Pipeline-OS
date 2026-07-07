@@ -957,10 +957,10 @@ async fn scan_projects(
         .service
         .scan_projects_with_progress(
             &roots,
-            |progress| {
+            move |progress| {
                 let _ = app.emit("scan-projects://progress", progress);
             },
-            || cancel.load(Ordering::SeqCst),
+            move || cancel.load(Ordering::SeqCst),
         )
         .await
         .map_err(|e| e.to_string())?;

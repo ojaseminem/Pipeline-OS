@@ -1,9 +1,14 @@
 use std::{
     fs, io,
     path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use chrono::Utc;
+use ignore::{WalkBuilder, WalkState};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -402,8 +407,8 @@ impl ApplicationService {
     pub async fn scan_projects_with_progress(
         &self,
         roots: &[PathBuf],
-        mut on_progress: impl FnMut(ScanProgress),
-        should_cancel: impl Fn() -> bool,
+        on_progress: impl FnMut(ScanProgress) + Send + 'static,
+        should_cancel: impl Fn() -> bool + Send + Sync + 'static,
     ) -> Result<Vec<RegisteredProject>, ApplicationError> {
         let already_registered: std::collections::HashSet<PathBuf> = self
             .storage
@@ -412,68 +417,61 @@ impl ApplicationService {
             .into_iter()
             .map(|project| project.root)
             .collect();
+
+        let roots = roots.to_vec();
+        let should_cancel: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(should_cancel);
+        let progress: Arc<Mutex<dyn FnMut(ScanProgress) + Send>> =
+            Arc::new(Mutex::new(on_progress));
+        let visited = Arc::new(AtomicUsize::new(0));
+
+        // The directory walk is CPU/IO-bound synchronous work, parallelized
+        // across threads by the `ignore` crate (the same walker ripgrep
+        // uses), so it runs on a blocking-friendly thread rather than the
+        // async executor.
+        let candidates = {
+            let should_cancel = Arc::clone(&should_cancel);
+            let progress = Arc::clone(&progress);
+            let visited = Arc::clone(&visited);
+            tokio::task::spawn_blocking(move || {
+                find_project_candidates(&roots, &should_cancel, &progress, &visited)
+            })
+            .await
+            .unwrap_or_default()
+        };
+
         let mut found = Vec::new();
-        let mut visited = 0usize;
-        'roots: for root in roots {
-            for entry in walkdir::WalkDir::new(root)
-                .follow_links(false)
-                .into_iter()
-                .filter_entry(|entry| {
-                    let name = entry.file_name().to_string_lossy();
-                    !matches!(
-                        name.as_ref(),
-                        "node_modules"
-                            | "$Recycle.Bin"
-                            | "System Volume Information"
-                            | "Windows"
-                            | "AppData"
-                            | "Library"
-                            | "Temp"
-                            | ".git"
-                    )
-                })
-                .filter_map(Result::ok)
-                .filter(|entry| entry.file_type().is_dir())
-            {
-                if should_cancel() {
-                    break 'roots;
-                }
-                visited += 1;
-                if visited.is_multiple_of(50) {
-                    on_progress(ScanProgress {
-                        completed: visited,
-                        total: 0,
-                        current: entry.path().display().to_string(),
-                        done: false,
-                    });
-                }
-                let path = entry.path();
-                let has_metadata = path.join(".pipelineos/project.toml").is_file()
-                    || path.join(".vantadeck/project.toml").is_file();
-                if !has_metadata || already_registered.contains(path) {
-                    continue;
-                }
-                let Ok(config) = import_project(path, None) else {
-                    continue;
-                };
-                let registered = RegisteredProject {
-                    root: path.to_path_buf(),
-                    name: config.name.clone(),
-                    pinned: false,
-                    last_opened: None,
-                };
-                if self.storage.register_project(&registered).await.is_ok() {
-                    let _ = self.ensure_local_config_gitignored(path).await;
-                    found.push(registered);
-                }
+        for path in candidates {
+            if should_cancel() {
+                break;
+            }
+            if already_registered.contains(&path) {
+                continue;
+            }
+            let Ok(config) = import_project(&path, None) else {
+                continue;
+            };
+            let registered = RegisteredProject {
+                root: path.clone(),
+                name: config.name.clone(),
+                pinned: false,
+                last_opened: None,
+            };
+            if self.storage.register_project(&registered).await.is_ok() {
+                let _ = self.ensure_local_config_gitignored(&path).await;
+                found.push(registered);
             }
         }
-        on_progress(ScanProgress {
-            completed: visited,
-            total: visited,
-            current: String::new(),
-            done: true,
-        });
+
+        if let Ok(mut callback) = progress.lock() {
+            let total = visited.load(Ordering::Relaxed);
+            callback(ScanProgress {
+                completed: total,
+                total,
+                current: String::new(),
+                done: true,
+            });
+        }
+
         if !found.is_empty() {
             self.storage
                 .record_activity(
@@ -1405,6 +1403,112 @@ fn curated_roots_for_drives(drives: &[PathBuf]) -> Vec<PathBuf> {
         .into_iter()
         .filter(|root| drives.iter().any(|drive| root.starts_with(drive)))
         .collect()
+}
+
+/// Finds candidate Pipeline OS project directories under `roots` using a
+/// parallel, cross-platform directory walk — the same walker ripgrep uses via
+/// the `ignore` crate — instead of a single-threaded recursive scan. Hidden
+/// directories are included (`.pipelineos`/`.vantadeck` are dot-folders on
+/// every platform, not just macOS/Linux), and gitignore rules are disabled so
+/// a project's own `.gitignore` can never hide a sibling project from the
+/// scan. Runs synchronously; callers should invoke it via
+/// `tokio::task::spawn_blocking`.
+fn find_project_candidates(
+    roots: &[PathBuf],
+    should_cancel: &Arc<dyn Fn() -> bool + Send + Sync>,
+    progress: &Arc<Mutex<dyn FnMut(ScanProgress) + Send>>,
+    visited: &Arc<AtomicUsize>,
+) -> Vec<PathBuf> {
+    let candidates: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
+    for root in roots {
+        if should_cancel() {
+            break;
+        }
+        let mut builder = WalkBuilder::new(root);
+        builder
+            .hidden(false)
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false)
+            .ignore(false)
+            .parents(false)
+            .follow_links(false)
+            .threads(
+                std::thread::available_parallelism()
+                    .map(std::num::NonZeroUsize::get)
+                    .unwrap_or(4),
+            );
+        builder.filter_entry(|entry| {
+            let name = entry.file_name().to_string_lossy();
+            !matches!(
+                name.as_ref(),
+                "node_modules"
+                    | "$RECYCLE.BIN"
+                    | "System Volume Information"
+                    | "Windows"
+                    | "AppData"
+                    | "Library"
+                    | "Temp"
+                    | ".git"
+                    // macOS/Linux system and metadata noise a full-drive scan
+                    // (from list_drives' "/" fallback) would otherwise crawl.
+                    | "System"
+                    | "private"
+                    | "dev"
+                    | ".Trash"
+                    | ".Spotlight-V100"
+                    | ".fseventsd"
+                    | ".DocumentRevisions-V100"
+                    | ".TemporaryItems"
+            )
+        });
+
+        let candidates_ref = Arc::clone(&candidates);
+        let visited_ref = Arc::clone(visited);
+        let progress_ref = Arc::clone(progress);
+        let cancel_ref = Arc::clone(should_cancel);
+
+        builder.build_parallel().run(move || {
+            let candidates = Arc::clone(&candidates_ref);
+            let visited = Arc::clone(&visited_ref);
+            let progress = Arc::clone(&progress_ref);
+            let should_cancel = Arc::clone(&cancel_ref);
+            Box::new(move |entry_result| {
+                if should_cancel() {
+                    return WalkState::Quit;
+                }
+                let Ok(entry) = entry_result else {
+                    return WalkState::Continue;
+                };
+                if !entry.file_type().is_some_and(|kind| kind.is_dir()) {
+                    return WalkState::Continue;
+                }
+                let path = entry.path();
+                let count = visited.fetch_add(1, Ordering::Relaxed) + 1;
+                if count.is_multiple_of(200)
+                    && let Ok(mut callback) = progress.lock()
+                {
+                    callback(ScanProgress {
+                        completed: count,
+                        total: 0,
+                        current: path.display().to_string(),
+                        done: false,
+                    });
+                }
+                let has_metadata = path.join(".pipelineos/project.toml").is_file()
+                    || path.join(".vantadeck/project.toml").is_file();
+                if has_metadata && let Ok(mut list) = candidates.lock() {
+                    list.push(path.to_path_buf());
+                }
+                WalkState::Continue
+            })
+        });
+    }
+
+    candidates
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default()
 }
 
 fn system_detection_engine(roots: &[PathBuf]) -> DetectionEngine {
