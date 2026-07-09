@@ -16,7 +16,8 @@ use vantadeck_manifests::{AppManifest, ToolManifest};
 use vantadeck_storage::{RegisteredProject, Storage};
 use vantadeck_vcs::GitProvider;
 use vantadeck_vcs::{
-    BranchComparison, BranchInfo, ConflictResolution, MergeOutcome, MergeStatus, VcsOperationResult,
+    BranchComparison, BranchInfo, ConflictResolution, MergeOutcome, MergeStatus,
+    VcsOperationResult, VcsStatus,
 };
 
 /// Categories that represent launchable creative applications. Version-control
@@ -156,6 +157,8 @@ struct DesktopGitStatus {
     branch: Option<String>,
     ahead: u32,
     behind: u32,
+    has_upstream: bool,
+    last_fetched_at: Option<String>,
     changed_files: Vec<DesktopChangedFile>,
 }
 
@@ -786,6 +789,29 @@ async fn git_commit_files(
         .collect())
 }
 
+/// Maps the vcs crate's `VcsStatus` to the desktop-facing DTO. Kept as a pure
+/// function (rather than inlined in the command) so field-forwarding — e.g.
+/// `has_upstream`, which the unified Sync button depends on to distinguish
+/// "publish" from "push" — is covered by a plain unit test below, without
+/// needing a running Tauri app.
+fn to_desktop_git_status(status: VcsStatus) -> DesktopGitStatus {
+    DesktopGitStatus {
+        branch: status.branch,
+        ahead: status.ahead,
+        behind: status.behind,
+        has_upstream: status.has_upstream,
+        last_fetched_at: status.last_fetched_at,
+        changed_files: status
+            .changed_files
+            .into_iter()
+            .map(|file| DesktopChangedFile {
+                path: file.path,
+                status: file.status,
+            })
+            .collect(),
+    }
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn git_status(
     root: String,
@@ -796,19 +822,7 @@ async fn git_status(
         .vcs_status(Path::new(&root))
         .await
         .map_err(|e| e.to_string())?;
-    Ok(DesktopGitStatus {
-        branch: status.branch,
-        ahead: status.ahead,
-        behind: status.behind,
-        changed_files: status
-            .changed_files
-            .into_iter()
-            .map(|file| DesktopChangedFile {
-                path: file.path,
-                status: file.status,
-            })
-            .collect(),
-    })
+    Ok(to_desktop_git_status(status))
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -2233,5 +2247,31 @@ mod tests {
             &installations,
             Path::new("C:/Other/editor.exe")
         ));
+    }
+
+    #[test]
+    fn desktop_git_status_forwards_upstream_and_last_fetched_fields() {
+        // Regression test: `has_upstream`/`last_fetched_at` were added to
+        // `VcsStatus` but the desktop DTO mapping wasn't updated to include
+        // them, so the Sync button always saw `hasUpstream: undefined`
+        // (falsy) and showed "Publish branch" even on an already-published,
+        // ahead-of-upstream repo.
+        let status = VcsStatus {
+            branch: Some("main".into()),
+            ahead: 2,
+            behind: 0,
+            has_upstream: true,
+            last_fetched_at: Some("2026-07-07T00:00:00Z".into()),
+            changed_files: vec![],
+        };
+
+        let desktop_status = to_desktop_git_status(status);
+
+        assert!(desktop_status.has_upstream);
+        assert_eq!(
+            desktop_status.last_fetched_at.as_deref(),
+            Some("2026-07-07T00:00:00Z")
+        );
+        assert_eq!(desktop_status.ahead, 2);
     }
 }
