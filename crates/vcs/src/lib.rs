@@ -667,10 +667,29 @@ impl GitProvider {
         .await
     }
 
-    /// Re-applies and drops the most recent stash — used to "bring changes"
-    /// along after switching branches.
-    pub async fn stash_pop(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
-        self.operation(root, &["stash", "pop"]).await
+    /// Re-applies and drops a stash — the most recent one (`stash@{0}`) when
+    /// `stash_ref` is `None`, used to "bring changes" along after switching
+    /// branches, or a specific entry (e.g. `"stash@{2}"`) when restoring from
+    /// the stash list.
+    pub async fn stash_pop(
+        &self,
+        root: &Path,
+        stash_ref: Option<&str>,
+    ) -> Result<VcsOperationResult, VcsError> {
+        let mut arguments = vec!["stash", "pop"];
+        if let Some(stash_ref) = stash_ref {
+            arguments.push(stash_ref);
+        }
+        self.operation(root, &arguments).await
+    }
+
+    /// Deletes a stash entry (e.g. `"stash@{1}"`) without applying it.
+    pub async fn stash_drop(
+        &self,
+        root: &Path,
+        stash_ref: &str,
+    ) -> Result<VcsOperationResult, VcsError> {
+        self.operation(root, &["stash", "drop", stash_ref]).await
     }
 
     /// Stash entries as `stash@{n} <message>` lines, newest first.
@@ -1062,6 +1081,17 @@ impl GitProvider {
         command.env("GIT_TERMINAL_PROMPT", "0");
         if !allow_credential_prompt {
             command.env("GCM_INTERACTIVE", "never");
+        } else {
+            // Git Credential Manager's Windows broker (WAM) needs a
+            // foreground window handle to complete its "select account" flow.
+            // This process is always spawned without a console (see
+            // creation_flags below), so the broker has nothing to attach to —
+            // it shows the picker but can never signal completion back to
+            // GCM, which then re-prompts on the next git call. This looks
+            // like an infinite "select account" loop that never signs in.
+            // Force GCM's standalone browser-based OAuth flow instead, which
+            // doesn't require a window handle and completes normally.
+            command.env("GCM_MSAUTH_USEBROKER", "false");
         }
         // Run git without flashing a console window on Windows.
         #[cfg(windows)]

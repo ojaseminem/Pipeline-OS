@@ -1438,13 +1438,29 @@ async fn git_stash_push(
 #[tauri::command(rename_all = "camelCase")]
 async fn git_stash_pop(
     root: String,
+    stash_ref: Option<String>,
     confirmed: bool,
     state: State<'_, DesktopState>,
 ) -> Result<VcsOperationResult, String> {
     require_confirmation(confirmed)?;
     state
         .service
-        .vcs_stash_pop(Path::new(&root), confirmed)
+        .vcs_stash_pop(Path::new(&root), stash_ref.as_deref(), confirmed)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn git_stash_drop(
+    root: String,
+    stash_ref: String,
+    confirmed: bool,
+    state: State<'_, DesktopState>,
+) -> Result<VcsOperationResult, String> {
+    require_confirmation(confirmed)?;
+    state
+        .service
+        .vcs_stash_drop(Path::new(&root), &stash_ref, confirmed)
         .await
         .map_err(|e| e.to_string())
 }
@@ -2219,6 +2235,7 @@ pub fn run() {
             git_has_uncommitted_changes,
             git_stash_push,
             git_stash_pop,
+            git_stash_drop,
             git_stash_list,
             app_version
         ])

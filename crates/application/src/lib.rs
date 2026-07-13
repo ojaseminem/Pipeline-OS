@@ -988,10 +988,21 @@ impl ApplicationService {
     pub async fn vcs_stash_pop(
         &self,
         root: &Path,
+        stash_ref: Option<&str>,
         confirmed: bool,
     ) -> Result<VcsOperationResult, ApplicationError> {
         require_confirmation("Restoring stashed changes", confirmed)?;
-        Ok(self.git.stash_pop(root).await?)
+        Ok(self.git.stash_pop(root, stash_ref).await?)
+    }
+
+    pub async fn vcs_stash_drop(
+        &self,
+        root: &Path,
+        stash_ref: &str,
+        confirmed: bool,
+    ) -> Result<VcsOperationResult, ApplicationError> {
+        require_confirmation("Deleting a stash", confirmed)?;
+        Ok(self.git.stash_drop(root, stash_ref).await?)
     }
 
     pub async fn vcs_stash_list(&self, root: &Path) -> Result<Vec<String>, ApplicationError> {

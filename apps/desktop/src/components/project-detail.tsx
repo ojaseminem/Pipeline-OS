@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowLeft, Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Cloud, Download, ExternalLink, FileCode2, FolderOpen, GitBranch, GitBranchPlus,
+  AlertTriangle, ArrowLeft, Archive, Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Cloud, Download, ExternalLink, FileCode2, Filter, FolderOpen, GitBranch, GitBranchPlus,
   GitCommitHorizontal, GitMerge, ListTodo, MoreHorizontal, Notebook, Pencil, Play, Plus, RefreshCw, Rocket, Search, Trash2, Upload, UploadCloud,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { toast } from "sonner";
@@ -137,6 +137,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   const [refLabel, setRefLabel] = useState("");
   const [refUrl, setRefUrl] = useState("");
   const [commit, setCommit] = useState("");
+  const [changesFilter, setChangesFilter] = useState("");
 
   // Git-shared workspace (notes/global to-dos/references) lives in
   // .pipelineos/workspace.json so it travels with the repo. Load on mount; in
@@ -359,6 +360,45 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
       : `Discard all local changes to "${file.path}"? It will be reverted to the last commit — this can't be undone.`;
     if (!window.confirm(message)) return;
     void run("Discarding changes", async () => { await desktopApi.gitDiscard(project.path, file.path, true); if (diffPath === file.path) setDiffPath(null); await refreshGit(); });
+  }
+  function discardAllChanges() {
+    const files = git.data?.changedFiles ?? [];
+    if (!files.length) return;
+    const untracked = files.filter((file) => file.status === "untracked").length;
+    const note = untracked ? ` ${untracked} untracked file(s) will be deleted from disk.` : "";
+    if (!window.confirm(`Discard all local changes (${files.length} file(s))?${note} This can't be undone.`)) return;
+    void run("Discarding all changes", async () => {
+      for (const file of files) await desktopApi.gitDiscard(project.path, file.path, true);
+      setMarked(new Set());
+      setDiffPath(null);
+      await refreshGit();
+    });
+  }
+  function stashAllChanges() {
+    const count = git.data?.changedFiles.length ?? 0;
+    if (!count) return;
+    const input = window.prompt(`Stash all ${count} change(s)? Optionally add a message:`, "");
+    if (input === null) return;
+    const message = input.trim() || `WIP on ${git.data?.branch ?? "branch"}`;
+    void run("Stashing changes", async () => {
+      await desktopApi.gitStashPush(project.path, message, true);
+      setMarked(new Set());
+      setDiffPath(null);
+      await refreshGit();
+    });
+  }
+  function restoreStash(stashRef: string) {
+    if (!window.confirm(`Restore "${stashRef}"? It will be applied to your working tree and removed from the stash list.`)) return;
+    void run("Restoring stash", async () => { await desktopApi.gitStashPop(project.path, true, stashRef); await refreshGit(); });
+  }
+  function dropStash(stashRef: string) {
+    if (!window.confirm(`Delete stash "${stashRef}"? This can't be undone.`)) return;
+    void run("Deleting stash", async () => { await desktopApi.gitStashDrop(project.path, stashRef, true); await refreshGit(); });
+  }
+  function parseStashEntry(raw: string): { ref: string; message: string } {
+    const separator = raw.indexOf("\u001f");
+    if (separator === -1) return { ref: raw, message: raw };
+    return { ref: raw.slice(0, separator), message: raw.slice(separator + 1) };
   }
   function fileActions(path: string) {
     const abs = `${project.path}/${path}`;
@@ -826,39 +866,91 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                     ) : <p className="text-xs text-muted-foreground">All conflicts resolved — complete the merge to finish.</p>}
                   </div>
                 ) : null}
-                <div className="flex items-center gap-3 border-t border-border px-4 py-1.5 text-sm">
-                  <button onClick={() => setSourceView("changes")} className={sourceView === "changes" ? "font-medium" : "text-muted-foreground hover:text-foreground"}>Changes{git.data ? ` (${git.data.changedFiles.length})` : ""}</button>
-                  <button onClick={() => setSourceView("history")} className={sourceView === "history" ? "font-medium" : "text-muted-foreground hover:text-foreground"}>History</button>
+                <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2">
+                  <div className="flex items-center gap-3 text-sm">
+                    <button onClick={() => setSourceView("changes")} className={`flex items-center gap-1.5 ${sourceView === "changes" ? "font-semibold" : "text-muted-foreground hover:text-foreground"}`}>
+                      Changes
+                      {git.data ? <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary px-1.5 text-[11px] font-medium text-muted-foreground">{git.data.changedFiles.length}</span> : null}
+                    </button>
+                    <button onClick={() => setSourceView("history")} className={sourceView === "history" ? "font-semibold" : "text-muted-foreground hover:text-foreground"}>History</button>
+                  </div>
+                  {sourceView === "changes" ? (
+                    <div className="flex shrink-0 items-center gap-1">
+                      {stashes.data && stashes.data.length ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" disabled={!native || gitBusy}><Archive size={13} /> Stashes <span className="rounded-full bg-secondary px-1.5 text-[10px]">{stashes.data.length}</span></Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-72">
+                            <DropdownMenuLabel>Stashed changes</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {stashes.data.map((raw) => {
+                              const { ref, message } = parseStashEntry(raw);
+                              return (
+                                <div key={ref} className="flex items-center gap-1.5 px-2 py-1.5">
+                                  <span className="min-w-0 flex-1 truncate text-sm" title={message}>{message}</span>
+                                  <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native || gitBusy} onClick={() => restoreStash(ref)}>Restore</Button>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" aria-label={`Delete stash ${message}`} disabled={!native || gitBusy} onClick={() => dropStash(ref)}><Trash2 size={13} /></Button>
+                                </div>
+                              );
+                            })}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="More change actions" disabled={!native || gitBusy || !git.data?.changedFiles.length}><MoreHorizontal size={14} /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={stashAllChanges}><Archive size={14} /> Stash all changes</DropdownMenuItem>
+                          <DropdownMenuItem variant="destructive" onClick={discardAllChanges}><Trash2 size={14} /> Discard all changes…</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  ) : null}
                 </div>
                 {sourceView === "changes" ? (
                   <>
+                    <div className="flex items-center gap-1.5 border-t border-border px-3 py-1.5">
+                      <Filter size={13} className="shrink-0 text-muted-foreground" />
+                      <Input aria-label="Filter changed files" placeholder="Filter" value={changesFilter} onChange={(e) => setChangesFilter(e.target.value)} className="h-7 border-none bg-transparent px-1 text-sm shadow-none focus-visible:ring-0" />
+                    </div>
                     {marked.size > 0 ? <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1.5 text-sm">
                       <span className="text-muted-foreground">{marked.size} selected</span>
                       <span className="flex items-center gap-1"><Button variant="ghost" size="sm" className="h-7" onClick={() => setMarked(new Set())}>Clear</Button><Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={!native} onClick={discardMarked}><Trash2 size={14} /> Discard selected</Button></span>
                     </div> : null}
                     <div className="flex-1 overflow-y-auto">
-                      {git.data && git.data.changedFiles.length ? git.data.changedFiles.map((file, index) => {
-                        const info = statusLabel(file.status);
-                        return (
-                          <div key={file.path} className={`flex items-center gap-2 border-t border-border px-3 py-1.5 text-sm ${marked.has(file.path) ? "bg-primary/10" : diffPath === file.path ? "bg-muted/50" : ""}`}>
-                            <input type="checkbox" aria-label={`Include ${file.path}`} checked={selected.has(file.path)} onChange={() => toggleSelected(file.path)} className="size-4 accent-[var(--primary)]" />
-                            <button className="flex min-w-0 flex-1 items-center gap-2 text-left" title="Click to view diff · Ctrl/⌘ or Shift-click to select multiple" onClick={(event) => selectFile(index, file.path, event)}><FileCode2 size={14} className="shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate">{file.path}</span></button>
-                            <Badge variant="outline" className="shrink-0 text-[10px]" title={info.title}>{info.label}</Badge>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" aria-label={`Actions for ${file.path}`}><MoreHorizontal size={15} /></Button></DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-56">
-                                <DropdownMenuItem onClick={() => setDiffPath(file.path)}><FileCode2 size={14} /> View diff</DropdownMenuItem>
-                                <DropdownMenuItem disabled={!native} onClick={() => void run("Opening file", () => desktopApi.openPath(fileActions(file.path).abs))}><ExternalLink size={14} /> Open file</DropdownMenuItem>
-                                <DropdownMenuItem disabled={!native} onClick={() => { const dir = fileActions(file.path).dir; if (dir) void run("Opening folder", () => desktopApi.openPath(dir)); }}><FolderOpen size={14} /> Open containing folder</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => { void navigator.clipboard?.writeText(file.path); toast.success("Path copied."); }}><Copy size={14} /> Copy relative path</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => { void navigator.clipboard?.writeText(fileActions(file.path).abs); toast.success("Path copied."); }}><Copy size={14} /> Copy full path</DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem variant="destructive" disabled={!native} onClick={() => discardFile(file)}><Trash2 size={14} /> Discard changes</DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        );
-                      }) : <div className="border-t border-border px-4 py-8 text-center text-sm text-muted-foreground">No local changes — working tree clean.</div>}
+                      {(() => {
+                        const filtered = (git.data?.changedFiles ?? [])
+                          .map((file, index) => ({ file, index }))
+                          .filter(({ file }) => file.path.toLowerCase().includes(changesFilter.toLowerCase()));
+                        if (!git.data) return null;
+                        if (!filtered.length) {
+                          return <div className="border-t border-border px-4 py-8 text-center text-sm text-muted-foreground">{changesFilter ? "No changes match your filter." : "No local changes — working tree clean."}</div>;
+                        }
+                        return filtered.map(({ file, index }) => {
+                          const info = statusLabel(file.status);
+                          return (
+                            <div key={file.path} className={`flex items-center gap-2 border-t border-border px-3 py-1.5 text-sm ${marked.has(file.path) ? "bg-primary/10" : diffPath === file.path ? "bg-muted/50" : ""}`}>
+                              <input type="checkbox" aria-label={`Include ${file.path}`} checked={selected.has(file.path)} onChange={() => toggleSelected(file.path)} className="size-4 accent-[var(--primary)]" />
+                              <button className="flex min-w-0 flex-1 items-center gap-2 text-left" title="Click to view diff · Ctrl/⌘ or Shift-click to select multiple" onClick={(event) => selectFile(index, file.path, event)}><FileCode2 size={14} className="shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate">{file.path}</span></button>
+                              <Badge variant="outline" className="shrink-0 text-[10px]" title={info.title}>{info.label}</Badge>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" aria-label={`Actions for ${file.path}`}><MoreHorizontal size={15} /></Button></DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-56">
+                                  <DropdownMenuItem onClick={() => setDiffPath(file.path)}><FileCode2 size={14} /> View diff</DropdownMenuItem>
+                                  <DropdownMenuItem disabled={!native} onClick={() => void run("Opening file", () => desktopApi.openPath(fileActions(file.path).abs))}><ExternalLink size={14} /> Open file</DropdownMenuItem>
+                                  <DropdownMenuItem disabled={!native} onClick={() => { const dir = fileActions(file.path).dir; if (dir) void run("Opening folder", () => desktopApi.openPath(dir)); }}><FolderOpen size={14} /> Open containing folder</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { void navigator.clipboard?.writeText(file.path); toast.success("Path copied."); }}><Copy size={14} /> Copy relative path</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { void navigator.clipboard?.writeText(fileActions(file.path).abs); toast.success("Path copied."); }}><Copy size={14} /> Copy full path</DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem variant="destructive" disabled={!native} onClick={() => discardFile(file)}><Trash2 size={14} /> Discard changes</DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                     <div className="space-y-2 border-t border-border p-3">
                       <Input aria-label="Commit message" placeholder="Summary of changes" value={commit} onChange={(e) => setCommit(e.target.value)} />

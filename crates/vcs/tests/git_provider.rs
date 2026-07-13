@@ -441,3 +441,62 @@ async fn pull_merges_cleanly_when_fast_forwardable() {
     assert!(matches!(outcome, MergeOutcome::Merged { .. }));
     assert!(root.path().join("other.txt").is_file());
 }
+
+#[tokio::test]
+async fn stash_pop_targets_a_specific_entry_by_ref() {
+    let root = repository();
+    let provider = GitProvider::new("git");
+
+    fs::write(root.path().join("tracked.txt"), "first change\n").expect("first edit");
+    provider
+        .stash_push(root.path(), "first")
+        .await
+        .expect("stash first");
+    fs::write(root.path().join("tracked.txt"), "second change\n").expect("second edit");
+    provider
+        .stash_push(root.path(), "second")
+        .await
+        .expect("stash second");
+
+    let entries = provider.stash_list(root.path()).await.expect("stash list");
+    assert_eq!(entries.len(), 2);
+    // Newest first: stash@{0} is "second", stash@{1} is "first".
+    let oldest_ref = entries[1].split('\u{1f}').next().expect("stash ref field");
+
+    provider
+        .stash_pop(root.path(), Some(oldest_ref))
+        .await
+        .expect("pop the older stash by ref");
+
+    let content = fs::read_to_string(root.path().join("tracked.txt")).expect("tracked contents");
+    // Compare with normalized line endings — Windows git (core.autocrlf) may
+    // check the file out with CRLF regardless of what we wrote.
+    assert_eq!(content.replace("\r\n", "\n"), "first change\n");
+    let remaining = provider.stash_list(root.path()).await.expect("stash list");
+    assert_eq!(remaining.len(), 1);
+}
+
+#[tokio::test]
+async fn stash_drop_deletes_without_applying() {
+    let root = repository();
+    let provider = GitProvider::new("git");
+
+    fs::write(root.path().join("tracked.txt"), "throwaway\n").expect("edit");
+    provider
+        .stash_push(root.path(), "throwaway")
+        .await
+        .expect("stash");
+    let entries = provider.stash_list(root.path()).await.expect("stash list");
+    assert_eq!(entries.len(), 1);
+    let stash_ref = entries[0].split('\u{1f}').next().expect("stash ref field");
+
+    provider
+        .stash_drop(root.path(), stash_ref)
+        .await
+        .expect("drop stash");
+
+    let content = fs::read_to_string(root.path().join("tracked.txt")).expect("tracked contents");
+    assert_eq!(content.replace("\r\n", "\n"), "initial\n");
+    let remaining = provider.stash_list(root.path()).await.expect("stash list");
+    assert!(remaining.is_empty());
+}
