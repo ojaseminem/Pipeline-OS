@@ -162,7 +162,7 @@ jobs:
         # including the updater .zip/.sig artifacts added above.
         shell: bash
         run: (cd release-assets && find . -maxdepth 1 -type f -printf '%f\0' | sort -z | xargs -0 sha256sum) > SHA256SUMS.txt
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Keyless-sign artifacts and release evidence
         # Signs every published file and logs each signature to the public
         # Rekor transparency log (independently verifiable with `cosign
