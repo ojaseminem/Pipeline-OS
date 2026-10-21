@@ -47,7 +47,7 @@ real path on your machine.
 | `vcs_status` | Branch, ahead/behind, changed files | yes |
 | `list_apps` | Detected engine/DCC/IDE installations | yes |
 | `list_tasks` | Pipeline tasks | yes |
-| `run_task` | Run a task; returns status, exit code, last 200 log lines | no |
+| `run_task` | Run a task; returns status, exit code, last 200 log lines. Only for task files you have trusted on this machine | no |
 | `list_issues` | Board issues (one project, or open issues everywhere) | yes |
 | `create_issue` / `update_issue` | Track work on the shared board | no |
 | `sync_issues` | Pull issues from the project's connected tracker | no |
@@ -88,8 +88,17 @@ vantadeck assets list D:/Projects/Voidline --limit 50
 vantadeck context D:/Projects/Voidline --write
 ```
 
-Mutating commands (`tasks run`, VCS sync/commit/push, `assets apply-layout`)
-require `--yes`.
+Mutating commands (`tasks run`, `tasks trust`, VCS sync/commit/push,
+`assets apply-layout`) require `--yes`.
+
+### Task trust
+
+`.pipelineos/tasks.toml` is code from whoever committed it. Agents can only
+run tasks whose exact file content you have reviewed: trust it in the app
+(project → Pipeline → Review & trust) or with
+`vantadeck tasks trust <path> --yes`, which prints every command first. Any
+later change to the file (for example after a pull) revokes trust until you
+review it again.
 
 ## Project files
 

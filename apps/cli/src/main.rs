@@ -2,7 +2,7 @@ use std::{env, path::PathBuf, process::ExitCode};
 
 use clap::Parser;
 use directories::BaseDirs;
-use vantadeck::{Cli, Command, execute, mcp};
+use vantadeck::{Cli, Command, execute, mcp, set_data_dir};
 use vantadeck_application::ApplicationService;
 use vantadeck_domain::CliEnvelope;
 use vantadeck_storage::Storage;
@@ -57,6 +57,9 @@ async fn open_service(channel: &str) -> Result<ApplicationService, Box<dyn std::
         let base = BaseDirs::new().ok_or("operating-system data directory is unavailable")?;
         base.data_dir().join(identifier).join("vantadeck.sqlite3")
     };
+    if let Some(dir) = database_path.parent() {
+        set_data_dir(dir.to_path_buf());
+    }
 
     let storage = Storage::connect_path(&database_path).await?;
     Ok(ApplicationService::new(storage, GitProvider::new("git")))

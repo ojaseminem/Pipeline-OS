@@ -194,7 +194,7 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "run_task",
             "Run pipeline task",
-            "Runs a project task to completion and returns status, exit code, duration, and the last 200 log lines. Long engine builds can take many minutes.",
+            "Runs a project task to completion and returns status, exit code, duration, and the last 200 log lines. Only works for tasks the user has trusted on this machine. Long engine builds can take many minutes.",
             json!({ "path": path_schema(), "task_id": { "type": "string" } }),
             &["path", "task_id"],
             false,
@@ -343,6 +343,14 @@ async fn call_tool(
         "run_task" => {
             let path = path_arg(args)?;
             let task_id = str_arg(args, "task_id").ok_or("missing required argument `task_id`")?;
+            // Agents may only run task files the user has reviewed: shared
+            // tasks.toml content is code from whoever committed it.
+            if !crate::trust_store().is_some_and(|store| store.is_trusted(&path)) {
+                return Err(format!(
+                    "This project's tasks haven't been trusted on this machine. Ask the user to review them in Pipeline OS (project > Pipeline > Review & trust) or run `vantadeck tasks trust \"{}\" --yes`.",
+                    path.display()
+                ));
+            }
             let (_, resolved) = service
                 .resolve_project_task(&path, task_id)
                 .await

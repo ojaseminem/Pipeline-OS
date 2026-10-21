@@ -18,14 +18,13 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use vantadeck_studio::{
     assets::{self, AssetIndex, AssetMeta, FolderLayout, LayoutResult},
     issues::{self, Issue, NewIssue},
-    tasks::{self, LogTail, OutputStream, RunStatus, TaskDefinition},
+    tasks::{self, LogTail, OutputStream, RunStatus, TaskDefinition, TrustStore},
     trackers::{self, SyncSummary, TrackerConfig},
 };
 
 use crate::DesktopState;
 
 const RUN_HISTORY_FILE: &str = "task-runs.json";
-const TRUST_FILE: &str = "trusted-tasks.json";
 const MAX_HISTORY: usize = 60;
 const LOG_LINES: usize = 2_000;
 
@@ -53,7 +52,7 @@ pub struct StudioState {
     runs: Mutex<Vec<TaskRun>>,
     logs: Mutex<BTreeMap<String, LogTail>>,
     cancels: Mutex<BTreeMap<String, Arc<AtomicBool>>>,
-    trusted: Mutex<BTreeMap<String, String>>,
+    trusted: Mutex<TrustStore>,
     data_dir: Mutex<Option<PathBuf>>,
 }
 
@@ -72,12 +71,9 @@ impl StudioState {
                     Some("Interrupted: Pipeline OS was closed while this task was running.".into());
             }
         }
-        let trusted = read(TRUST_FILE)
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default();
         Self {
             runs: Mutex::new(runs),
-            trusted: Mutex::new(trusted),
+            trusted: Mutex::new(TrustStore::load(data_dir)),
             data_dir: Mutex::new(Some(data_dir.to_path_buf())),
             ..Default::default()
         }
@@ -91,17 +87,6 @@ impl StudioState {
         if let Ok(json) = serde_json::to_string(&runs) {
             let _ = std::fs::create_dir_all(&dir);
             let _ = std::fs::write(dir.join(RUN_HISTORY_FILE), json);
-        }
-    }
-
-    fn persist_trust(&self) {
-        let Some(dir) = self.data_dir.lock().unwrap().clone() else {
-            return;
-        };
-        let trusted = self.trusted.lock().unwrap().clone();
-        if let Ok(json) = serde_json::to_string_pretty(&trusted) {
-            let _ = std::fs::create_dir_all(&dir);
-            let _ = std::fs::write(dir.join(TRUST_FILE), json);
         }
     }
 
@@ -145,9 +130,7 @@ pub async fn tasks_list(
     let root = root(&path);
     let tasks = tasks::load_tasks(&root).map_err(err)?;
     let fingerprint = tasks::tasks_fingerprint(&root);
-    let trusted = fingerprint
-        .as_ref()
-        .is_some_and(|fp| studio.trusted.lock().unwrap().get(&path) == Some(fp));
+    let trusted = studio.trusted.lock().unwrap().is_trusted(&root);
     Ok(ProjectTasks {
         tasks,
         fingerprint,
@@ -171,8 +154,12 @@ pub async fn tasks_save(
     let root = root(&path);
     tasks::save_tasks(&root, &tasks).map_err(err)?;
     if let Some(fingerprint) = tasks::tasks_fingerprint(&root) {
-        studio.trusted.lock().unwrap().insert(path, fingerprint);
-        studio.persist_trust();
+        studio
+            .trusted
+            .lock()
+            .unwrap()
+            .trust(&root, &fingerprint)
+            .map_err(err)?;
     }
     Ok(())
 }
@@ -184,12 +171,12 @@ pub async fn tasks_trust(
     fingerprint: String,
     studio: State<'_, StudioState>,
 ) -> Result<(), String> {
-    if tasks::tasks_fingerprint(&root(&path)).as_deref() != Some(fingerprint.as_str()) {
-        return Err("The tasks file changed while you were reviewing it. Review it again.".into());
-    }
-    studio.trusted.lock().unwrap().insert(path, fingerprint);
-    studio.persist_trust();
-    Ok(())
+    studio
+        .trusted
+        .lock()
+        .unwrap()
+        .trust(&root(&path), &fingerprint)
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -230,11 +217,7 @@ pub async fn task_run(
     studio: State<'_, StudioState>,
 ) -> Result<TaskRun, String> {
     let project_root = root(&path);
-    let fingerprint = tasks::tasks_fingerprint(&project_root);
-    let trusted = fingerprint
-        .as_ref()
-        .is_some_and(|fp| studio.trusted.lock().unwrap().get(&path) == Some(fp));
-    if !trusted {
+    if !studio.trusted.lock().unwrap().is_trusted(&project_root) {
         return Err(
             "TASKS_UNTRUSTED: review and trust this project's tasks before running them.".into(),
         );
@@ -244,6 +227,10 @@ pub async fn task_run(
         .resolve_project_task(&project_root, &task_id)
         .await
         .map_err(err)?;
+    // The file could have changed between the trust check and resolving it.
+    if !studio.trusted.lock().unwrap().is_trusted(&project_root) {
+        return Err("TASKS_UNTRUSTED: the tasks file just changed; review it again.".into());
+    }
     let project_name = vantadeck_projects::load_project(&project_root)
         .map(|config| config.name)
         .unwrap_or_else(|_| path.clone());
@@ -276,6 +263,13 @@ pub async fn task_run(
             finished += 1;
             finished <= MAX_HISTORY
         });
+        // Drop captured output for runs that fell out of the history.
+        let kept: std::collections::BTreeSet<&str> = runs.iter().map(|r| r.id.as_str()).collect();
+        studio
+            .logs
+            .lock()
+            .unwrap()
+            .retain(|id, _| kept.contains(id.as_str()));
     }
     studio
         .cancels

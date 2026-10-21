@@ -228,3 +228,41 @@ async fn mcp_session_lists_tools_and_drives_issues() {
     let unknown = rpc(&service, 8, "resources/list", json!({})).await;
     assert_eq!(unknown["error"]["code"], -32601);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn mcp_only_runs_trusted_tasks() {
+    let data = tempfile::tempdir().expect("data dir");
+    vantadeck::set_data_dir(data.path().to_path_buf());
+    let root = tempfile::tempdir().expect("root");
+    let path = root.path().to_str().expect("utf8");
+    let service = service().await;
+    run(&service, &["project", "import", path]).await;
+    let task = |program: &str| vantadeck_studio::tasks::TaskDefinition {
+        id: "hello".into(),
+        name: "Hello".into(),
+        kind: Default::default(),
+        description: None,
+        program: program.into(),
+        args: vec!["-c".into(), "echo hi".into()],
+        cwd: None,
+        env: Default::default(),
+    };
+    vantadeck_studio::tasks::save_tasks(root.path(), &[task("sh")]).expect("save tasks");
+    let call = json!({ "name": "run_task", "arguments": { "path": path, "task_id": "hello" } });
+
+    let refused = rpc(&service, 1, "tools/call", call.clone()).await;
+    assert_eq!(refused["result"]["isError"], true);
+    assert!(refused["result"]["content"][0]["text"].as_str().expect("text").contains("trust"));
+
+    let trusted = run(&service, &["tasks", "trust", path, "--yes"]).await;
+    assert!(trusted["trusted"][0]["commandLine"].as_str().expect("line").starts_with("sh"));
+    let ran = rpc(&service, 2, "tools/call", call.clone()).await;
+    assert_eq!(ran["result"]["isError"], false, "{ran}");
+    assert_eq!(ran["result"]["structuredContent"]["outcome"]["status"], "succeeded");
+
+    // Any change to the commands revokes trust.
+    vantadeck_studio::tasks::save_tasks(root.path(), &[task("bash")]).expect("save tasks");
+    let again = rpc(&service, 3, "tools/call", call).await;
+    assert_eq!(again["result"]["isError"], true);
+}

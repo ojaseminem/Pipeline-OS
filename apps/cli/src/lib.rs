@@ -1,5 +1,18 @@
 pub mod mcp;
 
+/// The app data folder shared with the desktop app (trust decisions live
+/// there). Set once at startup by the binary.
+static DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub fn set_data_dir(dir: PathBuf) {
+    let _ = DATA_DIR.set(dir);
+}
+
+/// Task trust as recorded by the desktop app (or `tasks trust`).
+pub fn trust_store() -> Option<tasks::TrustStore> {
+    DATA_DIR.get().map(|dir| tasks::TrustStore::load(dir))
+}
+
 use std::{
     fs, io,
     path::PathBuf,
@@ -102,6 +115,13 @@ pub enum TasksCommand {
     Run {
         path: PathBuf,
         id: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Review the project's task commands and trust them on this machine, so
+    /// AI agents (MCP) may run them. Prints every command line.
+    Trust {
+        path: PathBuf,
         #[arg(long)]
         yes: bool,
     },
@@ -707,6 +727,36 @@ async fn execute_tasks(
                 COMMAND,
                 serde_json::json!({ "task": task, "resolved": resolved, "commandLine": resolved.display() }),
             )
+        }
+        TasksCommand::Trust { path, yes } => {
+            const COMMAND: &str = "tasks.trust";
+            let definitions = tasks::load_tasks(&path).map_err(studio(COMMAND))?;
+            let mut plans = Vec::new();
+            for task in &definitions {
+                let line = match service.resolve_project_task(&path, &task.id).await {
+                    Ok((_, resolved)) => resolved.display(),
+                    Err(_) => std::iter::once(task.program.clone())
+                        .chain(task.args.clone())
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                };
+                if !json {
+                    println!("{}: {line}", task.id);
+                }
+                plans.push(serde_json::json!({ "id": task.id, "commandLine": line }));
+            }
+            require_confirmation(COMMAND, yes)?;
+            let fingerprint =
+                tasks::tasks_fingerprint(&path).ok_or_else(|| CliExecutionError::Usage {
+                    command: COMMAND,
+                    message: "this project has no .pipelineos/tasks.toml".into(),
+                })?;
+            let mut store = trust_store().ok_or_else(|| CliExecutionError::Usage {
+                command: COMMAND,
+                message: "the app data folder is unavailable".into(),
+            })?;
+            store.trust(&path, &fingerprint).map_err(studio(COMMAND))?;
+            success(COMMAND, serde_json::json!({ "trusted": plans }))
         }
         TasksCommand::Run { path, id, yes } => {
             const COMMAND: &str = "tasks.run";

@@ -146,6 +146,67 @@ pub fn tasks_fingerprint(root: &Path) -> Option<String> {
     Some(digest.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// Per-machine record of which projects' task files the user has reviewed,
+/// keyed by project path and pinned to the file's content fingerprint. Stored
+/// in the app data folder (never in the project) and shared by the desktop
+/// app, the CLI, and the MCP server.
+#[derive(Debug, Default)]
+pub struct TrustStore {
+    path: Option<PathBuf>,
+    entries: BTreeMap<String, String>,
+}
+
+pub const TRUST_FILE: &str = "trusted-tasks.json";
+
+impl TrustStore {
+    pub fn load(data_dir: &Path) -> Self {
+        let path = data_dir.join(TRUST_FILE);
+        let entries = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default();
+        Self {
+            path: Some(path),
+            entries,
+        }
+    }
+
+    /// Whether the project's *current* tasks file is trusted.
+    pub fn is_trusted(&self, root: &Path) -> bool {
+        tasks_fingerprint(root).is_some_and(|fp| self.entries.get(&trust_key(root)) == Some(&fp))
+    }
+
+    /// Trusts `fingerprint` for the project. Fails when the file no longer
+    /// matches what the user reviewed.
+    pub fn trust(&mut self, root: &Path, fingerprint: &str) -> Result<(), StudioError> {
+        if tasks_fingerprint(root).as_deref() != Some(fingerprint) {
+            return Err(StudioError::Invalid(
+                "the tasks file changed while it was being reviewed; review it again".into(),
+            ));
+        }
+        self.entries.insert(trust_key(root), fingerprint.to_owned());
+        self.save()
+    }
+
+    fn save(&self) -> Result<(), StudioError> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let json = serde_json::to_string_pretty(&self.entries)
+            .map_err(|e| StudioError::Invalid(e.to_string()))?;
+        write_atomic(path, &json)
+    }
+}
+
+/// Normalized trust key so `D:\Game` and `D:/Game/` match.
+fn trust_key(root: &Path) -> String {
+    root.display()
+        .to_string()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_owned()
+}
+
 /// Ready-made tasks for common engines and DCCs, offered when adding a task.
 pub fn task_templates() -> Vec<TaskDefinition> {
     let task = |id: &str, name: &str, kind, description: &str, program: &str, args: &[&str]| {
@@ -619,6 +680,26 @@ mod tests {
         let no_engine = TaskVariables::for_project(root, "Game", None);
         let error = resolve_task(root, &sample("a"), &no_engine).unwrap_err();
         assert!(error.to_string().contains("engine"), "{error}");
+    }
+
+    #[test]
+    fn trust_is_pinned_to_content_and_persisted() {
+        let project = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        save_tasks(project.path(), &[sample("a")]).unwrap();
+        let mut store = TrustStore::load(data.path());
+        assert!(!store.is_trusted(project.path()));
+        assert!(store.trust(project.path(), "stale").is_err());
+        let fp = tasks_fingerprint(project.path()).unwrap();
+        store.trust(project.path(), &fp).unwrap();
+        assert!(TrustStore::load(data.path()).is_trusted(project.path()));
+        let mut changed = sample("a");
+        changed.program = "evil".into();
+        save_tasks(project.path(), &[changed]).unwrap();
+        assert!(
+            !TrustStore::load(data.path()).is_trusted(project.path()),
+            "edits revoke trust"
+        );
     }
 
     #[test]
