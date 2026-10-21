@@ -19,6 +19,7 @@ use vantadeck_studio::{
     assets::{self, AssetIndex, AssetMeta, FolderLayout, LayoutResult},
     issues::{self, Issue, NewIssue},
     tasks::{self, LogTail, OutputStream, RunStatus, TaskDefinition},
+    trackers::{self, SyncSummary, TrackerConfig},
 };
 
 use crate::DesktopState;
@@ -67,7 +68,8 @@ impl StudioState {
         for run in &mut runs {
             if matches!(run.status, RunStatus::Running | RunStatus::Queued) {
                 run.status = RunStatus::Cancelled;
-                run.last_line = Some("Interrupted: Pipeline OS was closed while this task was running.".into());
+                run.last_line =
+                    Some("Interrupted: Pipeline OS was closed while this task was running.".into());
             }
         }
         let trusted = read(TRUST_FILE)
@@ -82,7 +84,9 @@ impl StudioState {
     }
 
     fn persist_runs(&self) {
-        let Some(dir) = self.data_dir.lock().unwrap().clone() else { return };
+        let Some(dir) = self.data_dir.lock().unwrap().clone() else {
+            return;
+        };
         let runs = self.runs.lock().unwrap().clone();
         if let Ok(json) = serde_json::to_string(&runs) {
             let _ = std::fs::create_dir_all(&dir);
@@ -91,7 +95,9 @@ impl StudioState {
     }
 
     fn persist_trust(&self) {
-        let Some(dir) = self.data_dir.lock().unwrap().clone() else { return };
+        let Some(dir) = self.data_dir.lock().unwrap().clone() else {
+            return;
+        };
         let trusted = self.trusted.lock().unwrap().clone();
         if let Ok(json) = serde_json::to_string_pretty(&trusted) {
             let _ = std::fs::create_dir_all(&dir);
@@ -132,14 +138,21 @@ pub struct ProjectTasks {
 }
 
 #[tauri::command]
-pub async fn tasks_list(path: String, studio: State<'_, StudioState>) -> Result<ProjectTasks, String> {
+pub async fn tasks_list(
+    path: String,
+    studio: State<'_, StudioState>,
+) -> Result<ProjectTasks, String> {
     let root = root(&path);
     let tasks = tasks::load_tasks(&root).map_err(err)?;
     let fingerprint = tasks::tasks_fingerprint(&root);
     let trusted = fingerprint
         .as_ref()
         .is_some_and(|fp| studio.trusted.lock().unwrap().get(&path) == Some(fp));
-    Ok(ProjectTasks { tasks, fingerprint, trusted })
+    Ok(ProjectTasks {
+        tasks,
+        fingerprint,
+        trusted,
+    })
 }
 
 #[tauri::command]
@@ -166,7 +179,11 @@ pub async fn tasks_save(
 
 /// Records that the user reviewed this exact tasks file and allows it to run.
 #[tauri::command]
-pub async fn tasks_trust(path: String, fingerprint: String, studio: State<'_, StudioState>) -> Result<(), String> {
+pub async fn tasks_trust(
+    path: String,
+    fingerprint: String,
+    studio: State<'_, StudioState>,
+) -> Result<(), String> {
     if tasks::tasks_fingerprint(&root(&path)).as_deref() != Some(fingerprint.as_str()) {
         return Err("The tasks file changed while you were reviewing it. Review it again.".into());
     }
@@ -176,7 +193,11 @@ pub async fn tasks_trust(path: String, fingerprint: String, studio: State<'_, St
 }
 
 #[tauri::command]
-pub async fn task_plan(path: String, task_id: String, state: State<'_, DesktopState>) -> Result<String, String> {
+pub async fn task_plan(
+    path: String,
+    task_id: String,
+    state: State<'_, DesktopState>,
+) -> Result<String, String> {
     let (_, resolved) = state
         .service
         .resolve_project_task(&root(&path), &task_id)
@@ -214,7 +235,9 @@ pub async fn task_run(
         .as_ref()
         .is_some_and(|fp| studio.trusted.lock().unwrap().get(&path) == Some(fp));
     if !trusted {
-        return Err("TASKS_UNTRUSTED: review and trust this project's tasks before running them.".into());
+        return Err(
+            "TASKS_UNTRUSTED: review and trust this project's tasks before running them.".into(),
+        );
     }
     let (task, resolved) = state
         .service
@@ -254,7 +277,11 @@ pub async fn task_run(
             finished <= MAX_HISTORY
         });
     }
-    studio.cancels.lock().unwrap().insert(run.id.clone(), cancel.clone());
+    studio
+        .cancels
+        .lock()
+        .unwrap()
+        .insert(run.id.clone(), cancel.clone());
     studio
         .logs
         .lock()
@@ -285,7 +312,10 @@ pub async fn task_run(
             }
             let _ = handle.emit(
                 "task://lines",
-                TaskLines { run_id: run_id.clone(), lines: std::mem::take(pending) },
+                TaskLines {
+                    run_id: run_id.clone(),
+                    lines: std::mem::take(pending),
+                },
             );
         };
         let outcome = tasks::run_task(&resolved, cancel, |stream, text| {
@@ -295,7 +325,10 @@ pub async fn task_run(
             if let Some(log) = studio.logs.lock().unwrap().get_mut(&run_id) {
                 log.push(text);
             }
-            pending.push(TaskLine { stream, text: text.to_owned() });
+            pending.push(TaskLine {
+                stream,
+                text: text.to_owned(),
+            });
             // Batch output: engine builds can print thousands of lines a second.
             if last_flush.elapsed() >= Duration::from_millis(120) || pending.len() >= 500 {
                 flush(&mut pending, progress);
@@ -342,7 +375,10 @@ pub async fn task_cancel(run_id: String, studio: State<'_, StudioState>) -> Resu
 
 /// Recent and active runs, newest first (optionally for one project).
 #[tauri::command]
-pub async fn task_runs(path: Option<String>, studio: State<'_, StudioState>) -> Result<Vec<TaskRun>, String> {
+pub async fn task_runs(
+    path: Option<String>,
+    studio: State<'_, StudioState>,
+) -> Result<Vec<TaskRun>, String> {
     let runs = studio.runs.lock().unwrap();
     Ok(runs
         .iter()
@@ -353,7 +389,10 @@ pub async fn task_runs(path: Option<String>, studio: State<'_, StudioState>) -> 
 
 /// The captured output of a run in this session (most recent lines).
 #[tauri::command]
-pub async fn task_run_log(run_id: String, studio: State<'_, StudioState>) -> Result<Vec<String>, String> {
+pub async fn task_run_log(
+    run_id: String,
+    studio: State<'_, StudioState>,
+) -> Result<Vec<String>, String> {
     Ok(studio
         .logs
         .lock()
@@ -410,6 +449,110 @@ pub async fn issues_everywhere(
     state.service.open_issues_everywhere().await.map_err(err)
 }
 
+// ---------------------------------------------------------------- trackers
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackerState {
+    config: Option<TrackerConfig>,
+    has_token: bool,
+}
+
+#[tauri::command]
+pub async fn tracker_get(path: String) -> Result<TrackerState, String> {
+    let config = trackers::load_tracker(&root(&path)).map_err(err)?;
+    let has_token = config
+        .as_ref()
+        .is_some_and(|c| trackers::load_token(c).is_some());
+    Ok(TrackerState { config, has_token })
+}
+
+/// Saves (or, with `config: null`, removes) the project's tracker. A
+/// non-empty `token` is stored in the OS keychain, never in the project.
+#[tauri::command]
+pub async fn tracker_save(
+    path: String,
+    config: Option<TrackerConfig>,
+    token: Option<String>,
+) -> Result<(), String> {
+    trackers::save_tracker(&root(&path), config.as_ref()).map_err(err)?;
+    if let (Some(config), Some(token)) = (config.as_ref(), token.as_deref())
+        && !token.trim().is_empty()
+    {
+        trackers::store_token(config, token.trim()).map_err(err)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn tracker_sync(path: String) -> Result<SyncSummary, String> {
+    trackers::sync_tracker(&root(&path)).await.map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfHostResult {
+    compose_path: String,
+    docker_available: bool,
+    started: bool,
+    url: String,
+}
+
+/// Writes a Forgejo docker-compose file into `dir` and, when `start` is set
+/// and Docker is installed, starts it with `docker compose up -d`.
+#[tauri::command]
+pub async fn selfhost_forgejo(
+    dir: String,
+    port: Option<u16>,
+    start: bool,
+) -> Result<SelfHostResult, String> {
+    let dir = PathBuf::from(dir);
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let port = port.unwrap_or(3000);
+    let compose = dir.join("docker-compose.yml");
+    if compose.exists() {
+        return Err(format!(
+            "{} already exists; choose an empty folder.",
+            compose.display()
+        ));
+    }
+    std::fs::write(&compose, trackers::forgejo_compose(port, 2222)).map_err(err)?;
+    let docker_available = std::process::Command::new("docker")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    let mut started = false;
+    if start && docker_available {
+        let output = tauri::async_runtime::spawn_blocking({
+            let dir = dir.clone();
+            move || {
+                std::process::Command::new("docker")
+                    .args(["compose", "up", "-d"])
+                    .current_dir(dir)
+                    .output()
+            }
+        })
+        .await
+        .map_err(err)?
+        .map_err(err)?;
+        if !output.status.success() {
+            return Err(format!(
+                "docker compose failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        started = true;
+    }
+    Ok(SelfHostResult {
+        compose_path: compose.display().to_string(),
+        docker_available,
+        started,
+        url: format!("http://localhost:{port}"),
+    })
+}
+
 // ---------------------------------------------------------------- AI brief
 
 #[derive(Serialize)]
@@ -420,7 +563,11 @@ pub struct Brief {
 }
 
 #[tauri::command]
-pub async fn project_brief(path: String, write: bool, state: State<'_, DesktopState>) -> Result<Brief, String> {
+pub async fn project_brief(
+    path: String,
+    write: bool,
+    state: State<'_, DesktopState>,
+) -> Result<Brief, String> {
     let root = root(&path);
     let markdown = state.service.project_brief(&root).await.map_err(err)?;
     let written_to = if write {
@@ -433,7 +580,10 @@ pub async fn project_brief(path: String, write: bool, state: State<'_, DesktopSt
     } else {
         None
     };
-    Ok(Brief { markdown, written_to })
+    Ok(Brief {
+        markdown,
+        written_to,
+    })
 }
 
 // ---------------------------------------------------------------- assets
@@ -503,7 +653,11 @@ pub async fn open_terminal(path: String, agent: Option<String>) -> Result<(), St
 }
 
 #[cfg(windows)]
-fn spawn_terminal(root: &Path, program: Option<&str>, path_env: &std::ffi::OsStr) -> Result<(), String> {
+fn spawn_terminal(
+    root: &Path,
+    program: Option<&str>,
+    path_env: &std::ffi::OsStr,
+) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
@@ -524,11 +678,17 @@ fn spawn_terminal(root: &Path, program: Option<&str>, path_env: &std::ffi::OsStr
     if let Some(program) = program {
         ps.args(["-Command", program]);
     }
-    ps.spawn().map(|_| ()).map_err(|e| format!("Could not open a terminal: {e}"))
+    ps.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Could not open a terminal: {e}"))
 }
 
 #[cfg(target_os = "macos")]
-fn spawn_terminal(root: &Path, program: Option<&str>, _path_env: &std::ffi::OsStr) -> Result<(), String> {
+fn spawn_terminal(
+    root: &Path,
+    program: Option<&str>,
+    _path_env: &std::ffi::OsStr,
+) -> Result<(), String> {
     use std::process::Command;
     let script = match program {
         Some(program) => format!(
@@ -541,7 +701,12 @@ fn spawn_terminal(root: &Path, program: Option<&str>, _path_env: &std::ffi::OsSt
         ),
     };
     Command::new("osascript")
-        .args(["-e", &script, "-e", "tell application \"Terminal\" to activate"])
+        .args([
+            "-e",
+            &script,
+            "-e",
+            "tell application \"Terminal\" to activate",
+        ])
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("Could not open Terminal: {e}"))
@@ -553,7 +718,11 @@ fn shell_quote(value: &str) -> String {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn spawn_terminal(root: &Path, program: Option<&str>, path_env: &std::ffi::OsStr) -> Result<(), String> {
+fn spawn_terminal(
+    root: &Path,
+    program: Option<&str>,
+    path_env: &std::ffi::OsStr,
+) -> Result<(), String> {
     use std::process::Command;
     let mut last_error = String::from("no terminal emulator found");
     for terminal in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
@@ -576,7 +745,10 @@ fn spawn_terminal(root: &Path, program: Option<&str>, path_env: &std::ffi::OsStr
 // ---------------------------------------------------- CLI / MCP integration
 
 fn cli_dir() -> Option<PathBuf> {
-    std::env::current_exe().ok()?.parent().map(Path::to_path_buf)
+    std::env::current_exe()
+        .ok()?
+        .parent()
+        .map(Path::to_path_buf)
 }
 
 #[derive(Serialize)]
@@ -591,17 +763,29 @@ pub struct CliInfo {
 
 #[tauri::command]
 pub async fn cli_info(app: AppHandle) -> CliInfo {
-    let name = if cfg!(windows) { "vantadeck.exe" } else { "vantadeck" };
+    let name = if cfg!(windows) {
+        "vantadeck.exe"
+    } else {
+        "vantadeck"
+    };
     let cli_path = cli_dir()
         .map(|dir| dir.join(name))
         .filter(|path| path.is_file())
         .map(|path| path.display().to_string());
-    let channel = if app.config().identifier.ends_with(".dev") { "dev" } else { "stable" };
+    let channel = if app.config().identifier.ends_with(".dev") {
+        "dev"
+    } else {
+        "stable"
+    };
     let mut mcp_args = vec!["mcp".to_owned()];
     if channel == "dev" {
         mcp_args.insert(0, "--channel=dev".to_owned());
     }
-    CliInfo { cli_path, channel, mcp_args }
+    CliInfo {
+        cli_path,
+        channel,
+        mcp_args,
+    }
 }
 
 #[cfg(test)]
@@ -627,7 +811,11 @@ mod tests {
             exit_code: None,
             duration_ms: None,
         };
-        std::fs::write(dir.path().join(RUN_HISTORY_FILE), serde_json::to_string(&vec![run]).unwrap()).unwrap();
+        std::fs::write(
+            dir.path().join(RUN_HISTORY_FILE),
+            serde_json::to_string(&vec![run]).unwrap(),
+        )
+        .unwrap();
         let state = StudioState::load(dir.path());
         assert_eq!(state.runs.lock().unwrap()[0].status, RunStatus::Cancelled);
     }

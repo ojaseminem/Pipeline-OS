@@ -240,6 +240,14 @@ pub fn tool_definitions() -> Vec<Value> {
             false,
         ),
         tool(
+            "sync_issues",
+            "Sync issues from tracker",
+            "Pulls issues from the project's connected tracker (GitHub, Gitea/Forgejo, Jira, Linear, Plane, ClickUp) into the board.",
+            json!({ "path": path_schema() }),
+            &["path"],
+            false,
+        ),
+        tool(
             "list_assets",
             "List creative assets",
             "Concept art, references, source art, models, audio and video in the project (engine caches and git-ignored files excluded), newest first, with review status.",
@@ -419,6 +427,11 @@ async fn call_tool(
             }
             to_value(issues::update_issue(&path, issue).map_err(|e| err(&e))?)
         }
+        "sync_issues" => to_value(
+            vantadeck_studio::trackers::sync_tracker(&path_arg(args)?)
+                .await
+                .map_err(|e| err(&e))?,
+        ),
         "list_assets" => {
             let limit = args
                 .get("limit")

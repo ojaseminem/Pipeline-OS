@@ -15,6 +15,9 @@ import { cn } from "@/lib/utils";
 import { studioApi, studioAvailable, type Issue, type IssueKind, type IssuePriority, type IssueStatus } from "../bridge";
 import { confirmAction } from "../lib/confirm";
 import { EmptyState } from "./empty-state";
+import { TrackerButton } from "./tracker-dialog";
+import { ExternalLink } from "lucide-react";
+import { openExternal } from "../bridge";
 
 export function Avatar({ name }: { name?: string | null }) {
   if (!name) return null;
@@ -120,6 +123,7 @@ export function ProjectBoard({ projectPath }: { projectPath: string }) {
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
+        <TrackerButton projectPath={projectPath} />
         <Button size="sm" onClick={() => setEditing(blank("todo"))}><Plus size={14} /> New issue</Button>
       </div>
       {issuesQuery.data?.problems.length ? <p className="text-xs text-warning">{issuesQuery.data.problems.length} issue file(s) couldn't be read: {issuesQuery.data.problems[0]}</p> : null}
@@ -168,13 +172,14 @@ export function ProjectBoard({ projectPath }: { projectPath: string }) {
                             <DropdownMenuLabel>Move to</DropdownMenuLabel>
                             {STATUS_COLUMNS.filter((target) => target.id !== issue.status).map((target) => <DropdownMenuItem key={target.id} onClick={() => void move(issue, target.id)}>{target.label}</DropdownMenuItem>)}
                             <DropdownMenuSeparator />
+                            {issue.external?.url ? <DropdownMenuItem onClick={() => void openExternal(issue.external!.url!)}><ExternalLink size={14} /> Open in {issue.external.system}</DropdownMenuItem> : null}
                             <DropdownMenuItem onClick={() => { void navigator.clipboard?.writeText(`#${issue.id}`); toast.success(`Copied #${issue.id}. Mention it in commit messages.`); }}>Copy reference</DropdownMenuItem>
                             <DropdownMenuItem variant="destructive" onClick={() => void remove(issue)}><Trash2 size={14} /> Delete</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
                       <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="font-mono">#{issue.id}</span>
+                        {issue.external ? <span className="font-mono" title={`Synced from ${issue.external.system}`}>{issue.external.key}</span> : <span className="font-mono">#{issue.id}</span>}
                         {PriorityIcon ? <PriorityIcon size={13} className={priority.className} aria-label={`${priority.label} priority`} /> : null}
                         {(issue.labels ?? []).slice(0, 2).map((label) => <span key={label} className="rounded bg-secondary px-1.5 py-px">{label}</span>)}
                         <span className="ml-auto"><Avatar name={issue.assignee} /></span>

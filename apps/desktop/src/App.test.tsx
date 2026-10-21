@@ -187,6 +187,18 @@ describe("project workspace (demo backend)", () => {
     expect(await within(review).findByText("Fix lightmap seams")).toBeInTheDocument();
   });
 
+  it("connects a tracker and syncs its issues onto the board", async () => {
+    await openTab("Emberfall", "Board");
+    await userEvent.click(await screen.findByRole("button", { name: /Connect tracker/ }));
+    await userEvent.click(screen.getByRole("radio", { name: "Jira" }));
+    await userEvent.type(screen.getByPlaceholderText("https://studio.atlassian.net"), "https://studio.atlassian.net");
+    await userEvent.type(screen.getByPlaceholderText("VOID"), "VOID");
+    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await userEvent.click(await screen.findByRole("button", { name: /Sync Jira/ }));
+    expect(await screen.findByText("Ship demo build to publisher")).toBeInTheDocument();
+    expect(screen.getByText("VOID-142")).toBeInTheDocument();
+  });
+
   it("lists assets with review status and filters by type", async () => {
     await openTab("Northbreak", "Assets");
     expect(await screen.findByText("reactor_room_v4.png")).toBeInTheDocument();

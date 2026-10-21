@@ -50,6 +50,7 @@ real path on your machine.
 | `run_task` | Run a task; returns status, exit code, last 200 log lines | no |
 | `list_issues` | Board issues (one project, or open issues everywhere) | yes |
 | `create_issue` / `update_issue` | Track work on the shared board | no |
+| `sync_issues` | Pull issues from the project's connected tracker | no |
 | `list_assets` | Creative assets with review status | yes |
 | `open_in_engine` | Open the project in its pinned engine version | no |
 
@@ -81,6 +82,7 @@ vantadeck tasks plan D:/Projects/Voidline unity-build-win64   # show the exact c
 vantadeck tasks run  D:/Projects/Voidline unity-build-win64 --yes
 vantadeck issues add D:/Projects/Voidline --title "Fix jump" --kind bug --priority high
 vantadeck issues move D:/Projects/Voidline 3f9c1a done
+vantadeck issues sync D:/Projects/Voidline                    # pull from Jira/GitHub/Linear/…
 vantadeck --json issues list --all                            # open work everywhere
 vantadeck assets list D:/Projects/Voidline --limit 50
 vantadeck context D:/Projects/Voidline --write
@@ -97,6 +99,7 @@ require `--yes`.
 | `.pipelineos/tasks.toml` | yes | Pipeline tasks (argv, never shell strings) |
 | `.pipelineos/issues/<id>.toml` | yes | One file per issue |
 | `.pipelineos/assets.toml` | yes | Asset review status and notes |
+| `.pipelineos/tracker.toml` | yes | Connected issue tracker (no secrets) |
 | `.pipelineos/context.md` | your choice | Generated project brief |
 | `.pipelineos/local.json` | no (gitignored) | Personal, machine-local data |
 

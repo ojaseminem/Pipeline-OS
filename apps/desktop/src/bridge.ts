@@ -260,6 +260,11 @@ export type AssetEntry = { path: string; name: string; folder: string; kind: Ass
 export type AssetIndex = { assets: AssetEntry[]; truncated: boolean };
 export type FolderLayout = { id: string; name: string; description: string; folders: string[] };
 export type LayoutResult = { created: string[]; existing: string[] };
+export type TrackerKind = "github" | "gitea" | "jira" | "linear" | "plane" | "clickup";
+export type TrackerConfig = { kind: TrackerKind; baseUrl?: string | null; project: string; query?: string | null };
+export type TrackerState = { config: TrackerConfig | null; hasToken: boolean };
+export type SyncSummary = { created: number; updated: number; unchanged: number };
+export type SelfHostResult = { composePath: string; dockerAvailable: boolean; started: boolean; url: string };
 export type CliInfo = { cliPath: string | null; channel: "stable" | "dev"; mcpArgs: string[] };
 export type AgentId = "claude" | "codex" | "gemini" | "aider";
 
@@ -293,6 +298,10 @@ export const studioApi = {
   updateIssue: (path: string, issue: Issue) => studioCall<Issue>("issue_update", { path, issue }),
   deleteIssue: (path: string, id: string) => studioCall<void>("issue_delete", { path, id }),
   issuesEverywhere: () => studioCall<ProjectIssue[]>("issues_everywhere"),
+  tracker: (path: string) => studioCall<TrackerState>("tracker_get", { path }),
+  saveTracker: (path: string, config: TrackerConfig | null, token?: string) => studioCall<void>("tracker_save", { path, config, token: token ?? null }),
+  syncTracker: (path: string) => studioCall<SyncSummary>("tracker_sync", { path }),
+  selfHostForgejo: (dir: string, port: number | null, start: boolean) => studioCall<SelfHostResult>("selfhost_forgejo", { dir, port, start }),
   brief: (path: string, write = false) => studioCall<{ markdown: string; writtenTo: string | null }>("project_brief", { path, write }),
   layouts: () => studioCall<FolderLayout[]>("asset_layouts"),
   applyLayout: (path: string, layout: string) => studioCall<LayoutResult>("asset_apply_layout", { path, layout }),

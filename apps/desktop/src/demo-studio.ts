@@ -1,7 +1,7 @@
 // In-memory stand-in for the studio commands, used only in the browser demo
 // (?demo=true) so tasks, the board, assets, and AI screens are explorable and
 // testable without the desktop runtime. Mirrors the Rust command contracts.
-import type { AssetEntry, AssetMeta, FolderLayout, Issue, NewIssue, TaskDefinition, TaskLineBatch, TaskRun } from "./bridge";
+import type { AssetEntry, AssetMeta, FolderLayout, Issue, NewIssue, TaskDefinition, TaskLineBatch, TaskRun, TrackerConfig } from "./bridge";
 
 const iso = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60_000).toISOString().replace(/\.\d+Z$/, "Z");
 
@@ -20,7 +20,7 @@ const layouts: FolderLayout[] = [
   { id: "film-vfx", name: "Film / VFX / Animation", description: "Asset- and shot-based structure.", folders: ["editorial", "reference", "concept", "assets", "shots", "renders", "comp", "delivery"] },
 ];
 
-type ProjectStore = { tasks: TaskDefinition[]; trusted: boolean; issues: Issue[]; assets: AssetEntry[] };
+type ProjectStore = { tasks: TaskDefinition[]; trusted: boolean; issues: Issue[]; assets: AssetEntry[]; tracker: TrackerConfig | null; hasToken: boolean };
 const stores = new Map<string, ProjectStore>();
 const runs: TaskRun[] = [];
 const logs = new Map<string, string[]>();
@@ -62,7 +62,7 @@ function seededAssets(): AssetEntry[] {
 function store(path: string): ProjectStore {
   let entry = stores.get(path);
   if (!entry) {
-    entry = { tasks: [templates[0], templates[1]], trusted: false, issues: seededIssues(), assets: seededAssets() };
+    entry = { tasks: [templates[0], templates[1]], trusted: false, issues: seededIssues(), assets: seededAssets(), tracker: null, hasToken: false };
     stores.set(path, entry);
   }
   return entry;
@@ -190,6 +190,22 @@ export async function demoStudio(command: string, args: Record<string, unknown>)
       if (asset) asset.meta = args.meta as AssetMeta;
       return undefined;
     }
+    case "tracker_get": { const entry = store(path); return { config: entry.tracker, hasToken: entry.hasToken }; }
+    case "tracker_save": {
+      const entry = store(path);
+      entry.tracker = (args.config as TrackerConfig | null) ?? null;
+      if (args.token) entry.hasToken = true;
+      return undefined;
+    }
+    case "tracker_sync": {
+      const entry = store(path);
+      if (!entry.tracker) throw new Error("connect a tracker for this project first");
+      const key = entry.tracker.kind === "jira" ? `${entry.tracker.project}-142` : "#142";
+      if (entry.issues.some((issue) => issue.external?.key === key)) return { created: 0, updated: 0, unchanged: 1 };
+      entry.issues.unshift({ id: "f1a2b3", title: "Ship demo build to publisher", status: "todo", priority: "high", kind: "task", assignee: "producer", labels: ["milestone"], files: [], createdAt: iso(), updatedAt: iso(), body: "Imported from the tracker.", external: { system: entry.tracker.kind, key, url: null } });
+      return { created: 1, updated: 0, unchanged: 0 };
+    }
+    case "selfhost_forgejo": return { composePath: `${String(args.dir)}/docker-compose.yml`, dockerAvailable: false, started: false, url: "http://localhost:3000" };
     case "open_terminal": return undefined;
     case "cli_info": return { cliPath: "C:/Program Files/PipelineOS/vantadeck.exe", channel: "stable", mcpArgs: ["mcp"] };
     default: throw new Error(`demo: unsupported command ${command}`);

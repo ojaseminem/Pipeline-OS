@@ -10,6 +10,7 @@ pub mod assets;
 pub mod context;
 pub mod issues;
 pub mod tasks;
+pub mod trackers;
 
 use std::path::{Path, PathBuf};
 

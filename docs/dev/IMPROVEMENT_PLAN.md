@@ -86,6 +86,15 @@ New capabilities:
   the box.
 - **Seven themes:** Midnight, Daylight, Graphite (DCC-neutral), Nordic, Ember,
   Paper, High contrast. Visible focus rings, reduced-motion support.
+- **Tracker connectors:** pull GitHub, Gitea/Forgejo, Jira (Cloud v3 search
+  with Data Center fallback, ADF descriptions), Linear, Plane and ClickUp issues
+  onto the board, idempotently matched by external key. The connection is shared in
+  `.pipelineos/tracker.toml`; tokens live in the OS keychain (or
+  `PIPELINEOS_TRACKER_TOKEN` for CI). Available from the board, the CLI
+  (`issues sync`) and MCP (`sync_issues`).
+- **One-click self-hosting:** writes a pinned Forgejo `docker-compose.yml`
+  (Git + LFS + issues + PRs) and starts it when Docker is present, then
+  connects the board to it.
 - **Dev channel** (below).
 
 ## 4. Roadmap (priority order)
@@ -95,11 +104,9 @@ the free product indispensable for one person first, then for a team.
 
 ### P0: next dev iterations
 
-1. **Tracker connectors.** Pull GitHub Issues, Gitea/Forgejo, Jira (Cloud &
-   Data Center), Linear, Plane and ClickUp into the board with an `external`
-   link; status write-back where the API allows. Tokens in the OS keychain,
-   never in project files. Includes **one-click self-hosting** of Forgejo
-   (git + LFS + issues in one container) for studios that want their own server.
+1. **Tracker write-back.** Connectors now *pull* (shipped, see §3); next is
+   pushing status changes and new issues back to GitHub/Gitea/Jira/Linear/
+   Plane/ClickUp, plus scheduled background sync.
 2. **Embedded per-project terminal** (xterm.js + portable-pty) docked under
    the workspace, with sessions that survive tab switches; agent sessions
    (Claude Code) as first-class terminals with the brief preloaded.

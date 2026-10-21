@@ -136,6 +136,10 @@ pub enum IssuesCommand {
         #[arg(long = "label")]
         labels: Vec<String>,
     },
+    /// Pull issues from the project's connected tracker into the board.
+    Sync {
+        path: PathBuf,
+    },
     /// Move an issue to backlog, todo, in-progress, review, or done.
     Move {
         path: PathBuf,
@@ -816,6 +820,15 @@ async fn execute_issues(
             success(
                 COMMAND,
                 issues::create_issue(&path, new).map_err(studio(COMMAND))?,
+            )
+        }
+        IssuesCommand::Sync { path } => {
+            const COMMAND: &str = "issues.sync";
+            success(
+                COMMAND,
+                vantadeck_studio::trackers::sync_tracker(&path)
+                    .await
+                    .map_err(studio(COMMAND))?,
             )
         }
         IssuesCommand::Move { path, id, status } => {
