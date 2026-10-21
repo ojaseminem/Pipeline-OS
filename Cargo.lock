@@ -5099,6 +5099,7 @@ name = "vantadeck-desktop"
 version = "0.4.12"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "pelite",
  "semver",
  "serde",
@@ -5108,11 +5109,15 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-dialog",
  "tauri-plugin-updater",
+ "tempfile",
+ "uuid",
  "vantadeck-application",
  "vantadeck-domain",
  "vantadeck-launcher",
  "vantadeck-manifests",
+ "vantadeck-projects",
  "vantadeck-storage",
+ "vantadeck-studio",
  "vantadeck-vcs",
 ]
 

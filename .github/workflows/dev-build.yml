@@ -53,6 +53,8 @@ jobs:
           printf '{ "version": "%s" }\n' "${version}" > apps/desktop/src-tauri/tauri.version.conf.json
           echo "Dev version: ${version}"
       - run: npm ci
+      - name: Stage the vantadeck CLI sidecar
+        run: node scripts/prepare-sidecar.mjs
       - name: Build dev installer
         shell: bash
         env:
@@ -62,7 +64,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          configs=(--config src-tauri/tauri.dev.conf.json --config src-tauri/tauri.version.conf.json)
+          configs=(--config src-tauri/tauri.dev.conf.json --config src-tauri/tauri.version.conf.json --config src-tauri/tauri.sidecar.conf.json)
           # Updater artifacts need the signing key; without it (e.g. forks) the
           # installer still builds, it just can't self-update.
           if [[ -n "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then

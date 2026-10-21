@@ -25,7 +25,14 @@ vantadeck-launcher = { path = "../../../crates/launcher" }
 vantadeck-manifests = { path = "../../../crates/manifests" }
 vantadeck-storage = { path = "../../../crates/storage" }
 vantadeck-vcs = { path = "../../../crates/vcs" }
+vantadeck-studio = { path = "../../../crates/studio" }
+vantadeck-projects = { path = "../../../crates/projects" }
+chrono.workspace = true
+uuid.workspace = true
 semver.workspace = true
 serde_json.workspace = true
 base64 = "0.22"
 pelite = "0.10"
+
+[dev-dependencies]
+tempfile.workspace = true

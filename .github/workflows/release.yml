@@ -91,13 +91,15 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
       - run: npm run build
+      - name: Stage the vantadeck CLI sidecar
+        run: node scripts/prepare-sidecar.mjs
       - name: Build native bundles
         env:
           # Signs the auto-updater artifacts. Configure these repository secrets
           # from the keypair in apps/desktop/.tauri/ (see docs/release/BLOCKERS.md).
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri --workspace @vantadeck/desktop -- build ${{ matrix.args }} --config src-tauri/tauri.updater.conf.json
+        run: npm run tauri --workspace @vantadeck/desktop -- build ${{ matrix.args }} --config src-tauri/tauri.updater.conf.json --config src-tauri/tauri.sidecar.conf.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: vantadeck-${{ runner.os }}

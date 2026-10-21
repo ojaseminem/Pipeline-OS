@@ -1,3 +1,5 @@
+mod studio;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -2152,6 +2154,7 @@ pub fn run() {
                 scan_cancel: Arc::new(AtomicBool::new(false)),
                 project_scan_cancel: Arc::new(AtomicBool::new(false)),
             });
+            app.manage(studio::StudioState::load(&data_dir));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2237,6 +2240,28 @@ pub fn run() {
             git_stash_pop,
             git_stash_drop,
             git_stash_list,
+            studio::tasks_list,
+            studio::tasks_templates,
+            studio::tasks_save,
+            studio::tasks_trust,
+            studio::task_plan,
+            studio::task_run,
+            studio::task_cancel,
+            studio::task_runs,
+            studio::task_run_log,
+            studio::task_clear_history,
+            studio::issues_list,
+            studio::issue_create,
+            studio::issue_update,
+            studio::issue_delete,
+            studio::issues_everywhere,
+            studio::project_brief,
+            studio::asset_layouts,
+            studio::asset_apply_layout,
+            studio::assets_index,
+            studio::asset_set_meta,
+            studio::open_terminal,
+            studio::cli_info,
             app_version
         ])
         .run(tauri::generate_context!())
