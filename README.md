@@ -110,12 +110,20 @@ Creative projects rarely use one application. A game project may depend on multi
 - Streaming SHA-256 verification for downloaded artifacts.
 - No automatic execution of installers, scripts, or downloaded content.
 
+### Studio Workflows
+
+- **Pipeline tasks:** one-click builds, cooks, renders, exports and tests from templates (Unity batch mode, Unreal BuildCookRun, Godot export, Blender render, custom), stored in `.pipelineos/tasks.toml`, with live progress, logs, cancellation, run history, and a trust review before running commands that came from the repository.
+- **Board:** a git-native Kanban per project. One TOML file per issue under `.pipelineos/issues/`, so it syncs through version control without merge conflicts, plus "Open work" across every project on Home.
+- **Asset library:** concept art, references, source art, models, audio and video with shared review status (WIP / In review / Approved), feedback notes, and studio folder layouts.
+- **AI-ready:** start Claude Code (or Codex, Gemini, Aider) or a terminal in any project; a generated project brief tells agents the engine, the generated folders to leave alone, and how to build; a bundled **MCP server** (`vantadeck mcp`) lets Claude Desktop/Code work with projects, tasks and issues. See [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md).
+
 ### Desktop Experience
 
 - Home dashboard, projects, applications, health, tools, and settings views.
 - Real machine-local data in the native application; browser fixtures require explicit demo mode.
-- System, dark, and light themes with reduced-motion support.
-- Keyboard-accessible global search with `Ctrl+K`.
+- Seven themes (Midnight, Daylight, Graphite, Nordic, Ember, Paper, High contrast) with reduced-motion support.
+- Command palette (`Ctrl+K`) for projects, launching, AI agents, actions and themes; `Ctrl+1–7` navigation; `?` shows every shortcut.
+- Activity screen with every running task across projects.
 - Confirmation-gated Git controls and project launch profiles.
 
 ## Supported Applications
@@ -136,6 +144,10 @@ The manifest format is open and documented in [APP_MANIFEST_SPEC.md](docs/APP_MA
 ### Download
 
 Grab the latest signed Windows build from [GitHub Releases](https://github.com/ojaseminem/Vantadeck/releases/latest) — no account, installer license, or payment required. The app self-updates after that. The installer isn't code-signed yet, so Windows SmartScreen shows an "unknown publisher" prompt on first run — choose *More info → Run anyway* (see [Known limitations](#known-limitations-v1)). Prefer to build it yourself? Follow the steps below.
+
+### Dev builds
+
+Want the newest work before it is released? Install **PipelineOS Dev** from the rolling [`dev-latest` pre-release](https://github.com/ojaseminem/Pipeline-OS/releases/tag/dev-latest). It installs next to the stable app with its own data and updates itself. See [RELEASING.md](RELEASING.md#dev-channel) and the [improvement plan](docs/dev/IMPROVEMENT_PLAN.md).
 
 ### Prerequisites
 

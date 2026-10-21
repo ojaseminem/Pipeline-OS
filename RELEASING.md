@@ -74,6 +74,23 @@ and GPG-sign release tags.
    can "Install & restart". The download is verified against the embedded public
    key before installing.
 
+## Dev channel
+
+Work in progress ships to testers through a separate **dev channel** before it
+reaches a release:
+
+- [`.github/workflows/dev-build.yml`](.github/workflows/dev-build.yml) runs on
+  every push to `dev`, `claude/**` and `codex/**`. It builds **PipelineOS Dev**
+  (identifier `com.vantadeck.launcher.dev`, via
+  `apps/desktop/src-tauri/tauri.dev.conf.json`), versioned `X.Y.(Z+1)-<run>`.
+- The Windows installer, `latest.json` and checksums replace the rolling
+  **`dev-latest` pre-release**. Pre-releases are never "latest", so the stable
+  updater never sees them.
+- Dev installs side by side with stable, keeps its own data, and self-updates
+  from `releases/download/dev-latest/latest.json` when the signing secrets are
+  available.
+- Promote by merging the work to `main` and cutting a release as below.
+
 ## Continuous builds
 
 [`.github/workflows/build.yml`](.github/workflows/build.yml) builds **unsigned**
