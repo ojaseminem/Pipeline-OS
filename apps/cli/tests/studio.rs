@@ -253,13 +253,26 @@ async fn mcp_only_runs_trusted_tasks() {
 
     let refused = rpc(&service, 1, "tools/call", call.clone()).await;
     assert_eq!(refused["result"]["isError"], true);
-    assert!(refused["result"]["content"][0]["text"].as_str().expect("text").contains("trust"));
+    assert!(
+        refused["result"]["content"][0]["text"]
+            .as_str()
+            .expect("text")
+            .contains("trust")
+    );
 
     let trusted = run(&service, &["tasks", "trust", path, "--yes"]).await;
-    assert!(trusted["trusted"][0]["commandLine"].as_str().expect("line").starts_with("sh"));
+    assert!(
+        trusted["trusted"][0]["commandLine"]
+            .as_str()
+            .expect("line")
+            .starts_with("sh")
+    );
     let ran = rpc(&service, 2, "tools/call", call.clone()).await;
     assert_eq!(ran["result"]["isError"], false, "{ran}");
-    assert_eq!(ran["result"]["structuredContent"]["outcome"]["status"], "succeeded");
+    assert_eq!(
+        ran["result"]["structuredContent"]["outcome"]["status"],
+        "succeeded"
+    );
 
     // Any change to the commands revokes trust.
     vantadeck_studio::tasks::save_tasks(root.path(), &[task("bash")]).expect("save tasks");
