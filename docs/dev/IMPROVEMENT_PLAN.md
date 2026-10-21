@@ -120,6 +120,11 @@ the free product indispensable for one person first, then for a team.
 
 ### P1: team features (still free, still local-first)
 
+- **Local automation API** (opt-in, off by default): a localhost HTTP +
+  WebSocket endpoint with a per-machine token, exposing the same operations as
+  the CLI/MCP (projects, tasks + live run events, issues, assets), so studio
+  tools, DCC plugins, Stream Decks, and chat bots can drive Pipeline OS. An
+  OpenAPI spec is generated from the Rust types.
 - **Perforce in the UI** (provider exists): AAA studios live on P4.
   Changelists, locks, shelving in the Source Control tab.
 - **File locking UX** for Git LFS (`git lfs lock`) on binary assets, visible
