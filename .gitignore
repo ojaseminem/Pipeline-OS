@@ -31,3 +31,4 @@ release-assets/
 # Local Claude Code state (personal permissions, worktrees) — .claude/launch.json is shared
 .claude/settings.local.json
 .claude/worktrees/
+apps/desktop/src-tauri/tauri.version.conf.json

@@ -12,6 +12,7 @@ members = [
   "crates/projects",
   "crates/security",
   "crates/storage",
+  "crates/studio",
   "crates/vcs",
 ]
 

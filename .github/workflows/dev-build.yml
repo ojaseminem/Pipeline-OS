@@ -1,0 +1,128 @@
+name: Dev build
+
+# The dev channel: every push to `dev` (and to agent/feature branches under
+# `claude/**` / `codex/**`) builds "PipelineOS Dev" — a separately-identified
+# app that installs side by side with the production app, keeps its own data,
+# and updates from its own feed. The Windows installer is published to the
+# rolling `dev-latest` GitHub *pre-release*, which the production updater
+# (which reads `releases/latest`) never sees. Production releases are produced
+# only by release.yml on an annotated `vX.Y.Z` tag.
+
+on:
+  push:
+    branches: [dev, "claude/**", "codex/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Dev installer (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 75
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: 1.96.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - id: version
+        name: Compute dev version
+        shell: bash
+        # Next patch of the workspace version with a numeric pre-release, e.g.
+        # 0.4.12 -> 0.4.13-57. It sorts above the current production release
+        # and below the next one, and stays NSIS-compatible (numeric only).
+        run: |
+          set -euo pipefail
+          base="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+          IFS=. read -r major minor patch <<< "${base}"
+          version="${major}.${minor}.$((patch + 1))-${GITHUB_RUN_NUMBER}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          printf '{ "version": "%s" }\n' "${version}" > apps/desktop/src-tauri/tauri.version.conf.json
+          echo "Dev version: ${version}"
+      - run: npm ci
+      - name: Build dev installer
+        shell: bash
+        env:
+          VITE_PIPELINEOS_CHANNEL: dev
+          VITE_PIPELINEOS_COMMIT: ${{ github.sha }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          configs=(--config src-tauri/tauri.dev.conf.json --config src-tauri/tauri.version.conf.json)
+          # Updater artifacts need the signing key; without it (e.g. forks) the
+          # installer still builds, it just can't self-update.
+          if [[ -n "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
+            configs+=(--config src-tauri/tauri.updater.conf.json)
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY unavailable; dev build will not self-update."
+          fi
+          npm run tauri --workspace @vantadeck/desktop -- build --bundles nsis "${configs[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pipelineos-dev-windows
+          path: target/release/bundle/nsis/**
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish rolling dev-latest pre-release
+    needs: windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pipelineos-dev-windows
+          path: artifacts
+      - name: Assemble assets and updater feed
+        shell: bash
+        env:
+          VERSION: ${{ needs.windows.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          find artifacts -type f -name '*-setup.exe' -exec cp {} release-assets/ \;
+          test -n "$(ls release-assets)" || { echo "no dev installer produced" >&2; exit 1; }
+          if find artifacts -name '*.sig' | grep -q .; then
+            node scripts/generate-latest-json.mjs artifacts release-assets dev-latest "${VERSION}"
+          fi
+          (cd release-assets && sha256sum * > SHA256SUMS.txt)
+          ls -la release-assets
+      - name: Replace the rolling pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.windows.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release delete dev-latest --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes || true
+          notes="Rolling **dev channel** build ${VERSION} from \`${GITHUB_REF_NAME}\` @ ${GITHUB_SHA::7}.
+
+          Installs as **PipelineOS Dev** next to the production app, with its own data and its own update feed.
+          Unsigned: Windows SmartScreen will ask you to confirm (More info -> Run anyway). Not for production use."
+          gh release create dev-latest release-assets/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "PipelineOS Dev ${VERSION}" \
+            --notes "${notes}" \
+            --prerelease \
+            --latest=false

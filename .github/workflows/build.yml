@@ -1,12 +1,12 @@
 name: Build
 
-# Continuous, unsigned native builds so every change produces downloadable
-# installers for testing. Signed, evidence-bearing releases are produced
-# separately by release.yml on a signed tag.
+# Continuous, unsigned production-flavored builds for main, release lines and
+# pull requests. Dev-channel installers for `dev` and agent branches come from
+# dev-build.yml; signed, evidence-bearing releases come from release.yml.
 
 on:
   push:
-    branches: [main, "release/**", "codex/**", "claude/**"]
+    branches: [main, "release/**"]
   pull_request:
   workflow_dispatch:
 
