@@ -3,7 +3,10 @@
 // artifacts produced by the release build, and copies those artifacts into the
 // release-assets directory so the feed URLs resolve to published assets.
 //
-// Usage: node scripts/generate-latest-json.mjs <artifactsDir> <releaseAssetsDir> <tag>
+// Usage: node scripts/generate-latest-json.mjs <artifactsDir> <releaseAssetsDir> <tag> [version]
+//
+// `version` defaults to the tag without its leading "v". Rolling channels whose
+// tag is not a version (e.g. the dev channel's `dev-latest`) pass it explicitly.
 //
 // The updater plugin downloads the artifact named in `url` and verifies it
 // against the `signature` (the contents of the matching `.sig` file) using the
@@ -13,13 +16,13 @@
 import { readdirSync, statSync, readFileSync, copyFileSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 
-const [, , artifactsDir, releaseAssetsDir, rawTag] = process.argv;
+const [, , artifactsDir, releaseAssetsDir, rawTag, explicitVersion] = process.argv;
 if (!artifactsDir || !releaseAssetsDir || !rawTag) {
   console.error("usage: generate-latest-json.mjs <artifactsDir> <releaseAssetsDir> <tag>");
   process.exit(1);
 }
 
-const version = rawTag.replace(/^v/, "");
+const version = explicitVersion || rawTag.replace(/^v/, "");
 const repo = process.env.GITHUB_REPOSITORY ?? "ojaseminem/Vantadeck";
 const server = process.env.GITHUB_SERVER_URL ?? "https://github.com";
 const downloadBase = `${server}/${repo}/releases/download/${rawTag}`;
@@ -69,7 +72,7 @@ if (Object.keys(platforms).length === 0) {
 
 const feed = {
   version,
-  notes: `Pipeline OS ${rawTag}. See the release notes for details.`,
+  notes: `Pipeline OS ${explicitVersion ? `${version} (${rawTag})` : rawTag}. See the release notes for details.`,
   pub_date: new Date().toISOString(),
   platforms,
 };
