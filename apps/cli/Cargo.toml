@@ -26,6 +26,7 @@ vantadeck-health = { path = "../../crates/health" }
 vantadeck-projects = { path = "../../crates/projects" }
 vantadeck-security = { path = "../../crates/security" }
 vantadeck-storage = { path = "../../crates/storage" }
+vantadeck-studio = { path = "../../crates/studio" }
 vantadeck-vcs = { path = "../../crates/vcs" }
 
 [dev-dependencies]

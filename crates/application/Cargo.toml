@@ -21,6 +21,7 @@ vantadeck-launcher = { path = "../launcher" }
 vantadeck-manifests = { path = "../manifests" }
 vantadeck-projects = { path = "../projects" }
 vantadeck-storage = { path = "../storage" }
+vantadeck-studio = { path = "../studio" }
 vantadeck-vcs = { path = "../vcs" }
 
 [dev-dependencies]

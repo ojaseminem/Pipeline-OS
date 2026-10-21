@@ -1,4 +1,10 @@
-use std::{fs, io, path::PathBuf};
+pub mod mcp;
+
+use std::{
+    fs, io,
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 use clap::{Parser, Subcommand};
 use thiserror::Error;
@@ -6,33 +12,151 @@ use vantadeck_application::{ApplicationError, ApplicationService};
 use vantadeck_domain::{ApiMessage, CliEnvelope};
 use vantadeck_projects::{ProjectError, load_project};
 use vantadeck_security::ArtifactVerificationError;
+use vantadeck_studio::{
+    StudioError, assets,
+    issues::{self, IssueKind, IssuePriority, IssueStatus, NewIssue},
+    tasks,
+};
 
 #[derive(Debug, Parser)]
-#[command(name = "vantadeck", version, about = "Local-first creative launcher")]
+#[command(
+    name = "vantadeck",
+    version,
+    about = "Pipeline OS: local-first launcher and pipeline hub for creative projects",
+    long_about = "Pipeline OS command line. Every command accepts --json for a stable, \
+versioned envelope that scripts and AI agents can parse. Run `vantadeck mcp` to \
+serve the same capabilities to MCP clients such as Claude Desktop or Claude Code."
+)]
 pub struct Cli {
+    /// Emit a machine-readable JSON envelope instead of human output.
     #[arg(long, global = true)]
     pub json: bool,
+    /// Which installed app's data to use: `stable` (PipelineOS) or `dev`
+    /// (PipelineOS Dev). Overridden by VANTADECK_DATABASE_PATH.
+    #[arg(long, global = true, default_value = "stable", value_parser = ["stable", "dev"])]
+    pub channel: String,
     #[command(subcommand)]
     pub command: Command,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Detect installed creative applications.
     Scan {
         #[command(subcommand)]
         command: ScanCommand,
     },
+    /// Detected applications and machine-local version overrides.
     Apps {
         #[command(subcommand)]
         command: AppsCommand,
     },
+    /// Import, inspect, launch, and version-control projects.
     Project {
         #[command(subcommand)]
         command: ProjectCommand,
     },
+    /// Curated Tools Hub metadata.
     Tools {
         #[command(subcommand)]
         command: ToolsCommand,
+    },
+    /// Print an AI-ready Markdown brief of a project (engine, layout, tasks, issues).
+    Context {
+        path: PathBuf,
+        /// Also write it to .pipelineos/context.md.
+        #[arg(long)]
+        write: bool,
+    },
+    /// Pipeline tasks: builds, cooks, renders, exports, tests.
+    Tasks {
+        #[command(subcommand)]
+        command: TasksCommand,
+    },
+    /// The project's git-native issue board.
+    Issues {
+        #[command(subcommand)]
+        command: IssuesCommand,
+    },
+    /// Creative asset library and studio folder layouts.
+    Assets {
+        #[command(subcommand)]
+        command: AssetsCommand,
+    },
+    /// Serve Pipeline OS to AI agents over the Model Context Protocol (stdio).
+    Mcp,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TasksCommand {
+    List {
+        path: PathBuf,
+    },
+    /// Built-in task templates for common engines and DCCs.
+    Templates,
+    /// Show the exact command a task would run, without running it.
+    Plan {
+        path: PathBuf,
+        id: String,
+    },
+    Run {
+        path: PathBuf,
+        id: String,
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum IssuesCommand {
+    List {
+        /// Project path; omit with --all to list open issues across projects.
+        path: Option<PathBuf>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
+    Show {
+        path: PathBuf,
+        id: String,
+    },
+    Add {
+        path: PathBuf,
+        #[arg(long)]
+        title: String,
+        #[arg(long, default_value = "")]
+        body: String,
+        #[arg(long, value_parser = ["task", "bug", "feature", "art", "design"])]
+        kind: Option<String>,
+        #[arg(long, value_parser = ["none", "low", "medium", "high", "urgent"])]
+        priority: Option<String>,
+        #[arg(long)]
+        assignee: Option<String>,
+        #[arg(long = "label")]
+        labels: Vec<String>,
+    },
+    /// Move an issue to backlog, todo, in-progress, review, or done.
+    Move {
+        path: PathBuf,
+        id: String,
+        status: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AssetsCommand {
+    List {
+        path: PathBuf,
+        #[arg(long, default_value_t = 200)]
+        limit: usize,
+    },
+    Layouts,
+    ApplyLayout {
+        path: PathBuf,
+        layout: String,
+        #[arg(long)]
+        yes: bool,
     },
 }
 
@@ -172,6 +296,17 @@ pub enum CliExecutionError {
         source: io::Error,
     },
     #[error("{command} failed: {source}")]
+    Studio {
+        command: &'static str,
+        #[source]
+        source: StudioError,
+    },
+    #[error("{command}: {message}")]
+    Usage {
+        command: &'static str,
+        message: String,
+    },
+    #[error("{command} failed: {source}")]
     Artifact {
         command: &'static str,
         #[source]
@@ -188,6 +323,8 @@ impl CliExecutionError {
             | Self::Version { command, .. }
             | Self::Serialization { command, .. }
             | Self::Io { command, .. }
+            | Self::Studio { command, .. }
+            | Self::Usage { command, .. }
             | Self::Artifact { command, .. } => command,
         }
     }
@@ -206,6 +343,14 @@ impl CliExecutionError {
                 "ARTIFACT_VERIFICATION_FAILED",
                 Some("Delete the artifact and obtain it again from its reviewed source.".into()),
             ),
+            Self::Usage { .. } => (
+                "INVALID_ARGUMENTS",
+                Some("Run the command with --help for usage.".into()),
+            ),
+            Self::Studio {
+                source: StudioError::NotFound { .. },
+                ..
+            } => ("NOT_FOUND", Some("Check the id; list items first.".into())),
             _ => (
                 "OPERATION_FAILED",
                 Some("Review the error and local configuration, then retry.".into()),
@@ -223,7 +368,34 @@ pub async fn execute(
     cli: Cli,
     service: &ApplicationService,
 ) -> Result<CliEnvelope<serde_json::Value>, CliExecutionError> {
+    let json = cli.json;
     match cli.command {
+        Command::Mcp => Err(CliExecutionError::Usage {
+            command: "mcp",
+            message: "the MCP server runs from the binary entry point, not execute()".into(),
+        }),
+        Command::Context { path, write } => {
+            const COMMAND: &str = "context";
+            let brief = service.project_brief(&path).await.map_err(app(COMMAND))?;
+            let written = if write {
+                Some(
+                    vantadeck_studio::context::write_brief(&path, &brief)
+                        .map_err(studio(COMMAND))?,
+                )
+            } else {
+                None
+            };
+            if !json {
+                println!("{brief}");
+            }
+            success(
+                COMMAND,
+                serde_json::json!({ "markdown": brief, "writtenTo": written }),
+            )
+        }
+        Command::Tasks { command } => execute_tasks(command, service, json).await,
+        Command::Issues { command } => execute_issues(command, service).await,
+        Command::Assets { command } => execute_assets(command),
         Command::Scan {
             command:
                 ScanCommand::Apps {
@@ -243,20 +415,20 @@ pub async fn execute(
         }
         Command::Apps {
             command: AppsCommand::List,
-        } => success(
-            "apps.list",
-            vec![
-                "blender",
-                "unreal-engine",
-                "unity",
-                "godot",
-                "vscode",
-                "rider",
-                "git",
-                "git-lfs",
-                "perforce",
-            ],
-        ),
+        } => {
+            const COMMAND: &str = "apps.list";
+            let mut apps = Vec::new();
+            for id in KNOWN_APP_IDS {
+                let installations = service.detected_installations(id).await.map_err(|source| {
+                    CliExecutionError::Application {
+                        command: COMMAND,
+                        source,
+                    }
+                })?;
+                apps.push(serde_json::json!({ "id": id, "installations": installations }));
+            }
+            success(COMMAND, apps)
+        }
         Command::Apps {
             command:
                 AppsCommand::Override {
@@ -483,6 +655,226 @@ pub async fn execute(
             )
         }
     }
+}
+
+/// App ids whose installations `apps list` reports (bundled manifests).
+pub const KNOWN_APP_IDS: &[&str] = &[
+    "unity",
+    "unreal-engine",
+    "godot",
+    "blender",
+    "maya",
+    "houdini",
+    "substance-painter",
+    "zbrush",
+    "vscode",
+    "rider",
+    "git",
+    "git-lfs",
+    "perforce",
+];
+
+fn app(command: &'static str) -> impl Fn(ApplicationError) -> CliExecutionError {
+    move |source| CliExecutionError::Application { command, source }
+}
+
+fn studio(command: &'static str) -> impl Fn(StudioError) -> CliExecutionError {
+    move |source| CliExecutionError::Studio { command, source }
+}
+
+async fn execute_tasks(
+    command: TasksCommand,
+    service: &ApplicationService,
+    json: bool,
+) -> Result<CliEnvelope<serde_json::Value>, CliExecutionError> {
+    match command {
+        TasksCommand::List { path } => {
+            const COMMAND: &str = "tasks.list";
+            success(COMMAND, tasks::load_tasks(&path).map_err(studio(COMMAND))?)
+        }
+        TasksCommand::Templates => success("tasks.templates", tasks::task_templates()),
+        TasksCommand::Plan { path, id } => {
+            const COMMAND: &str = "tasks.plan";
+            let (task, resolved) = service
+                .resolve_project_task(&path, &id)
+                .await
+                .map_err(app(COMMAND))?;
+            success(
+                COMMAND,
+                serde_json::json!({ "task": task, "resolved": resolved, "commandLine": resolved.display() }),
+            )
+        }
+        TasksCommand::Run { path, id, yes } => {
+            const COMMAND: &str = "tasks.run";
+            require_confirmation(COMMAND, yes)?;
+            let (task, resolved) = service
+                .resolve_project_task(&path, &id)
+                .await
+                .map_err(app(COMMAND))?;
+            let outcome = run_resolved_task(resolved, !json)
+                .await
+                .map_err(studio(COMMAND))?;
+            success(
+                COMMAND,
+                serde_json::json!({ "task": task.id, "outcome": outcome.0, "log": outcome.1 }),
+            )
+        }
+    }
+}
+
+/// Runs a task on a blocking thread. When `echo` is set each line is printed
+/// as it arrives; the last 200 lines are always returned.
+pub async fn run_resolved_task(
+    resolved: tasks::ResolvedTask,
+    echo: bool,
+) -> Result<(tasks::RunOutcome, Vec<String>), StudioError> {
+    tokio::task::spawn_blocking(move || {
+        let mut tail = tasks::LogTail::new(200);
+        let outcome = tasks::run_task(
+            &resolved,
+            Arc::new(AtomicBool::new(false)),
+            |stream, line| {
+                if echo {
+                    match stream {
+                        tasks::OutputStream::Stdout => println!("{line}"),
+                        tasks::OutputStream::Stderr => eprintln!("{line}"),
+                    }
+                }
+                tail.push(line);
+            },
+        )?;
+        Ok((outcome, tail.lines.into_iter().collect()))
+    })
+    .await
+    .map_err(|e| StudioError::Invalid(format!("task thread failed: {e}")))?
+}
+
+async fn execute_issues(
+    command: IssuesCommand,
+    service: &ApplicationService,
+) -> Result<CliEnvelope<serde_json::Value>, CliExecutionError> {
+    match command {
+        IssuesCommand::List { path, status, all } => {
+            const COMMAND: &str = "issues.list";
+            let status = parse_status(COMMAND, status.as_deref())?;
+            if all || path.is_none() {
+                let issues = service
+                    .open_issues_everywhere()
+                    .await
+                    .map_err(app(COMMAND))?;
+                let issues: Vec<_> = issues
+                    .into_iter()
+                    .filter(|i| status.is_none_or(|s| i.issue.status == s))
+                    .collect();
+                return success(COMMAND, issues);
+            }
+            let path = path.expect("checked above");
+            let (issues, problems) = issues::list_issues(&path).map_err(studio(COMMAND))?;
+            let issues: Vec<_> = issues
+                .into_iter()
+                .filter(|i| status.is_none_or(|s| i.status == s))
+                .collect();
+            success(
+                COMMAND,
+                serde_json::json!({ "issues": issues, "problems": problems }),
+            )
+        }
+        IssuesCommand::Show { path, id } => {
+            const COMMAND: &str = "issues.show";
+            success(
+                COMMAND,
+                issues::get_issue(&path, &id).map_err(studio(COMMAND))?,
+            )
+        }
+        IssuesCommand::Add {
+            path,
+            title,
+            body,
+            kind,
+            priority,
+            assignee,
+            labels,
+        } => {
+            const COMMAND: &str = "issues.add";
+            let new = NewIssue {
+                title,
+                body,
+                kind: kind
+                    .as_deref()
+                    .map(parse_enum::<IssueKind>)
+                    .transpose()
+                    .map_err(usage(COMMAND))?,
+                priority: priority
+                    .as_deref()
+                    .map(parse_enum::<IssuePriority>)
+                    .transpose()
+                    .map_err(usage(COMMAND))?,
+                assignee,
+                labels,
+                ..Default::default()
+            };
+            success(
+                COMMAND,
+                issues::create_issue(&path, new).map_err(studio(COMMAND))?,
+            )
+        }
+        IssuesCommand::Move { path, id, status } => {
+            const COMMAND: &str = "issues.move";
+            let status = parse_status(COMMAND, Some(&status))?.expect("status given");
+            success(
+                COMMAND,
+                issues::set_issue_status(&path, &id, status).map_err(studio(COMMAND))?,
+            )
+        }
+    }
+}
+
+fn execute_assets(
+    command: AssetsCommand,
+) -> Result<CliEnvelope<serde_json::Value>, CliExecutionError> {
+    match command {
+        AssetsCommand::List { path, limit } => {
+            const COMMAND: &str = "assets.list";
+            success(
+                COMMAND,
+                assets::index_assets(&path, limit).map_err(studio(COMMAND))?,
+            )
+        }
+        AssetsCommand::Layouts => success("assets.layouts", assets::folder_layouts()),
+        AssetsCommand::ApplyLayout { path, layout, yes } => {
+            const COMMAND: &str = "assets.apply-layout";
+            require_confirmation(COMMAND, yes)?;
+            success(
+                COMMAND,
+                assets::apply_layout(&path, &layout).map_err(studio(COMMAND))?,
+            )
+        }
+    }
+}
+
+fn usage(command: &'static str) -> impl Fn(String) -> CliExecutionError {
+    move |message| CliExecutionError::Usage { command, message }
+}
+
+fn parse_enum<T: serde::de::DeserializeOwned>(value: &str) -> Result<T, String> {
+    serde_json::from_value(serde_json::Value::String(value.to_owned()))
+        .map_err(|_| format!("unsupported value {value:?}"))
+}
+
+fn parse_status(
+    command: &'static str,
+    value: Option<&str>,
+) -> Result<Option<IssueStatus>, CliExecutionError> {
+    value
+        .map(|value| {
+            IssueStatus::parse(value).ok_or_else(|| CliExecutionError::Usage {
+                command,
+                message: format!(
+                    "unknown status {value:?}; use backlog, todo, in-progress, review, or done"
+                ),
+            })
+        })
+        .transpose()
 }
 
 fn success<T: serde::Serialize>(

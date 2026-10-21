@@ -5067,6 +5067,7 @@ dependencies = [
  "vantadeck-projects",
  "vantadeck-security",
  "vantadeck-storage",
+ "vantadeck-studio",
  "vantadeck-vcs",
 ]
 
@@ -5089,6 +5090,7 @@ dependencies = [
  "vantadeck-manifests",
  "vantadeck-projects",
  "vantadeck-storage",
+ "vantadeck-studio",
  "vantadeck-vcs",
 ]
 
