@@ -116,9 +116,14 @@ const emptySnapshot: DashboardSnapshot = { networkEnabled: false, continueProjec
 export function isNativeRuntime() { return Boolean(window.__TAURI_INTERNALS__); }
 export function isDemoMode() { return new URLSearchParams(window.location.search).get("demo") === "true"; }
 
+// One shared import of the Tauri core module: every IPC call awaits the same
+// promise instead of starting its own dynamic import.
+let coreModule: Promise<typeof import("@tauri-apps/api/core")> | null = null;
+
 export async function invokeDesktop<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isNativeRuntime()) throw new Error("This operation requires the PipelineOS desktop runtime.");
-  const { invoke } = await import("@tauri-apps/api/core");
+  coreModule ??= import("@tauri-apps/api/core");
+  const { invoke } = await coreModule;
   return invoke<T>(command, args);
 }
 
@@ -221,4 +226,100 @@ export async function openExternal(url: string): Promise<void> {
     try { await desktopApi.openUrl(url); return; } catch { /* fall through to window.open */ }
   }
   window.open(url, "_blank", "noopener");
+}
+
+// ---------------------------------------------------------------------------
+// Studio workflows: pipeline tasks, issue board, AI brief, asset library.
+// In the browser demo these run against an in-memory fixture (demo-studio.ts)
+// so every screen is explorable without the desktop runtime.
+
+export type TaskKind = "build" | "test" | "render" | "export" | "cook" | "script";
+export type TaskDefinition = { id: string; name: string; kind: TaskKind; description?: string | null; program: string; args: string[]; cwd?: string | null; env?: Record<string, string> };
+export type ProjectTasks = { tasks: TaskDefinition[]; fingerprint: string | null; trusted: boolean };
+export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type TaskRun = {
+  id: string; projectPath: string; projectName: string; taskId: string; taskName: string; kind: TaskKind; commandLine: string;
+  status: RunStatus; progress: number | null; lastLine: string | null; startedAt: string; finishedAt: string | null; exitCode: number | null; durationMs: number | null;
+};
+export type TaskLineBatch = { runId: string; lines: Array<{ stream: "stdout" | "stderr"; text: string }> };
+
+export type IssueStatus = "backlog" | "todo" | "in-progress" | "review" | "done";
+export type IssuePriority = "none" | "low" | "medium" | "high" | "urgent";
+export type IssueKind = "task" | "bug" | "feature" | "art" | "design";
+export type Issue = {
+  id: string; title: string; status: IssueStatus; priority: IssuePriority; kind: IssueKind; assignee?: string | null; labels?: string[]; files?: string[];
+  createdAt: string; updatedAt: string; external?: { system: string; key: string; url?: string | null } | null; body: string;
+};
+export type NewIssue = { title: string; status?: IssueStatus; priority?: IssuePriority; kind?: IssueKind; assignee?: string | null; labels?: string[]; files?: string[]; body?: string };
+export type ProjectIssue = Issue & { projectName: string; projectPath: string };
+
+export type AssetKind = "image" | "source" | "model" | "video" | "audio" | "document";
+export type ReviewStatus = "none" | "wip" | "review" | "approved" | "rejected";
+export type AssetMeta = { status: ReviewStatus; note?: string | null; owner?: string | null };
+export type AssetEntry = { path: string; name: string; folder: string; kind: AssetKind; size: number; modified: number; meta: AssetMeta };
+export type AssetIndex = { assets: AssetEntry[]; truncated: boolean };
+export type FolderLayout = { id: string; name: string; description: string; folders: string[] };
+export type LayoutResult = { created: string[]; existing: string[] };
+export type CliInfo = { cliPath: string | null; channel: "stable" | "dev"; mcpArgs: string[] };
+export type AgentId = "claude" | "codex" | "gemini" | "aider";
+
+async function studioCall<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+  if (isNativeRuntime()) return invokeDesktop<T>(command, args);
+  if (isDemoMode()) {
+    const { demoStudio } = await import("./demo-studio");
+    return demoStudio(command, args) as Promise<T>;
+  }
+  throw new Error("This operation requires the PipelineOS desktop runtime.");
+}
+
+/** True when studio features have a backend (native app or browser demo). */
+export function studioAvailable(): boolean {
+  return isNativeRuntime() || isDemoMode();
+}
+
+export const studioApi = {
+  tasks: (path: string) => studioCall<ProjectTasks>("tasks_list", { path }),
+  templates: () => studioCall<TaskDefinition[]>("tasks_templates"),
+  saveTasks: (path: string, tasks: TaskDefinition[]) => studioCall<void>("tasks_save", { path, tasks }),
+  trustTasks: (path: string, fingerprint: string) => studioCall<void>("tasks_trust", { path, fingerprint }),
+  planTask: (path: string, taskId: string) => studioCall<string>("task_plan", { path, taskId }),
+  runTask: (path: string, taskId: string) => studioCall<TaskRun>("task_run", { path, taskId }),
+  cancelRun: (runId: string) => studioCall<void>("task_cancel", { runId }),
+  runs: (path?: string) => studioCall<TaskRun[]>("task_runs", { path: path ?? null }),
+  runLog: (runId: string) => studioCall<string[]>("task_run_log", { runId }),
+  clearRunHistory: () => studioCall<void>("task_clear_history"),
+  issues: (path: string) => studioCall<{ issues: Issue[]; problems: string[] }>("issues_list", { path }),
+  createIssue: (path: string, issue: NewIssue) => studioCall<Issue>("issue_create", { path, issue }),
+  updateIssue: (path: string, issue: Issue) => studioCall<Issue>("issue_update", { path, issue }),
+  deleteIssue: (path: string, id: string) => studioCall<void>("issue_delete", { path, id }),
+  issuesEverywhere: () => studioCall<ProjectIssue[]>("issues_everywhere"),
+  brief: (path: string, write = false) => studioCall<{ markdown: string; writtenTo: string | null }>("project_brief", { path, write }),
+  layouts: () => studioCall<FolderLayout[]>("asset_layouts"),
+  applyLayout: (path: string, layout: string) => studioCall<LayoutResult>("asset_apply_layout", { path, layout }),
+  assets: (path: string, limit?: number) => studioCall<AssetIndex>("assets_index", { path, limit: limit ?? null }),
+  setAssetMeta: (path: string, asset: string, meta: AssetMeta) => studioCall<void>("asset_set_meta", { path, asset, meta }),
+  openTerminal: (path: string, agent?: AgentId) => studioCall<void>("open_terminal", { path, agent: agent ?? null }),
+  cliInfo: () => studioCall<CliInfo>("cli_info"),
+};
+
+type Unlisten = () => void;
+
+/** Subscribes to task run updates and batched output lines. */
+export async function onTaskEvents(onRun: (run: TaskRun) => void, onLines: (batch: TaskLineBatch) => void): Promise<Unlisten> {
+  if (isNativeRuntime()) {
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      const offRun = await listen<TaskRun>("task://run", (event) => onRun(event.payload));
+      const offLines = await listen<TaskLineBatch>("task://lines", (event) => onLines(event.payload));
+      return () => { offRun(); offLines(); };
+    } catch {
+      // Live updates are an enhancement; the UI still works by polling runs.
+      return () => undefined;
+    }
+  }
+  if (isDemoMode()) {
+    const { demoTaskEvents } = await import("./demo-studio");
+    return demoTaskEvents(onRun, onLines);
+  }
+  return () => undefined;
 }

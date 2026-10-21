@@ -1,7 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { ConfirmHost } from "./components/confirm";
+import { confirmAction } from "./lib/confirm";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (command: string) => {
@@ -18,11 +20,22 @@ vi.mock("@tauri-apps/api/core", () => ({
     return [];
   }),
 }));
+// Keep the event module mocked too: the real one would load the real core
+// module beside the mock above.
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => undefined) }));
+vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDropEvent: vi.fn(async () => () => undefined) }) }));
 
-describe("dashboard projects", () => {
-  beforeEach(() => window.history.replaceState({}, "", "/?demo=true"));
+function nav(name: string) {
+  return within(screen.getByRole("navigation", { name: "Primary navigation" })).getByRole("button", { name: new RegExp(`^${name}`) });
+}
+
+describe("dashboard", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    window.history.replaceState({}, "", "/?demo=true");
+  });
   afterEach(() => {
-    document.body.innerHTML = "";
+    cleanup();
     delete window.__TAURI_INTERNALS__;
     window.history.replaceState({}, "", "/");
   });
@@ -30,11 +43,13 @@ describe("dashboard projects", () => {
   it("renders native dashboard data instead of sample project content", async () => {
     window.__TAURI_INTERNALS__ = {};
     window.history.replaceState({}, "", "/");
+    localStorage.setItem("vantadeck.onboarded", "true");
     render(<App />);
 
     expect(await screen.findAllByText("Real Project")).not.toHaveLength(0);
     expect(screen.queryByText("Voidline")).not.toBeInTheDocument();
   });
+
   it("switches between pinned and recent project views", async () => {
     render(<App />);
 
@@ -44,60 +59,162 @@ describe("dashboard projects", () => {
     expect(screen.queryByText("Emberfall")).not.toBeInTheDocument();
   });
 
-  it.each(["Projects", "Applications", "Health", "Tools", "Settings"])(
-    "opens the %s management screen",
-    async (screenName) => {
-      render(<App />);
-      await userEvent.click(screen.getByRole("navigation", { name: "Primary navigation" }).querySelector(`button:nth-child(${["Projects", "Applications", "Health", "Tools", "Settings"].indexOf(screenName) + 2})`)!);
-      expect(screen.getByRole("heading", { name: screenName })).toBeInTheDocument();
-    },
-  );
+  it.each(["Projects", "Applications", "Health", "Tools", "Activity", "Settings"])("opens the %s screen", async (name) => {
+    render(<App />);
+    await userEvent.click(nav(name));
+    expect(screen.getByRole("heading", { level: 1, name })).toBeInTheDocument();
+    expect(nav(name)).toHaveAttribute("aria-current", "page");
+  });
 
   it("presents the Tools screen as an offline curated hub", async () => {
     render(<App />);
-    await userEvent.click(screen.getByRole("button", { name: /Tools/ }));
-
+    await userEvent.click(nav("Tools"));
     expect(screen.getByRole("heading", { name: "Tool sources" })).toBeInTheDocument();
     expect(screen.getByText(/never executes downloaded installers/i)).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Local Git inspector" })).not.toBeInTheDocument();
   });
 
-  it("focuses global search with Ctrl+K", async () => {
+  it("opens the command palette with Ctrl+K and from the header", async () => {
     render(<App />);
     await userEvent.keyboard("{Control>}k{/Control}");
     expect(await screen.findByPlaceholderText(/Type a command/i)).toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByRole("button", { name: "Search and commands" }));
+    expect(await screen.findByPlaceholderText(/Type a command/i)).toBeInTheDocument();
+    expect(screen.getByText("Add project…")).toBeInTheDocument();
+    expect(screen.getByText("Theme: Graphite")).toBeInTheDocument();
   });
 
-  it("navigates to Projects when clicking 'View all projects' button", async () => {
+  it("switches screens with Ctrl+number shortcuts", async () => {
+    render(<App />);
+    await userEvent.keyboard("{Control>}7{/Control}");
+    expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+    await userEvent.keyboard("{Control>}2{/Control}");
+    expect(screen.getByRole("heading", { level: 1, name: "Projects" })).toBeInTheDocument();
+  });
+
+  it("applies a theme picked in Settings", async () => {
+    render(<App />);
+    await userEvent.click(nav("Settings"));
+    await userEvent.click(screen.getByRole("radio", { name: /Ember/ }));
+    expect(document.documentElement.dataset.theme).toBe("ember");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    await userEvent.click(screen.getByRole("radio", { name: /Paper/ }));
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
+
+  it("shows MCP setup for AI apps in Settings", async () => {
+    render(<App />);
+    await userEvent.click(nav("Settings"));
+    expect(await screen.findByText(/claude mcp add pipeline-os/)).toBeInTheDocument();
+  });
+
+  it("opens the shortcuts sheet with ?", async () => {
+    render(<App />);
+    await userEvent.keyboard("?");
+    expect(await screen.findByRole("heading", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+  });
+
+  it("navigates to Projects when clicking 'View all projects'", async () => {
     render(<App />);
     await userEvent.click(screen.getByRole("button", { name: /View all projects/ }));
-    expect(screen.getByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Projects" })).toBeInTheDocument();
   });
 
-  it("navigates to Applications when clicking 'Manage' button in Installed Apps", async () => {
+  it("navigates to Applications from the Installed apps card", async () => {
     render(<App />);
-    const manageButton = screen.getByRole("button", { name: "Manage" });
-    await userEvent.click(manageButton);
-    expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Applications" })).toBeInTheDocument();
   });
 
-  it("navigates to Applications when clicking an app-row button", async () => {
+  it("opens a project's workspace when its row is clicked", async () => {
     render(<App />);
-    const appRows = screen.getAllByRole("button", { name: /Chrome|Firefox|Visual Studio Code/ });
-    if (appRows.length > 0) {
-      await userEvent.click(appRows[0]);
-      expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Emberfall"));
+    for (const tab of ["Overview", "Source Control", "Pipeline", "Board", "Assets", "AI"]) {
+      expect(screen.getByRole("tab", { name: tab })).toBeInTheDocument();
     }
   });
 
-  it("opens the single-project detail view from a ProjectTable row", async () => {
+  it("offers a getting-started checklist that can be dismissed", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    window.history.replaceState({}, "", "/");
+    localStorage.setItem("vantadeck.onboarded", "true");
     render(<App />);
-    const openProjectButtons = screen.queryAllByRole("button", { name: /Open Project/ });
-    if (openProjectButtons.length > 0) {
-      await userEvent.click(openProjectButtons[0]);
-      expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "Source Control" })).toBeInTheDocument();
-    }
+    expect(await screen.findByText("Set up Pipeline OS")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText("Set up Pipeline OS")).not.toBeInTheDocument();
+    expect(localStorage.getItem("vantadeck.setupDismissed")).toBe("true");
+  });
+});
+
+describe("project workspace (demo backend)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    window.history.replaceState({}, "", "/?demo=true");
+  });
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState({}, "", "/");
+  });
+
+  async function openTab(project: string, tab: string) {
+    render(<App />);
+    await userEvent.click(screen.getByText(project));
+    await userEvent.click(screen.getByRole("tab", { name: tab }));
+  }
+
+  it("requires a trust review before running repository tasks, then runs them", async () => {
+    await openTab("Mech Bay", "Pipeline");
+    expect(await screen.findByText(/came from the project files/)).toBeInTheDocument();
+    const runButtons = screen.getAllByRole("button", { name: /^Run$/ });
+    await userEvent.click(runButtons[0]);
+    expect(await screen.findByRole("heading", { name: /Review project tasks/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Trust and allow running/ }));
+    await waitFor(() => expect(screen.queryByText(/came from the project files/)).not.toBeInTheDocument());
+    await userEvent.click(screen.getAllByRole("button", { name: /^Run$/ })[0]);
+    expect(await screen.findByText("Run history")).toBeInTheDocument();
+    expect(nav("Activity")).toHaveTextContent("1");
+  });
+
+  it("adds issues to the board and moves them between columns", async () => {
+    await openTab("Riftbound", "Board");
+    const todo = await screen.findByRole("region", { name: "To do column" });
+    await userEvent.click(within(todo).getByRole("button", { name: "Add issue to To do" }));
+    await userEvent.type(within(todo).getByRole("textbox", { name: "New issue title" }), "Fix lightmap seams{Enter}");
+    expect(await within(todo).findByText("Fix lightmap seams")).toBeInTheDocument();
+    await userEvent.click(within(todo).getByRole("button", { name: "Actions for Fix lightmap seams" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Review" }));
+    const review = screen.getByRole("region", { name: "Review column" });
+    expect(await within(review).findByText("Fix lightmap seams")).toBeInTheDocument();
+  });
+
+  it("lists assets with review status and filters by type", async () => {
+    await openTab("Northbreak", "Assets");
+    expect(await screen.findByText("reactor_room_v4.png")).toBeInTheDocument();
+    expect(screen.getAllByText("In review").length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole("button", { name: /^Audio/ }));
+    expect(screen.getByText("reactor_hum_loop.wav")).toBeInTheDocument();
+    expect(screen.queryByText("reactor_room_v4.png")).not.toBeInTheDocument();
+  });
+
+  it("shows the AI brief and agent launchers", async () => {
+    await openTab("Project Helix", "AI");
+    expect(await screen.findByRole("button", { name: /Open Claude Code here/ })).toBeInTheDocument();
+    expect((await screen.findAllByText(/project brief/)).length).toBeGreaterThan(0);
+  });
+});
+
+describe("confirm dialog", () => {
+  afterEach(() => { cleanup(); });
+
+  it("resolves true on confirm and false on cancel", async () => {
+    render(<ConfirmHost />);
+    let result: Promise<boolean> = Promise.resolve(false);
+    act(() => { result = confirmAction({ title: "Delete it?", confirmLabel: "Delete", destructive: true }); });
+    await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    await expect(result).resolves.toBe(true);
+
+    act(() => { result = confirmAction("Proceed?"); });
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    await expect(result).resolves.toBe(false);
   });
 });
