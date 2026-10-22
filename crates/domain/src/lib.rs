@@ -15,6 +15,10 @@ pub enum AppCategory {
     Art,
     Code,
     VersionControl,
+    /// Video, audio, and motion graphics.
+    Media,
+    /// Documents, spreadsheets, slides, PDFs, and CAD.
+    Productivity,
     Utility,
 }
 

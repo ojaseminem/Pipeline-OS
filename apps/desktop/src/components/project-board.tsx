@@ -1,7 +1,9 @@
 // Project "Board" tab: a git-native Kanban. Each issue is a small TOML file in
 // .pipelineos/issues, so the board syncs through version control, works
 // offline, and is readable by the CLI and AI agents.
-import { useMemo, useState, type DragEvent } from "react";
+import { useMemo, useState } from "react";
+import { usePointerDrag } from "../lib/pointer-drag";
+import { DragGhost } from "./drag-ghost";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KanbanSquare, MoreHorizontal, Plus, Search, Trash2 } from "lucide-react";
 import { KIND_META, PRIORITY_META, STATUS_COLUMNS } from "../lib/issue-meta";
@@ -35,8 +37,6 @@ export function ProjectBoard({ projectPath }: { projectPath: string }) {
   const [filter, setFilter] = useState("");
   const [kindFilter, setKindFilter] = useState<IssueKind | null>(null);
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<IssueStatus | null>(null);
   const [adding, setAdding] = useState<IssueStatus | null>(null);
   const [newTitle, setNewTitle] = useState("");
 
@@ -87,14 +87,9 @@ export function ProjectBoard({ projectPath }: { projectPath: string }) {
     catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
   }
 
-  function onDrop(event: DragEvent, status: IssueStatus) {
-    event.preventDefault();
-    setDropTarget(null);
-    const id = event.dataTransfer.getData("text/plain") || dragging;
-    const issue = issues.find((item) => item.id === id);
-    setDragging(null);
-    if (issue) void move(issue, status);
-  }
+  const { drag, bind } = usePointerDrag<Issue>((issue, zone) => { void move(issue, zone as IssueStatus); });
+  const dropTarget = drag?.zone ?? null;
+  const dragging = drag?.item.id ?? null;
 
   if (!available) return <EmptyState icon={KanbanSquare} title="The board lives in the desktop app" description="Open Pipeline OS on your machine to track tasks, bugs, and art requests per project." />;
 
@@ -135,9 +130,7 @@ export function ProjectBoard({ projectPath }: { projectPath: string }) {
             <section
               key={column.id}
               aria-label={`${column.label} column`}
-              onDragOver={(event) => { event.preventDefault(); setDropTarget(column.id); }}
-              onDragLeave={() => setDropTarget((current) => (current === column.id ? null : current))}
-              onDrop={(event) => onDrop(event, column.id)}
+              data-drop-zone={column.id}
               className={cn("flex min-h-64 flex-col rounded-xl border border-border bg-muted/20 p-2 transition-colors", dropTarget === column.id && "border-primary/60 bg-primary/5")}
             >
               <header className="mb-2 flex items-center justify-between px-1.5 pt-1">
@@ -158,10 +151,8 @@ export function ProjectBoard({ projectPath }: { projectPath: string }) {
                   return (
                     <article
                       key={issue.id}
-                      draggable
-                      onDragStart={(event) => { event.dataTransfer.setData("text/plain", issue.id); event.dataTransfer.effectAllowed = "move"; setDragging(issue.id); }}
-                      onDragEnd={() => { setDragging(null); setDropTarget(null); }}
-                      className={cn("group cursor-grab rounded-lg border border-border bg-card p-2.5 text-sm shadow-xs transition-[opacity,border-color] hover:border-primary/40 active:cursor-grabbing", dragging === issue.id && "opacity-40")}
+                      {...bind(issue, issue.title)}
+                      className={cn("group cursor-grab select-none rounded-lg border border-border bg-card p-2.5 text-sm shadow-xs transition-[opacity,border-color] hover:border-primary/40 active:cursor-grabbing", dragging === issue.id && "opacity-40")}
                     >
                       <div className="flex items-start gap-2">
                         <KindIcon size={14} className={cn("mt-0.5 shrink-0", kind.className)} aria-label={kind.label} />
@@ -194,6 +185,7 @@ export function ProjectBoard({ projectPath }: { projectPath: string }) {
         })}
       </div>
       <p className="text-xs text-muted-foreground">Issues are files in <code>.pipelineos/issues/</code>: commit them to share the board with your team. Reference them in commits as <code>#id</code>. AI agents can read and update the board through the Pipeline OS MCP server.</p>
+      <DragGhost drag={drag} />
       <IssueEditor issue={editing} onChange={setEditing} onSave={(issue) => void saveEdit(issue)} onDelete={(issue) => void remove(issue)} />
     </div>
   );

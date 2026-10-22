@@ -216,6 +216,7 @@ impl DetectionSource for FilesystemDetectionSource {
                     .executables
                     .iter()
                     .any(|candidate| name.eq_ignore_ascii_case(candidate))
+                    || !is_executable_file(entry.path())
                 {
                     continue;
                 }
@@ -243,6 +244,12 @@ fn is_pruned_directory(entry: &walkdir::DirEntry) -> bool {
     if !entry.file_type().is_dir() {
         return false;
     }
+    // macOS app bundles are detected from their Info.plist by the bundle
+    // source; files inside other apps' bundles (a "gimp" palette folder in
+    // some editor's Resources) are never installations of their own.
+    if cfg!(target_os = "macos") && entry.depth() > 0 && has_app_extension(entry.path()) {
+        return true;
+    }
     const PRUNED: &[&str] = &[
         "Temp",
         "tmp",
@@ -257,6 +264,48 @@ fn is_pruned_directory(entry: &walkdir::DirEntry) -> bool {
     ];
     let name = entry.file_name().to_string_lossy();
     PRUNED.iter().any(|skip| name.eq_ignore_ascii_case(skip))
+}
+
+fn has_app_extension(path: &std::path::Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+}
+
+/// A regular file the OS can execute. On Unix that means an execute bit;
+/// Windows decides by extension, which the manifest's names already encode.
+pub fn is_executable_file(path: &std::path::Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+/// Turns what a user picked into something launchable: a macOS `.app` bundle
+/// resolves to its declared executable (with the bundle's version); an
+/// executable file is used as is, with a version from `--version` or its path.
+pub fn resolve_launch_target(path: &std::path::Path) -> Option<(PathBuf, Option<Version>)> {
+    if path.is_dir() && has_app_extension(path) {
+        let metadata = unix_sources::read_info_plist(&path.join("Contents/Info.plist"))?;
+        let executable = path.join("Contents/MacOS").join(&metadata.executable);
+        let version = (metadata.version != Version::new(0, 0, 0)).then_some(metadata.version);
+        return is_executable_file(&executable).then_some((executable, version));
+    }
+    if !is_executable_file(path) {
+        return None;
+    }
+    let version = unix_sources::cli_version(path).or_else(|| infer_version(path));
+    Some((path.to_path_buf(), version))
 }
 
 #[derive(Debug, Clone)]

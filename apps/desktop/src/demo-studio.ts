@@ -221,6 +221,12 @@ export async function demoStudio(command: string, args: Record<string, unknown>)
     case "cli_info": return { cliPath: "C:/Program Files/PipelineOS/vantadeck.exe", channel: "stable", mcpArgs: ["mcp"] };
     case "discover_projects": return { projects: discovered.filter((project) => !dismissed.has(project.path)), scannedAt: iso(1) };
     case "dismiss_discovered": { dismissed.add(String(args.path)); return undefined; }
+    case "mcp_tools": return [
+      { name: "list_projects", title: "List projects", description: "Projects registered in Pipeline OS, with paths.", readOnly: true },
+      { name: "project_brief", title: "Project brief", description: "Markdown brief of a project. Read this first.", readOnly: true },
+      { name: "run_task", title: "Run pipeline task", description: "Runs a trusted project task and returns its log.", readOnly: false },
+      { name: "create_issue", title: "Create issue", description: "Adds an issue to the project board.", readOnly: false },
+    ];
     case "ai_clients": return { clients: aiClients.map((client) => ({ ...client })), agentClis: ["claude", "codex"], canConfigure: true };
     case "ai_configure": {
       const ids = args.ids as string[];

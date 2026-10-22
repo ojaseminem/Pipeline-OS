@@ -71,7 +71,7 @@ export function DiscoveredProjects({ onAdded, compact = false }: { onAdded: () =
 
   const header = (
     <div className="flex flex-wrap items-center gap-2">
-      <h2 className="mr-auto flex items-center gap-2 text-sm font-semibold">
+      <h2 className="mr-auto flex min-w-0 items-center gap-2 text-sm font-semibold">
         <Sparkles size={15} className="text-primary" /> Found on this computer
         {projects.length ? <Badge variant="secondary">{projects.length}</Badge> : null}
       </h2>
@@ -95,10 +95,10 @@ export function DiscoveredProjects({ onAdded, compact = false }: { onAdded: () =
       {projects.map((project) => {
         const checked = !unselected.has(project.path);
         return (
-          <li key={project.path} className="flex items-center gap-3 px-3 py-2">
+          <li key={project.path} className="flex min-w-0 items-center gap-3 px-3 py-2">
             <button role="checkbox" aria-checked={checked} aria-label={`Select ${project.name}`} onClick={() => toggle(project.path)} className={cn("flex size-4 shrink-0 items-center justify-center rounded border", checked ? "border-primary bg-primary text-primary-foreground" : "border-border")}>{checked ? <Check size={11} /> : null}</button>
             <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2 text-sm font-medium">{project.name}<Badge variant="outline" className="font-normal">{ENGINE_LABEL[project.engine]}{project.engineVersion ? ` ${project.engineVersion}` : ""}</Badge></span>
+              <span className="flex min-w-0 items-center gap-2 text-sm font-medium"><span className="truncate">{project.name}</span><Badge variant="outline" className="shrink-0 font-normal">{ENGINE_LABEL[project.engine]}{project.engineVersion ? ` ${project.engineVersion}` : ""}</Badge></span>
               <span className="block truncate text-xs text-muted-foreground" title={project.path}>{project.path} · {SOURCE_LABEL[project.source] ?? project.source}</span>
             </span>
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => void add([project])}>Add</Button>

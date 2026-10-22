@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -111,6 +111,14 @@ describe("dashboard", () => {
     await userEvent.click(nav("Settings"));
     await userEvent.click(screen.getByRole("button", { name: "AI & automation" }));
     expect(await screen.findByText(/claude mcp add pipeline-os/)).toBeInTheDocument();
+  });
+
+  it("lists the tools AI apps can use under Advanced", async () => {
+    render(<App />);
+    await userEvent.click(nav("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "AI & automation" }));
+    expect(await screen.findByText("Advanced: what AI apps can use")).toBeInTheDocument();
+    expect(await screen.findByText("run_task")).toBeInTheDocument();
   });
 
   it("connects every found AI app at once", async () => {
@@ -263,6 +271,36 @@ describe("project workspace (demo backend)", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Audio/ }));
     expect(screen.getByText("reactor_hum_loop.wav")).toBeInTheDocument();
     expect(screen.queryByText("reactor_room_v4.png")).not.toBeInTheDocument();
+  });
+
+  it("switches assets between list and tile sizes", async () => {
+    await openTab("Northbreak", "Assets");
+    expect(await screen.findByText("reactor_room_v4.png")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "List view" }));
+    expect(screen.getByRole("columnheader", { name: "Modified" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Large tiles" }));
+    expect(screen.queryByRole("columnheader", { name: "Modified" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Large tiles" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("drags a card to another column without the folder-drop overlay", async () => {
+    await openTab("Riftbound", "Board");
+    const todo = await screen.findByRole("region", { name: "To do column" });
+    await userEvent.click(within(todo).getByRole("button", { name: "Add issue to To do" }));
+    await userEvent.type(within(todo).getByRole("textbox", { name: "New issue title" }), "Drag me{Enter}");
+    const card = (await within(todo).findByText("Drag me")).closest("article") as HTMLElement;
+    const done = screen.getByRole("region", { name: "Done column" });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => done;
+    try {
+      fireEvent.pointerDown(card, { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+      fireEvent.pointerMove(window, { pointerId: 1, clientX: 200, clientY: 40 });
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 40 });
+    } finally {
+      document.elementFromPoint = original;
+    }
+    expect(await within(done).findByText("Drag me")).toBeInTheDocument();
+    expect(screen.queryByText("Drop a folder to add it as a project")).not.toBeInTheDocument();
   });
 
   it("shows the AI brief and agent launchers", async () => {

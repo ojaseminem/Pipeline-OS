@@ -5,7 +5,8 @@ import { useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { openExternal, type AgentId, type UpdateInfo } from "../bridge";
+import { openExternal, studioApi, studioAvailable, type AgentId, type UpdateInfo } from "../bridge";
+import { useQuery } from "@tanstack/react-query";
 import { THEME_FILE_EXTENSION, THEMES, captureCurrentTheme, deleteCustomTheme, parseThemeFile, saveCustomTheme, serializeTheme, useCustomThemes, type ThemePreference } from "../theme";
 import { saveTextFile } from "../bridge";
 import { toast } from "sonner";
@@ -314,11 +315,35 @@ function AiSettings() {
           <Switch label="Refresh the project brief before starting an agent" checked={prefs.writeBriefOnAgentStart} onChange={(writeBriefOnAgentStart) => setPrefs({ writeBriefOnAgentStart })} />
         </Row>
       </Group>
+      <McpToolsGroup />
       <Group title="Automation" description="Scripts, CI, and other tools use the same commands as AI apps.">
         <p className="text-sm text-muted-foreground">Every command takes <code>--json</code> for stable, machine-readable output, for example <code>vantadeck --json issues list --all</code> or <code>vantadeck tasks run build --project .</code>. Agents can only run task files you've trusted.</p>
         <details className="text-sm"><summary className="cursor-pointer text-muted-foreground hover:text-foreground">Manual MCP setup</summary><div className="pt-3"><McpSetup /></div></details>
       </Group>
     </>
+  );
+}
+
+/** Advanced: exactly what AI apps can see and do through Pipeline OS. */
+function McpToolsGroup() {
+  const tools = useQuery({ queryKey: ["mcp-tools"], queryFn: () => studioApi.mcpTools(), enabled: studioAvailable(), staleTime: Infinity });
+  const cli = useQuery({ queryKey: ["cli-info"], queryFn: () => studioApi.cliInfo(), enabled: studioAvailable(), staleTime: Infinity });
+  const list = tools.data ?? [];
+  return (
+    <Group title="Advanced: what AI apps can use" description="Connected AI apps talk to Pipeline OS through its MCP server. These are all the tools it offers; anything that changes your projects asks the AI app for your approval, and tasks only run if you've trusted that project's task file.">
+      {cli.data?.cliPath ? <p className="text-xs text-muted-foreground">Server: <code className="break-all">{cli.data.cliPath} {cli.data.mcpArgs.join(" ")}</code> (stdio)</p> : null}
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        {list.map((tool) => (
+          <li key={tool.name} className="flex items-start gap-3 px-3 py-2">
+            <span className={cn("mt-0.5 w-14 shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-medium uppercase", tool.readOnly ? "bg-secondary text-muted-foreground" : "bg-warning/15 text-warning")}>{tool.readOnly ? "Read" : "Change"}</span>
+            <span className="min-w-0 flex-1"><span className="flex flex-wrap items-baseline gap-2 text-sm font-medium">{tool.title}<code className="text-xs font-normal text-muted-foreground">{tool.name}</code></span><span className="block text-xs text-muted-foreground">{tool.description}</span></span>
+          </li>
+        ))}
+        {tools.isLoading ? <li className="px-3 py-3 text-sm text-muted-foreground">Loading…</li> : null}
+        {!studioAvailable() ? <li className="px-3 py-3 text-sm text-muted-foreground">Tool details are shown in the desktop app.</li> : null}
+      </ul>
+      {list.length ? <p className="text-xs text-muted-foreground">{list.filter((tool) => tool.readOnly).length} read-only tools, {list.filter((tool) => !tool.readOnly).length} that can make changes.</p> : null}
+    </Group>
   );
 }
 

@@ -371,6 +371,20 @@ fn project_name(dir: &Path, engine: ProjectEngine, marker: &Path) -> String {
 }
 
 fn record(found: &mut BTreeMap<String, DiscoveredProject>, dir: &Path, source: &str) {
+    // The same folder reaches us spelled differently (Unreal's recent list
+    // keeps `..` segments, `./`, symlinks, a trailing slash); resolve it so
+    // each project is suggested once.
+    let resolved = std::fs::canonicalize(dir)
+        .map(|path| {
+            // Windows canonical paths carry a `\\?\` prefix; drop it for display.
+            let text = path.display().to_string();
+            match text.strip_prefix(r"\\?\") {
+                Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
+                _ => path,
+            }
+        })
+        .unwrap_or_else(|_| dir.to_path_buf());
+    let dir = resolved.as_path();
     let Some((engine, engine_version, marker)) = identify_project(dir) else {
         return;
     };

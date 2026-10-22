@@ -3,7 +3,7 @@
 // folder layouts that give every file a predictable home.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Clipboard, FileAudio, FileText, Film, FolderOpen, FolderTree, ImageIcon, Layers, MoreHorizontal, Search, SquarePen, Boxes, Database, PersonStanding } from "lucide-react";
+import { Box, Clipboard, FileAudio, FileText, Film, FolderOpen, FolderTree, ImageIcon, Layers, MoreHorizontal, Search, SquarePen, Boxes, Database, PersonStanding, LayoutGrid, List } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,19 @@ const KIND_META: Record<AssetKind, { label: string; icon: typeof Box }> = {
   audio: { label: "Audio", icon: FileAudio },
   document: { label: "Docs", icon: FileText },
 };
+
+type AssetView = { mode: "tiles" | "list"; size: "s" | "m" | "l" };
+const VIEW_KEY = "vantadeck.assetView";
+const TILE_SIZES = { s: 130, m: 180, l: 280 } as const;
+
+function loadAssetView(): AssetView {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(VIEW_KEY) ?? "null") as Partial<AssetView> | null;
+    return { mode: parsed?.mode === "list" ? "list" : "tiles", size: parsed?.size === "s" || parsed?.size === "l" ? parsed.size : "m" };
+  } catch {
+    return { mode: "tiles", size: "m" };
+  }
+}
 
 const PREVIEWABLE = /\.(png|jpe?g|webp|gif|bmp)$/i;
 
@@ -85,6 +98,11 @@ export function ProjectAssets({ projectPath, onCreateIssue }: { projectPath: str
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<AssetEntry | null>(null);
   const [layoutOpen, setLayoutOpen] = useState(false);
+  const [view, setViewState] = useState<AssetView>(loadAssetView);
+  const setView = (next: AssetView) => {
+    setViewState(next);
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+  };
 
   const assets = useMemo(() => assetsQuery.data?.assets ?? [], [assetsQuery.data]);
   const topFolders = useMemo(() => [...new Set(assets.map((asset) => asset.folder.split("/")[0]).filter(Boolean))].sort(), [assets]);
@@ -160,7 +178,29 @@ export function ProjectAssets({ projectPath, onCreateIssue }: { projectPath: str
       ) : !shown.length ? (
         <EmptyState compact icon={Search} title="Nothing matches these filters" action={<Button variant="outline" size="sm" onClick={() => { setKind(null); setStatus(null); setFolder(null); setQuery(""); }}>Clear filters</Button>} />
       ) : (
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]">
+        view.mode === "list" ? (
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border text-left text-xs text-muted-foreground">
+                <th className="px-3 py-2 font-medium">Name</th><th className="px-3 py-2 font-medium">Folder</th><th className="px-3 py-2 font-medium">Type</th><th className="px-3 py-2 text-right font-medium">Size</th><th className="px-3 py-2 font-medium">Modified</th><th className="px-3 py-2 font-medium">Review</th><th className="w-8" />
+              </tr></thead>
+              <tbody>
+                {shown.map((asset) => (
+                  <tr key={asset.path} className="border-b border-border/60 last:border-b-0 hover:bg-secondary/30">
+                    <td className="px-3 py-1.5"><button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => setPreview(asset)} aria-label={`Preview ${asset.name}`}><Thumb root={projectPath} asset={asset} className="h-8 w-10 shrink-0 rounded" /><span className="truncate font-medium" title={asset.path}>{asset.name}</span></button></td>
+                    <td className="max-w-56 truncate px-3 py-1.5 text-muted-foreground" title={asset.folder}>{asset.folder || "/"}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{KIND_META[asset.kind].label}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{formatSize(asset.size)}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{relativeTime(asset.modified)}</td>
+                    <td className="px-3 py-1.5">{asset.meta.status !== "none" ? <span className={cn("inline-block rounded-full px-2 py-0.5 text-[10px] font-medium", REVIEW_META[asset.meta.status].className)}>{REVIEW_META[asset.meta.status].label}</span> : null}</td>
+                    <td className="px-1"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Actions for ${asset.name}`}><MoreHorizontal size={14} /></Button></DropdownMenuTrigger>{actions(asset)}</DropdownMenu></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_SIZES[view.size]}px, 1fr))` }}>
           {shown.map((asset) => (
             <figure key={asset.path} className="group overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/40">
               <button className="block w-full" onClick={() => setPreview(asset)} aria-label={`Preview ${asset.name}`}>
@@ -183,7 +223,20 @@ export function ProjectAssets({ projectPath, onCreateIssue }: { projectPath: str
             </figure>
           ))}
         </div>
+        )
       )}
+      {assets.length ? (
+        <div className="pointer-events-none sticky bottom-3 z-10 flex justify-end">
+          <div className="pointer-events-auto flex items-center gap-0.5 rounded-lg border border-border bg-popover/95 p-0.5 shadow-lg backdrop-blur" role="toolbar" aria-label="Asset view">
+            <Button variant={view.mode === "list" ? "secondary" : "ghost"} size="icon" className="h-7 w-7" aria-pressed={view.mode === "list"} aria-label="List view" title="List" onClick={() => setView({ ...view, mode: "list" })}><List size={14} /></Button>
+            <Button variant={view.mode === "tiles" ? "secondary" : "ghost"} size="icon" className="h-7 w-7" aria-pressed={view.mode === "tiles"} aria-label="Tile view" title="Tiles" onClick={() => setView({ ...view, mode: "tiles" })}><LayoutGrid size={14} /></Button>
+            <span className="mx-1 h-4 w-px bg-border" />
+            {(["s", "m", "l"] as const).map((size) => (
+              <Button key={size} variant={view.mode === "tiles" && view.size === size ? "secondary" : "ghost"} size="sm" className="h-7 w-7 px-0 text-xs" aria-pressed={view.mode === "tiles" && view.size === size} aria-label={`${{ s: "Small", m: "Medium", l: "Large" }[size]} tiles`} title={`${{ s: "Small", m: "Medium", l: "Large" }[size]} tiles`} onClick={() => setView({ mode: "tiles", size })}>{size.toUpperCase()}</Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {assetsQuery.data?.truncated ? <p className="text-xs text-muted-foreground">Showing the most recent {assets.length} assets.</p> : null}
 
       <AssetPreview root={projectPath} asset={preview} onClose={() => setPreview(null)} onReview={(asset, next, note) => { void setReview(asset, next, note); setPreview(null); }} />

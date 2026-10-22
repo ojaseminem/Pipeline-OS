@@ -82,7 +82,7 @@ import { useDiscovery } from "./lib/discovery";
 import { getPrefs, setPrefs, usePrefs } from "./lib/prefs";
 import { useAppearance } from "./lib/appearance";
 import { ACTIVITY_LABELS, useEngineActivity, useEngineActivityFeed } from "./lib/engine-activity";
-import { keyLabel } from "./lib/platform";
+import { currentPlatform, keyLabel, platformExamples } from "./lib/platform";
 import { Kbd, ShortcutsDialog } from "./components/shortcuts-dialog";
 import { loadCustomApps, loadQuickLaunch, loadToolSources, newId, saveCustomApps, saveQuickLaunch, saveToolSources, type CustomApp, type QuickLaunchEntry, type ToolSource } from "./lib/local-store";
 import voidlineImage from "./assets/voidline-reactor.png";
@@ -116,7 +116,7 @@ const sampleContinueProject: Project = {
   lastOpened: "Today, 10:42 AM",
 };
 
-const CATEGORY_ORDER = ["game-engine", "dcc", "art", "code", "version-control", "utility"];
+const CATEGORY_ORDER = ["game-engine", "dcc", "art", "media", "productivity", "code", "version-control", "utility"];
 
 const selectClass = "h-9 rounded-md border border-input bg-transparent px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
 
@@ -594,7 +594,9 @@ function AppShell() {
     void import("@tauri-apps/api/webview").then(({ getCurrentWebview }) =>
       getCurrentWebview().onDragDropEvent((event) => {
         const payload = event.payload as { type: string; paths?: string[] };
-        if (payload.type === "over" || payload.type === "enter") setDragOver(true);
+        // Only files dragged in from the OS count; dragging cards or text
+        // inside the app must never raise the "drop a folder" overlay.
+        if (payload.type === "enter") setDragOver(Boolean(payload.paths?.length));
         else if (payload.type === "leave") setDragOver(false);
         else if (payload.type === "drop") { setDragOver(false); const first = payload.paths?.[0]; if (first) void importDroppedFolder(first); }
       }).then((fn) => { unlisten = fn; }),
@@ -1131,12 +1133,12 @@ function AppShell() {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Add a version of {overrideApp?.name}</DialogTitle>
-              <DialogDescription>Point a version at a specific executable when it isn't detected automatically or is detected wrongly. This only affects this machine.</DialogDescription>
+              <DialogDescription>Point Pipeline OS at an installed copy it didn't find, or found wrongly. {currentPlatform() === "mac" ? "Pick the app in Applications; its version is read automatically." : "Its version is read automatically when possible."} This only affects this machine.</DialogDescription>
             </DialogHeader>
-            <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); const app = overrideApp; const version = overrideVersion.trim(); const exe = overrideExe.trim(); if (!app || !version || !exe) return; setOverrideApp(null); void run("Saving version", async () => { await desktopApi.setManualOverride(app.id, version, exe); await invalidate.apps(); }); }}>
-              <label className="block space-y-1 text-sm"><span className="font-medium">Version</span><Input aria-label="Version" required placeholder="e.g. 4.2.3" value={overrideVersion} onChange={(e) => setOverrideVersion(e.target.value)} /></label>
-              <label className="block space-y-1 text-sm"><span className="font-medium">Executable</span><PathInput ariaLabel="Executable" directory={false} required placeholder="C:/…/app.exe" value={overrideExe} onChange={setOverrideExe} className="w-full" /></label>
-              <DialogFooter><Button type="button" variant="ghost" onClick={() => setOverrideApp(null)}>Cancel</Button><Button type="submit" disabled={!isNativeRuntime() || !overrideVersion.trim() || !overrideExe.trim()}>Save version</Button></DialogFooter>
+            <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); const app = overrideApp; const version = overrideVersion.trim(); const exe = overrideExe.trim(); if (!app || !exe) return; setOverrideApp(null); void run("Saving version", async () => { await desktopApi.setManualOverride(app.id, version, exe); await invalidate.apps(); }); }}>
+              <label className="block space-y-1 text-sm"><span className="font-medium">{platformExamples().executableLabel}</span><PathInput ariaLabel={platformExamples().executableLabel} directory={false} required placeholder={platformExamples().appExecutable} value={overrideExe} onChange={setOverrideExe} className="w-full" /></label>
+              <label className="block space-y-1 text-sm"><span className="font-medium">Version <span className="font-normal text-muted-foreground">(optional)</span></span><Input aria-label="Version" placeholder="Read from the app when left empty, e.g. 4.2.3" value={overrideVersion} onChange={(e) => setOverrideVersion(e.target.value)} /></label>
+              <DialogFooter><Button type="button" variant="ghost" onClick={() => setOverrideApp(null)}>Cancel</Button><Button type="submit" disabled={!isNativeRuntime() || !overrideExe.trim()}>Save version</Button></DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
@@ -1153,7 +1155,7 @@ function AppShell() {
                   <option value="game-engine">Game engine</option><option value="dcc">3D / DCC</option><option value="art">2D / Art</option><option value="code">Code / IDE</option><option value="utility">Utility</option>
                 </select>
               </label>
-              <label className="block space-y-1 text-sm"><span className="font-medium">Executable</span><PathInput ariaLabel="App executable" required directory={false} placeholder="C:/Tools/app.exe" value={customExe} onChange={setCustomExe} className="w-full" /></label>
+              <label className="block space-y-1 text-sm"><span className="font-medium">Executable</span><PathInput ariaLabel="App executable" required directory={false} placeholder={platformExamples().appExecutable} value={customExe} onChange={setCustomExe} className="w-full" /></label>
               <DialogFooter><Button type="button" variant="ghost" onClick={() => setAddAppOpen(false)}>Cancel</Button><Button type="submit">Add app</Button></DialogFooter>
             </form>
           </DialogContent>

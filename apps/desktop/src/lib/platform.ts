@@ -9,10 +9,10 @@ export function currentPlatform(): Platform {
   return "linux";
 }
 
-const EXAMPLES: Record<Platform, { toolFolders: string; projectFolder: string; standardLocations: string }> = {
-  windows: { toolFolders: "e.g. D:/Tools; E:/Apps", projectFolder: "D:/Projects/MyGame", standardLocations: "Program Files, Unity Hub, Epic Games, Steam and every drive's common install folders" },
-  mac: { toolFolders: "e.g. /Volumes/Tools; ~/Apps", projectFolder: "~/Projects/MyGame", standardLocations: "/Applications, ~/Applications, Unity Hub, Epic Games and Homebrew" },
-  linux: { toolFolders: "e.g. ~/Apps; /opt/tools", projectFolder: "~/Projects/MyGame", standardLocations: "/opt, ~/Applications, ~/.local, Flatpak, Snap and your PATH" },
+const EXAMPLES: Record<Platform, { toolFolders: string; projectFolder: string; standardLocations: string; appExecutable: string; executableLabel: string }> = {
+  windows: { appExecutable: "C:/Program Files/App/App.exe", executableLabel: "Executable", toolFolders: "e.g. D:/Tools; E:/Apps", projectFolder: "D:/Projects/MyGame", standardLocations: "Program Files, Unity Hub, Epic Games, Steam and every drive's common install folders" },
+  mac: { appExecutable: "/Applications/App.app", executableLabel: "Application", toolFolders: "e.g. /Volumes/Tools; ~/Apps", projectFolder: "~/Projects/MyGame", standardLocations: "/Applications, ~/Applications, Unity Hub, Epic Games and Homebrew" },
+  linux: { appExecutable: "/opt/app/app or ~/Apps/App.AppImage", executableLabel: "Executable", toolFolders: "e.g. ~/Apps; /opt/tools", projectFolder: "~/Projects/MyGame", standardLocations: "/opt, ~/Applications, ~/.local, Flatpak, Snap and your PATH" },
 };
 
 export function platformExamples(platform: Platform = currentPlatform()) {

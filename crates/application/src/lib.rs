@@ -360,7 +360,11 @@ impl ApplicationService {
                     combined.push(installation);
                 }
             }
-            combined.retain(|installation| installation.executable.is_file());
+            // Not-executable leftovers (e.g. a data file that shared an app's
+            // name, detected by an older scan) fall off too.
+            combined.retain(|installation| {
+                vantadeck_detection::is_executable_file(&installation.executable)
+            });
             self.storage
                 .replace_detected_installations(&application.id, &combined)
                 .await?;

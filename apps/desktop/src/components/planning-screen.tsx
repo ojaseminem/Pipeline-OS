@@ -15,6 +15,8 @@ import { formatMinutes } from "../lib/active-time";
 import { Avatar } from "./project-board";
 import { EmptyState } from "./empty-state";
 import { PageHeader } from "./page-header";
+import { DragGhost } from "./drag-ghost";
+import { usePointerDrag } from "../lib/pointer-drag";
 
 type Row = Issue & { projectName: string; projectPath: string };
 type View = "dashboard" | "board" | "list";
@@ -62,6 +64,7 @@ export function PlanningScreen({ projects, onOpenProject }: { projects: Array<{ 
       enabled: available,
     })),
   });
+  const { drag, bind } = usePointerDrag<Row>((row, zone) => { void move(row, zone as IssueStatus); });
   const activeTime = useQuery({ queryKey: ["active-time-all"], queryFn: () => studioApi.activeTimeAll(), enabled: available, staleTime: 60_000 });
 
   const rows: Row[] = useMemo(() => results.flatMap((result, index) => (result.data?.issues ?? []).map((issue) => ({ ...issue, projectName: projects[index].name, projectPath: projects[index].path }))), [results, projects]);
@@ -208,11 +211,10 @@ export function PlanningScreen({ projects, onOpenProject }: { projects: Array<{ 
         {STATUS_COLUMNS.map((column) => {
           const items = visible.filter((row) => row.status === column.id).sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]);
           return (
-            <section key={column.id} aria-label={`${column.label} column`} className="flex min-h-40 flex-col gap-2 rounded-xl border border-border bg-secondary/20 p-2"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => { const id = event.dataTransfer.getData("text/plain"); const row = rows.find((item) => `${item.projectPath}:${item.id}` === id); if (row) void move(row, column.id); }}>
+            <section key={column.id} aria-label={`${column.label} column`} data-drop-zone={column.id} className={cn("flex min-h-40 flex-col gap-2 rounded-xl border border-border bg-secondary/20 p-2 transition-colors", drag?.zone === column.id && "border-primary/60 bg-primary/5")}>
               <h2 className="flex items-center justify-between px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><span className="flex items-center gap-1.5"><span className={cn("size-2 rounded-full", STATUS_COLORS[column.id])} />{column.label}</span><span className="tabular-nums">{items.length}</span></h2>
-              {items.map((row) => <div key={`${row.projectPath}:${row.id}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/plain", `${row.projectPath}:${row.id}`)}>{issueCard(row)}</div>)}
+              {items.map((row) => <div key={`${row.projectPath}:${row.id}`} {...bind(row, row.title)} className={cn("cursor-grab select-none active:cursor-grabbing", drag?.item === row && "opacity-40")}>{issueCard(row)}</div>)}
+              {!items.length ? <p className="px-2 py-4 text-center text-xs text-muted-foreground">{drag?.zone === column.id ? "Drop here" : "Nothing here"}</p> : null}
             </section>
           );
         })}
@@ -261,6 +263,7 @@ export function PlanningScreen({ projects, onOpenProject }: { projects: Array<{ 
       <PageHeader title="Planning" description="Every project's work in one place: progress, workload, and a shared board. Issues stay in each project's repository." />
       {available && projects.length ? filters : null}
       {content}
+      <DragGhost drag={drag} />
     </section>
   );
 }

@@ -20,6 +20,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 vantadeck-application = { path = "../../../crates/application" }
+vantadeck-detection = { path = "../../../crates/detection" }
+vantadeck = { path = "../../cli" }
 vantadeck-domain = { path = "../../../crates/domain" }
 vantadeck-launcher = { path = "../../../crates/launcher" }
 vantadeck-manifests = { path = "../../../crates/manifests" }

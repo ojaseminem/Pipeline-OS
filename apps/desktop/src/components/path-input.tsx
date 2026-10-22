@@ -35,7 +35,9 @@ export function PathInput({ value, onChange, ariaLabel, placeholder, required, d
   }, [value, multi]);
 
   const notFound = Boolean(value.trim()) && info !== null && !info.exists;
-  const wrongKind = info?.exists && (directory ? !info.isDir : !info.isFile);
+  // A macOS .app bundle is a folder on disk but an application to the user.
+  const appBundle = /\.app\/?$/i.test(value.trim());
+  const wrongKind = info?.exists && (directory ? !info.isDir : !info.isFile && !(appBundle && info.isDir));
   const invalid = notFound || wrongKind;
 
   async function browse() {

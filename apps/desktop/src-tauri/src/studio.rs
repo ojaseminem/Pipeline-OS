@@ -1044,3 +1044,37 @@ mod tests {
         assert_eq!(state.runs.lock().unwrap()[0].status, RunStatus::Cancelled);
     }
 }
+
+/// The tools the bundled MCP server offers AI apps, for Settings → AI.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpToolInfo {
+    name: String,
+    title: String,
+    description: String,
+    read_only: bool,
+}
+
+#[tauri::command]
+pub fn mcp_tools() -> Vec<McpToolInfo> {
+    vantadeck::mcp::tool_definitions()
+        .into_iter()
+        .map(|tool| {
+            let text = |key: &str| {
+                tool.get(key)
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_owned()
+            };
+            McpToolInfo {
+                name: text("name"),
+                title: text("title"),
+                description: text("description"),
+                read_only: tool
+                    .pointer("/annotations/readOnlyHint")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+            }
+        })
+        .collect()
+}

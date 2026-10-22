@@ -1,4 +1,5 @@
 mod engine_watch;
+mod env_path;
 mod files;
 mod scm;
 mod studio;
@@ -30,7 +31,10 @@ use vantadeck_vcs::{
 /// version-control tooling (git, git-lfs, p4) is detected for project
 /// workflows but is never launched directly.
 fn is_launchable_category(category: &str) -> bool {
-    matches!(category, "game-engine" | "dcc" | "art" | "code" | "utility")
+    matches!(
+        category,
+        "game-engine" | "dcc" | "art" | "media" | "productivity" | "code" | "utility"
+    )
 }
 
 fn category_str(category: &AppCategory) -> &'static str {
@@ -40,6 +44,8 @@ fn category_str(category: &AppCategory) -> &'static str {
         AppCategory::Art => "art",
         AppCategory::Code => "code",
         AppCategory::VersionControl => "version-control",
+        AppCategory::Media => "media",
+        AppCategory::Productivity => "productivity",
         AppCategory::Utility => "utility",
     }
 }
@@ -1023,10 +1029,32 @@ async fn set_manual_override(
     executable: String,
     state: State<'_, DesktopState>,
 ) -> Result<(), String> {
-    let version = version.parse().map_err(|e: semver::Error| e.to_string())?;
+    // A macOS .app bundle (or any executable) resolves to the real binary;
+    // an empty version uses the one the bundle or tool reports.
+    let (executable, detected) = vantadeck_detection::resolve_launch_target(Path::new(&executable))
+        .ok_or_else(|| {
+            if cfg!(target_os = "macos") {
+                "Pick the application (the .app in Applications) or an executable file.".to_owned()
+            } else {
+                "That file isn't an executable this system can run.".to_owned()
+            }
+        })?;
+    let version = if version.trim().is_empty() {
+        detected.ok_or("Couldn't read this app's version. Enter it, for example 4.2.3.")?
+    } else {
+        let trimmed = version.trim();
+        let padded = match trimmed.split('.').count() {
+            1 => format!("{trimmed}.0.0"),
+            2 => format!("{trimmed}.0"),
+            _ => trimmed.to_owned(),
+        };
+        padded
+            .parse()
+            .map_err(|e: semver::Error| format!("“{trimmed}” isn't a version like 4.2.3 ({e})."))?
+    };
     state
         .service
-        .set_manual_override(&app_id, version, Path::new(&executable))
+        .set_manual_override(&app_id, version, &executable)
         .await
         .map_err(|e| e.to_string())
 }
@@ -2130,10 +2158,9 @@ async fn open_url(url: String) -> Result<(), String> {
 /// bundled catalog), with the same architecture safety as catalog launches.
 #[tauri::command(rename_all = "camelCase")]
 async fn launch_executable(executable: String) -> Result<(), String> {
-    let exe = PathBuf::from(&executable);
-    if !exe.is_file() {
-        return Err("Executable not found.".into());
-    }
+    // Custom apps may point at a macOS .app bundle; launch its real binary.
+    let (exe, _) = vantadeck_detection::resolve_launch_target(Path::new(&executable))
+        .ok_or("Executable not found, or it isn't an app this system can run.")?;
     vantadeck_launcher::ensure_runnable(&exe).map_err(|e| e.to_string())?;
     let working_directory = exe
         .parent()
@@ -2150,6 +2177,7 @@ async fn launch_executable(executable: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     suppress_windows_error_dialogs();
+    env_path::fix_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -2181,6 +2209,7 @@ pub fn run() {
             dashboard_snapshot,
             engine_watch::engine_activity,
             files::save_text_file,
+            studio::mcp_tools,
             updates::update_state,
             updates::update_download,
             updates::update_cancel,

@@ -68,7 +68,7 @@ async fn mac_bundle_source_finds_bundle_executable() {
         include_str!("fixtures/Info.plist"),
     )
     .expect("plist");
-    fs::write(&executable, b"fixture").expect("bundle executable");
+    write_fixture(&executable);
 
     let source = MacAppBundleDetectionSource::new(vec![root.path().to_path_buf()], 3);
     let results = scan(source, "blender", "Blender", "Blender").await;
@@ -84,7 +84,7 @@ async fn mac_bundle_source_falls_back_to_common_bundle_layout() {
     let bundle = root.path().join("Blender 4.1.2.app");
     let executable = bundle.join("Contents/MacOS/Blender");
     fs::create_dir_all(executable.parent().expect("parent")).expect("bundle directories");
-    fs::write(&executable, b"fixture").expect("bundle executable");
+    write_fixture(&executable);
 
     let source = MacAppBundleDetectionSource::new(vec![root.path().to_path_buf()], 3);
     let results = scan(source, "blender", "Blender", "Blender").await;
@@ -98,7 +98,7 @@ async fn desktop_and_snap_sources_resolve_direct_exec_targets() {
     let root = tempfile::tempdir().expect("fixture root");
     let executable = root.path().join("bin/blender");
     fs::create_dir_all(executable.parent().expect("parent")).expect("bin");
-    fs::write(&executable, b"fixture").expect("executable");
+    write_fixture(&executable);
     let desktop_root = root.path().join("applications");
     fs::create_dir_all(&desktop_root).expect("desktop root");
     fs::write(
@@ -146,7 +146,7 @@ async fn flatpak_source_uses_deployed_application_command() {
         include_str!("fixtures/flatpak-metadata.ini"),
     )
     .expect("metadata");
-    fs::write(&executable, b"fixture").expect("command");
+    write_fixture(&executable);
 
     let source = FlatpakDetectionSource::new(vec![root.path().join("app")], vec![]);
     let results = scan(source, "org.blender.Blender", "Blender", "blender").await;
@@ -160,7 +160,7 @@ async fn flatpak_source_reads_exported_desktop_evidence() {
     let root = tempfile::tempdir().expect("fixture root");
     let launcher = root.path().join("bin/flatpak");
     fs::create_dir_all(launcher.parent().expect("parent")).expect("bin");
-    fs::write(&launcher, b"fixture").expect("flatpak launcher");
+    write_fixture(&launcher);
     let exports = root.path().join("exports/share/applications");
     fs::create_dir_all(&exports).expect("exports");
     fs::write(
@@ -189,8 +189,8 @@ async fn path_and_appimage_sources_find_portable_executables() {
     fs::create_dir_all(&applications).expect("applications");
     let executable = bin.join("blender");
     let appimage = applications.join("Blender-4.2.3-x86_64.AppImage");
-    fs::write(&executable, b"fixture").expect("path executable");
-    fs::write(&appimage, b"fixture").expect("AppImage");
+    write_fixture(&executable);
+    write_fixture(&appimage);
 
     let path_source = ExecutablePathDetectionSource::new(vec![bin]);
     let appimage_source = AppImageDetectionSource::new(vec![applications], 2);
@@ -252,7 +252,7 @@ fn fake_bundle(
     let contents = parent.join(bundle).join("Contents");
     let binary = contents.join("MacOS").join(executable);
     fs::create_dir_all(binary.parent().expect("parent")).expect("bundle dirs");
-    fs::write(&binary, b"fixture").expect("binary");
+    write_fixture(&binary);
     let mut dict = plist::Dictionary::new();
     dict.insert("CFBundleIdentifier".into(), identifier.into());
     dict.insert("CFBundleExecutable".into(), executable.into());
@@ -354,4 +354,15 @@ async fn known_paths_resolve_app_bundles_to_their_executable() {
     assert_eq!(results[0].executable, binary);
     // The version comes from Info.plist, not the (versionless) path.
     assert_eq!(results[0].version.to_string(), "4.2.0");
+}
+
+/// Writes a fixture file that the OS considers executable.
+fn write_fixture(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    std::fs::write(path, b"fixture").expect("fixture");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
 }

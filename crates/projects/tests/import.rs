@@ -64,7 +64,7 @@ fn infers_unreal_project_and_blender_source_folder() {
     fs::write(root.path().join("Riftbound.uproject"), "{}").expect("uproject");
     let art = root.path().join("Art/Source");
     fs::create_dir_all(&art).expect("art source");
-    fs::write(art.join("Character.blend"), b"fixture").expect("blend fixture");
+    write_fixture(art.join("Character.blend"));
 
     let config = infer_project(root.path(), Some("Riftbound")).expect("inferred project");
 
@@ -127,4 +127,15 @@ fn imports_generic_folder_as_portable_project() {
     let file =
         fs::read_to_string(root.path().join(".pipelineos/project.toml")).expect("project TOML");
     assert!(!file.contains(&root.path().display().to_string()));
+}
+
+/// Writes a fixture file that the OS considers executable.
+fn write_fixture(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    std::fs::write(path, b"fixture").expect("fixture");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
 }

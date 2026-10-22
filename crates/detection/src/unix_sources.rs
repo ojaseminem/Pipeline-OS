@@ -293,9 +293,11 @@ impl DetectionSource for ExecutablePathDetectionSource {
         for directory in &self.search_paths {
             for executable_name in &request.executables {
                 let executable = directory.join(executable_name);
-                if executable.is_file() {
+                if crate::is_executable_file(&executable) {
                     found.push(installation(
-                        infer_version(&executable).unwrap_or_else(unknown_version),
+                        cli_version(&executable)
+                            .or_else(|| infer_version(&executable))
+                            .unwrap_or_else(unknown_version),
                         executable,
                         "executable-path",
                         directory.display().to_string(),
@@ -688,6 +690,46 @@ fn unescape_xml(value: &str) -> String {
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&apos;", "'")
+}
+
+/// Command-line tools whose `--version` is quick, side-effect free and
+/// reports the real version (paths like /opt/homebrew/bin/git carry none).
+const VERSION_PROBED_TOOLS: &[&str] = &["git", "git-lfs", "p4", "svn", "hg", "gh"];
+
+/// Asks a known CLI tool for its version, with a short timeout.
+pub(crate) fn cli_version(executable: &Path) -> Option<Version> {
+    let stem = executable.file_stem()?.to_str()?.to_ascii_lowercase();
+    if !VERSION_PROBED_TOOLS.contains(&stem.as_str()) {
+        return None;
+    }
+    let mut child = std::process::Command::new(executable)
+        .arg(if stem == "p4" { "-V" } else { "--version" })
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                return None;
+            }
+        }
+    }
+    let mut output = String::new();
+    std::io::Read::read_to_string(&mut child.stdout.take()?, &mut output).ok()?;
+    // "git version 2.47.1", "git-lfs/3.6.1 (GitHub; darwin arm64; go 1.23)".
+    let first = output.lines().find(|line| !line.trim().is_empty())?;
+    let after_name = first
+        .split_once(|c: char| c == '/' || c.is_whitespace())
+        .map_or(first, |(_, rest)| rest);
+    parse_loose_version(after_name)
 }
 
 fn parse_loose_version(input: &str) -> Option<Version> {

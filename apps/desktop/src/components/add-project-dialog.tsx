@@ -39,7 +39,7 @@ export function AddProjectDialog({ open, onOpenChange, onImport, onScan, scannin
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle>Add a project</DialogTitle>
           <DialogDescription>Any Unity, Unreal, Godot, Blender, or creative folder works. Existing <code>.pipelineos</code> settings (for example from a teammate's commit) are used as-is; otherwise they're created. Tip: you can also drag a folder onto the window.</DialogDescription>

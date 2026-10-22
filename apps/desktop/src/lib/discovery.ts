@@ -20,5 +20,13 @@ export function useDiscovery() {
       setRefreshing(false);
     }
   }, [queryClient]);
-  return { ...query, projects: query.data?.projects ?? [], scannedAt: query.data?.scannedAt ?? null, refresh, refreshing };
+  // One entry per folder, however its path was spelled.
+  const seen = new Set<string>();
+  const projects = (query.data?.projects ?? []).filter((project) => {
+    const key = project.path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { ...query, projects, scannedAt: query.data?.scannedAt ?? null, refresh, refreshing };
 }

@@ -86,7 +86,7 @@ async fn all_sources_emit_installations_from_sanitized_fixtures() {
         registry_root.join("blender.exe"),
     ] {
         fs::create_dir_all(executable.parent().expect("parent")).expect("directory");
-        fs::write(executable, b"fixture").expect("executable");
+        write_fixture(executable);
     }
 
     let unity_json = format!(
@@ -160,7 +160,7 @@ async fn all_sources_emit_installations_from_sanitized_fixtures() {
 async fn registry_display_name_may_include_an_edition_or_version() {
     let root = tempfile::tempdir().expect("fixture root");
     let executable = root.path().join("blender.exe");
-    fs::write(&executable, b"fixture").expect("executable");
+    write_fixture(&executable);
     let text = format!(
         "HKEY_LOCAL_MACHINE\\Software\\Blender\n    DisplayName    REG_SZ    Blender 4.2 (64-bit)\n    InstallLocation    REG_SZ    {}\n",
         root.path().display()
@@ -175,7 +175,7 @@ async fn parses_shortcut_target_without_invoking_a_shell() {
     let root = tempfile::tempdir().expect("fixture root");
     let target = root.path().join("Tool/tool.exe");
     fs::create_dir_all(target.parent().expect("parent")).expect("target directory");
-    fs::write(&target, b"fixture").expect("target executable");
+    write_fixture(&target);
     let shortcut = root.path().join("Tool.lnk");
     fs::write(&shortcut, local_path_shortcut(&target)).expect("shortcut fixture");
 
@@ -224,4 +224,15 @@ fn local_path_shortcut(target: &Path) -> Vec<u8> {
     bytes.extend_from_slice(target);
     bytes.push(0);
     bytes
+}
+
+/// Writes a fixture file that the OS considers executable.
+fn write_fixture(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    std::fs::write(path, b"fixture").expect("fixture");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
 }

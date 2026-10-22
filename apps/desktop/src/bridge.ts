@@ -76,6 +76,8 @@ export const APP_CATEGORY_LABELS: Record<string, string> = {
   "game-engine": "Game Engines",
   dcc: "DCC & Animation",
   art: "Art & Texturing",
+  media: "Video & Audio",
+  productivity: "Docs & Design",
   code: "Code & IDEs",
   "version-control": "Version Control",
   utility: "Utilities",
@@ -296,6 +298,7 @@ export type AgentId = "claude" | "codex" | "gemini" | "aider";
 export type ProjectEngine = "unity" | "unreal" | "godot" | "pipeline-os" | "gamemaker" | "defold" | "blender" | "houdini" | "maya" | "spine" | "xcode" | "android-studio" | "visual-studio";
 export type DiscoveredProject = { path: string; name: string; engine: ProjectEngine; engineVersion: string | null; source: string; modified: number };
 export type Discovery = { projects: DiscoveredProject[]; scannedAt: string | null };
+export type McpToolInfo = { name: string; title: string; description: string; readOnly: boolean };
 export type AiClientStatus = { id: string; name: string; installed: boolean; configured: boolean; configPath: string; problem: string | null };
 export type AiSetupState = { clients: AiClientStatus[]; agentClis: string[]; canConfigure: boolean };
 export type AiConfigureResult = { id: string; ok: boolean; error: string | null };
@@ -355,6 +358,7 @@ export const studioApi = {
   discoverProjects: (refresh: boolean) => studioCall<Discovery>("discover_projects", { refresh }),
   dismissDiscovered: (path: string) => studioCall<void>("dismiss_discovered", { path }),
   aiClients: () => studioCall<AiSetupState>("ai_clients"),
+  mcpTools: () => studioCall<McpToolInfo[]>("mcp_tools"),
   aiConfigure: (ids: string[]) => studioCall<AiConfigureResult[]>("ai_configure", { ids }),
   aiUnconfigure: (id: string) => studioCall<void>("ai_unconfigure", { id }),
   engineActivity: () => studioCall<EngineActivity[]>("engine_activity"),
