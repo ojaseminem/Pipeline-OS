@@ -1,7 +1,7 @@
 // Home project list. A launcher's core job is launching, so each row leads
 // with "Launch" (open in the engine at the pinned version); clicking the row
 // opens the project's workspace.
-import { Clipboard, FolderOpen, GitBranch, KanbanSquare, LayoutDashboard, MoreHorizontal, Play, Workflow } from "lucide-react";
+import { Clipboard, FolderOpen, GitBranch, KanbanSquare, LayoutDashboard, MoreHorizontal, Pin, Play, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,9 @@ export type ProjectActions = {
   onOpenFolder: (project: Project) => void;
   onCopyPath: (project: Project) => void;
   onAddProject?: () => void;
+  /** Pin/unpin to Home; omit to hide the pin button. */
+  onTogglePin?: (project: Project) => void;
+  isPinned?: (project: Project) => boolean;
 };
 
 const COLUMNS = "grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_auto] lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto]";
@@ -53,6 +56,10 @@ export function ProjectTable({ projects, actions, emptyText }: { projects: Proje
           </span>
           <span className="hidden whitespace-nowrap text-muted-foreground lg:block" role="cell">{formatLastOpened(project.lastOpened) || "—"}</span>
           <span className="flex items-center justify-end gap-1" role="cell" onClick={(event) => event.stopPropagation()}>
+            {actions.onTogglePin ? (() => {
+              const pinned = actions.isPinned?.(project) ?? false;
+              return <Button variant="ghost" size="icon" className={cn("h-8 w-8", pinned ? "text-primary" : "text-muted-foreground")} aria-pressed={pinned} aria-label={pinned ? `Unpin ${project.name}` : `Pin ${project.name}`} title={pinned ? "Unpin from Home" : "Pin to Home"} onClick={() => actions.onTogglePin?.(project)}>{pinned ? <Pin size={15} className="fill-current" /> : <Pin size={15} />}</Button>;
+            })() : null}
             <Button size="sm" variant={project.engineId ? "default" : "outline"} disabled={!project.engineId} title={project.engineId ? `Open in ${project.engine}` : "Link an engine to launch"} onClick={() => actions.onLaunch(project)}><Play size={13} /> Launch</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

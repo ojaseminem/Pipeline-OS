@@ -53,6 +53,16 @@ describe("dashboard", () => {
     expect(screen.queryByText("Voidline")).not.toBeInTheDocument();
   });
 
+  it("searches the home project list and offers pin buttons", async () => {
+    render(<App />);
+    expect(screen.getByText("Emberfall")).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: "Search pinned projects" }), "zzz-nothing");
+    expect(screen.queryByText("Emberfall")).not.toBeInTheDocument();
+    expect(screen.getByText(/No pinned projects match/)).toBeInTheDocument();
+    await userEvent.clear(screen.getByRole("textbox", { name: "Search pinned projects" }));
+    expect(screen.getByRole("button", { name: "Unpin Emberfall" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("switches between pinned and recent project views", async () => {
     render(<App />);
 

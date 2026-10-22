@@ -371,6 +371,133 @@ pub(crate) fn infer_version(path: &std::path::Path) -> Option<Version> {
                 .max()
         })
         .max()
+        .or_else(|| unreal_build_version(path))
+        .or_else(|| windows_product_version(path))
+}
+
+/// Unreal Engine installs carry `Engine/Build/Build.version` (JSON with
+/// MajorVersion/MinorVersion/PatchVersion), whatever their folder is called.
+fn unreal_build_version(executable: &std::path::Path) -> Option<Version> {
+    let engine = executable
+        .ancestors()
+        .find(|ancestor| ancestor.file_name().is_some_and(|name| name == "Engine"))?;
+    let raw = std::fs::read_to_string(engine.join("Build/Build.version")).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let part = |key: &str| json.get(key).and_then(serde_json::Value::as_u64);
+    Some(Version::new(
+        part("MajorVersion")?,
+        part("MinorVersion")?,
+        part("PatchVersion").unwrap_or(0),
+    ))
+}
+
+/// The ProductVersion (or FileVersion) string from a Windows executable's
+/// version resource. Resources sit near the end of the file, so only the
+/// tail is read.
+pub fn windows_product_version(executable: &std::path::Path) -> Option<Version> {
+    use std::io::{Read, Seek, SeekFrom};
+    if !executable
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+    {
+        return None;
+    }
+    let mut file = std::fs::File::open(executable).ok()?;
+    let length = file.metadata().ok()?.len();
+    let window = length.min(8 * 1024 * 1024);
+    file.seek(SeekFrom::Start(length - window)).ok()?;
+    let mut bytes = Vec::with_capacity(window as usize);
+    file.take(window).read_to_end(&mut bytes).ok()?;
+    ["ProductVersion", "FileVersion"]
+        .into_iter()
+        .find_map(|key| version_resource_value(&bytes, key))
+}
+
+/// Finds `key` (UTF-16LE, NUL-terminated) in a VS_VERSIONINFO block and
+/// parses the string value that follows it.
+fn version_resource_value(bytes: &[u8], key: &str) -> Option<Version> {
+    let needle: Vec<u8> = key
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let mut start = 0;
+    while let Some(offset) = bytes[start..]
+        .windows(needle.len())
+        .position(|window| window == needle)
+    {
+        let mut index = start + offset + needle.len();
+        // Values are 32-bit aligned; skip padding.
+        while index + 1 < bytes.len() && bytes[index] == 0 && bytes[index + 1] == 0 {
+            index += 2;
+        }
+        let mut units = Vec::new();
+        while index + 1 < bytes.len() && units.len() < 64 {
+            let unit = u16::from_le_bytes([bytes[index], bytes[index + 1]]);
+            if unit == 0 {
+                break;
+            }
+            units.push(unit);
+            index += 2;
+        }
+        let text = String::from_utf16_lossy(&units);
+        let cleaned: String = text.trim().replace(", ", ".").replace(',', ".");
+        if let Some(version) = cleaned
+            .split(|c: char| !c.is_ascii_digit() && c != '.')
+            .find(|candidate| candidate.contains('.'))
+            .and_then(|candidate| {
+                let parts: Vec<&str> = candidate.trim_matches('.').split('.').collect();
+                let number = |i: usize| parts.get(i).and_then(|p| p.parse::<u64>().ok());
+                Some(Version::new(
+                    number(0)?,
+                    number(1).unwrap_or(0),
+                    number(2).unwrap_or(0),
+                ))
+            })
+            .filter(|version| *version != Version::new(0, 0, 0))
+        {
+            return Some(version);
+        }
+        start += offset + needle.len();
+    }
+    None
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn reads_a_version_resource_value() {
+        let mut bytes = b"MZ....".to_vec();
+        for unit in "ProductVersion".encode_utf16().chain([0, 0]) {
+            bytes.extend(unit.to_le_bytes());
+        }
+        for unit in "6000.0.23f1".encode_utf16().chain([0]) {
+            bytes.extend(unit.to_le_bytes());
+        }
+        assert_eq!(
+            version_resource_value(&bytes, "ProductVersion"),
+            Some(Version::new(6000, 0, 23))
+        );
+    }
+
+    #[test]
+    fn reads_unreal_build_version() {
+        let root = tempfile::tempdir().expect("root");
+        let engine = root.path().join("UE/Engine");
+        std::fs::create_dir_all(engine.join("Build")).expect("build");
+        std::fs::create_dir_all(engine.join("Binaries/Win64")).expect("bin");
+        std::fs::write(
+            engine.join("Build/Build.version"),
+            r#"{"MajorVersion":5,"MinorVersion":4,"PatchVersion":2}"#,
+        )
+        .expect("version");
+        assert_eq!(
+            unreal_build_version(&engine.join("Binaries/Win64/UnrealEditor.exe")),
+            Some(Version::new(5, 4, 2))
+        );
+    }
 }
 
 /// Version from the Info.plist of the nearest enclosing `.app` bundle.

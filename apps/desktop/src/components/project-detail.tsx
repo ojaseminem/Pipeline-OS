@@ -30,7 +30,7 @@ import { ProjectBoard } from "./project-board";
 import { ProjectAssets } from "./project-assets";
 import { ProjectAi } from "./project-ai";
 import { studioApi } from "../bridge";
-import { Bot, CircleCheckBig, GitPullRequest, KanbanSquare, SquareTerminal, Tags, Undo2, Workflow } from "lucide-react";
+import { Bot, CircleCheckBig, Pin, GitPullRequest, KanbanSquare, SquareTerminal, Tags, Undo2, Workflow } from "lucide-react";
 import { browsePath, desktopApi, isNativeRuntime, openExternal, type BranchInfo, type ConflictResolution, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
 import { PROJECT_CATEGORIES } from "../lib/categories";
@@ -94,7 +94,7 @@ function AppFiles({ projectPath, appId, appName, executable, native, run }: { pr
   );
 }
 
-export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenInEngine, onHealthChanged }: { project: { path: string; name: string }; initialTab?: string; onBack: () => void; onRenamed?: (name: string) => void; onOpenInEngine?: (target: { path: string; name: string }) => void; onHealthChanged?: () => void }) {
+export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenInEngine, onHealthChanged, onPinChanged }: { project: { path: string; name: string }; initialTab?: string; onBack: () => void; onRenamed?: (name: string) => void; onOpenInEngine?: (target: { path: string; name: string }) => void; onHealthChanged?: () => void; onPinChanged?: () => void }) {
   const native = isNativeRuntime();
   const queryClient = useQueryClient();
   const cfg = useQuery({ queryKey: ["project-config", project.path], queryFn: () => desktopApi.projectConfig(project.path), enabled: native, retry: false });
@@ -119,6 +119,13 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
   useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab, project.path]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [marked, setMarked] = useState<Set<string>>(new Set());
+  const registered = useQuery({ queryKey: ["projects"], queryFn: () => desktopApi.listProjects(), enabled: native });
+  const isPinned = Boolean(registered.data?.find((entry) => entry.path === project.path)?.pinned);
+  async function togglePin() {
+    await run(isPinned ? "Unpinning" : "Pinning", () => desktopApi.pinProject(project.path, !isPinned));
+    await queryClient.invalidateQueries({ queryKey: ["projects"] });
+    onPinChanged?.();
+  }
   const [prefs] = usePrefs();
   const [blockingFindings, setBlockingFindings] = useState(0);
   const [commitAnyway, setCommitAnyway] = useState(false);
@@ -716,6 +723,7 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
           <p className="truncate text-sm text-muted-foreground">{project.path}</p>
         </div>
         <Badge variant="secondary" className="capitalize">{engine.replaceAll("-", " ")}</Badge>
+        <Button variant="outline" size="icon" aria-pressed={isPinned} aria-label={isPinned ? "Unpin from Home" : "Pin to Home"} title={isPinned ? "Unpin from Home" : "Pin to Home"} disabled={!native} className={isPinned ? "text-primary" : undefined} onClick={() => void togglePin()}><Pin size={15} className={isPinned ? "fill-current" : undefined} /></Button>
         <Button variant="outline" size="icon" aria-label="Open a terminal here" title="Open a terminal here" disabled={!native} onClick={() => void run("Opening terminal", () => studioApi.openTerminal(project.path))}><SquareTerminal size={15} /></Button>
         <Button variant="outline" onClick={() => native ? void run("Opening folder", () => desktopApi.openPath(project.path)) : undefined}><FolderOpen size={15} /> Open folder</Button>
         <Button disabled={!native || !canOpenInEngine} title={canOpenInEngine ? undefined : "This project isn't connected to an engine."} onClick={() => onOpenInEngine?.({ path: project.path, name })}><Rocket size={15} /> Open in {engineName ?? "Engine"}</Button>

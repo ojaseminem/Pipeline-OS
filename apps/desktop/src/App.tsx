@@ -219,10 +219,12 @@ function AppShell() {
   const projects = projectView === "pinned" ? pinnedProjects : recentProjects;
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const homeCategories = useMemo(() => [...new Set([...pinnedProjects, ...recentProjects].map((project) => project.category).filter((value): value is string => Boolean(value)))].sort(), [pinnedProjects, recentProjects]);
-  const filteredProjects = useMemo(
-    () => projects.filter((project) => !categoryFilter || project.category === categoryFilter),
-    [projects, categoryFilter],
-  );
+  const [homeSearch, setHomeSearch] = useState("");
+  const filteredProjects = useMemo(() => {
+    const term = homeSearch.trim().toLowerCase();
+    return projects.filter((project) => (!categoryFilter || project.category === categoryFilter)
+      && (!term || `${project.name} ${project.path} ${project.engine} ${project.branch ?? ""}`.toLowerCase().includes(term)));
+  }, [projects, categoryFilter, homeSearch]);
 
   const reloadDashboard = useCallback(() => {
     void loadDashboard().then((snapshot) => {
@@ -645,6 +647,21 @@ function AppShell() {
   function addCustomApp(event: FormEvent) {
     event.preventDefault();
     if (!customName.trim() || !customExe.trim()) return;
+    // "Maya" is the catalog's Autodesk Maya: attach the executable to it so it
+    // shows (and launches) with its section, versions, and project links.
+    const wanted = customName.trim().toLowerCase();
+    const catalogMatch = managedApps.find((app) => {
+      const name = app.name.toLowerCase();
+      return name === wanted || app.id === wanted || name.split(/\s+/).includes(wanted) || name.endsWith(` ${wanted}`);
+    });
+    if (catalogMatch && isNativeRuntime()) {
+      const exe = customExe.trim();
+      setCustomName("");
+      setCustomExe("");
+      setAddAppOpen(false);
+      void run(`Adding ${catalogMatch.name}`, async () => { await desktopApi.setManualOverride(catalogMatch.id, "", exe); await invalidate.apps(); reloadDashboard(); });
+      return;
+    }
     const previous = customApps;
     const next = [...previous, { id: newId(), name: customName.trim(), category: customCategory, executable: customExe.trim() }];
     setCustomName("");
@@ -700,7 +717,16 @@ function AppShell() {
   }, [pinnedProjects, recentProjects, registeredProjects]);
 
   const runtimeLabel = isNativeRuntime() ? "Desktop app" : isDemoMode() ? "Browser demo" : "Browser preview";
+  const pinnedPaths = new Set(pinnedProjects.map((project) => project.path));
   const projectActions: ProjectActions = {
+    isPinned: (p) => pinnedPaths.has(p.path),
+    onTogglePin: (p) => {
+      if (!isNativeRuntime()) { toast.message("Pinning works in the desktop app."); return; }
+      const pinned = pinnedPaths.has(p.path);
+      void performUndoable(pinned ? `Unpinned ${p.name}` : `Pinned ${p.name}`,
+        async () => { await desktopApi.pinProject(p.path, !pinned); await invalidate.projects(); reloadDashboard(); },
+        async () => { await desktopApi.pinProject(p.path, pinned); await invalidate.projects(); reloadDashboard(); });
+    },
     onOpen: (p, tab) => openProject({ path: p.path, name: p.name }, tab),
     onLaunch: (p) => void requestOpenInEngine(p),
     onOpenFolder: (p) => { if (isNativeRuntime()) void run("Opening folder", () => desktopApi.openPath(p.path), { quiet: true }); },
@@ -816,9 +842,13 @@ function AppShell() {
                 <button role="tab" aria-selected={projectView === "pinned"} onClick={() => setProjectView("pinned")} className={cn("rounded-md px-3 py-1.5 text-sm transition-colors", projectView === "pinned" ? "bg-background font-medium shadow-xs" : "text-muted-foreground hover:text-foreground")}>Pinned Projects</button>
                 <button role="tab" aria-selected={projectView === "recent"} onClick={() => setProjectView("recent")} className={cn("rounded-md px-3 py-1.5 text-sm transition-colors", projectView === "recent" ? "bg-background font-medium shadow-xs" : "text-muted-foreground hover:text-foreground")}>Recent Projects</button>
               </div>
-              {homeCategories.length ? <select aria-label="Filter by category" value={categoryFilter ?? ""} onChange={(event) => setCategoryFilter(event.target.value || null)} className={cn(selectClass, "ml-auto h-8 text-muted-foreground")}><option value="">All categories</option>{homeCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select> : null}
+              <div className="relative ml-auto w-full max-w-56 sm:w-56">
+                <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <Input aria-label={`Search ${projectView} projects`} placeholder={`Search ${projectView === "pinned" ? "pinned" : "recent"}…`} value={homeSearch} onChange={(event) => setHomeSearch(event.target.value)} className="h-8 pl-8 text-sm" />
+              </div>
+              {homeCategories.length ? <select aria-label="Filter by category" value={categoryFilter ?? ""} onChange={(event) => setCategoryFilter(event.target.value || null)} className={cn(selectClass, "h-8 text-muted-foreground")}><option value="">All categories</option>{homeCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select> : null}
             </div>
-            <ProjectTable projects={filteredProjects} actions={projectActions} emptyText={projectView === "pinned" ? "No pinned projects yet" : "No recent projects yet"} />
+            <ProjectTable projects={filteredProjects} actions={projectActions} emptyText={homeSearch.trim() ? `No ${projectView} projects match “${homeSearch.trim()}”` : projectView === "pinned" ? "No pinned projects yet" : "No recent projects yet"} />
             <Button variant="link" className="px-0" onClick={() => openScreen("Projects")}>View all projects <ChevronRight size={16} /></Button>
           </div>
           <aside className="min-w-0 space-y-4">
@@ -1042,7 +1072,7 @@ function AppShell() {
 
   let content: React.ReactNode;
   if (activeScreen === "Project" && selectedProject) {
-    content = <ProjectDetail key={selectedProject.path} project={selectedProject} initialTab={selectedProject.tab} onBack={goBack} onRenamed={() => { void invalidate.projects(); reloadDashboard(); }} onOpenInEngine={requestOpenInEngine} onHealthChanged={loadHealth} />;
+    content = <ProjectDetail key={selectedProject.path} project={selectedProject} initialTab={selectedProject.tab} onBack={goBack} onRenamed={() => { void invalidate.projects(); reloadDashboard(); }} onOpenInEngine={requestOpenInEngine} onHealthChanged={loadHealth} onPinChanged={reloadDashboard} />;
   } else if (activeScreen === "Projects") content = projectsScreen;
   else if (activeScreen === "Applications") content = applicationsScreen;
   else if (activeScreen === "Health") content = <div className="pos-enter"><HealthScreen projects={registeredProjects} onOpenProject={openProject} /></div>;
@@ -1157,7 +1187,7 @@ function AppShell() {
               <label className="block space-y-1 text-sm"><span className="font-medium">Name</span><Input aria-label="App name" required placeholder="e.g. Marmoset Toolbag" value={customName} onChange={(e) => setCustomName(e.target.value)} /></label>
               <label className="block space-y-1 text-sm"><span className="font-medium">Category</span>
                 <select aria-label="App category" value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} className={cn(selectClass, "w-full")}>
-                  <option value="game-engine">Game engine</option><option value="dcc">3D / DCC</option><option value="art">2D / Art</option><option value="code">Code / IDE</option><option value="utility">Utility</option>
+                  <option value="game-engine">Game engine</option><option value="dcc">3D / DCC</option><option value="art">2D / Art</option><option value="media">Video &amp; audio</option><option value="productivity">Docs &amp; design</option><option value="code">Code / IDE</option><option value="utility">Utility</option>
                 </select>
               </label>
               <label className="block space-y-1 text-sm"><span className="font-medium">Executable</span><PathInput ariaLabel="App executable" required directory={false} placeholder={platformExamples().appExecutable} value={customExe} onChange={setCustomExe} className="w-full" /></label>

@@ -236,3 +236,32 @@ fn write_fixture(path: impl AsRef<std::path::Path>) {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
     }
 }
+
+#[tokio::test]
+async fn registry_install_location_finds_executables_in_bin_with_year_versions() {
+    use vantadeck_detection::{
+        DetectionSource, RegistryDetectionSource, ScanRequest, UninstallRegistryRecord,
+    };
+    let root = tempfile::tempdir().expect("root");
+    let install = root.path().join("Autodesk/Maya2025");
+    std::fs::create_dir_all(install.join("bin")).expect("bin");
+    write_fixture(install.join("bin/maya.exe"));
+    let source = RegistryDetectionSource::from_records(vec![UninstallRegistryRecord {
+        key: "Autodesk Maya 2025".into(),
+        display_name: Some("Autodesk Maya 2025".into()),
+        display_version: Some("25.3".into()),
+        install_location: Some(install.clone()),
+        display_icon: Some(format!("{}\\icons\\mayaico.ico", install.display())),
+    }]);
+    let found = source
+        .scan(&ScanRequest::new(
+            "maya",
+            "Autodesk Maya",
+            vec!["maya.exe", "maya"],
+        ))
+        .await
+        .expect("scan");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].executable, install.join("bin/maya.exe"));
+    assert_eq!(found[0].version.major, 2025);
+}
