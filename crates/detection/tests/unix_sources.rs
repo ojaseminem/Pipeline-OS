@@ -352,4 +352,6 @@ async fn known_paths_resolve_app_bundles_to_their_executable() {
     let results = source.scan(&request).await.expect("scan");
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].executable, binary);
+    // The version comes from Info.plist, not the (versionless) path.
+    assert_eq!(results[0].version.to_string(), "4.2.0");
 }

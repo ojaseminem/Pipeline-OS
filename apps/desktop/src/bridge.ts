@@ -52,6 +52,24 @@ export async function browsePath(opts: { directory?: boolean; title?: string }):
   return typeof result === "string" ? result : null;
 }
 
+/** Saves text to a file the user picks (native), or downloads it (browser). */
+export async function saveTextFile(opts: { defaultName: string; contents: string; filterName: string; extensions: string[] }): Promise<string | null> {
+  if (isNativeRuntime()) {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({ defaultPath: opts.defaultName, filters: [{ name: opts.filterName, extensions: opts.extensions }] });
+    if (!path) return null;
+    await invokeDesktop("save_text_file", { path, contents: opts.contents });
+    return path;
+  }
+  const url = URL.createObjectURL(new Blob([opts.contents], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = opts.defaultName;
+  link.click();
+  URL.revokeObjectURL(url);
+  return opts.defaultName;
+}
+
 export const APP_CATEGORY_LABELS: Record<string, string> = {
   "game-engine": "Game Engines",
   dcc: "DCC & Animation",
@@ -235,6 +253,7 @@ export async function openExternal(url: string): Promise<void> {
 
 export type TaskKind = "build" | "test" | "render" | "export" | "cook" | "script";
 export type TaskDefinition = { id: string; name: string; kind: TaskKind; description?: string | null; program: string; args: string[]; cwd?: string | null; env?: Record<string, string> };
+export type TaskPreset = { definition: TaskDefinition; engine: string | null; group: string; recommended: boolean };
 export type ProjectTasks = { tasks: TaskDefinition[]; fingerprint: string | null; trusted: boolean };
 export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type TaskRun = {
@@ -274,6 +293,8 @@ export type AiClientStatus = { id: string; name: string; installed: boolean; con
 export type AiSetupState = { clients: AiClientStatus[]; agentClis: string[]; canConfigure: boolean };
 export type AiConfigureResult = { id: string; ok: boolean; error: string | null };
 export type EngineKind = "unreal" | "unity";
+export type ActiveTimeSummary = { todayMinutes: number; weekMinutes: number; totalMinutes: number; lastActive: string | null; days: Array<{ date: string; minutes: number }> };
+export type ProjectActiveTime = { path: string; weekMinutes: number; totalMinutes: number };
 export type EngineActivityKind = "lighting" | "shaders" | "cook" | "compile" | "build" | "import";
 export type EngineActivity = {
   id: string; engine: EngineKind; projectPath: string | null; projectName: string | null;
@@ -298,6 +319,8 @@ export function studioAvailable(): boolean {
 export const studioApi = {
   tasks: (path: string) => studioCall<ProjectTasks>("tasks_list", { path }),
   templates: () => studioCall<TaskDefinition[]>("tasks_templates"),
+  presets: (path: string) => studioCall<TaskPreset[]>("tasks_presets", { path }),
+  installUnityBuildScript: (path: string) => studioCall<string>("tasks_install_unity_script", { path }),
   saveTasks: (path: string, tasks: TaskDefinition[]) => studioCall<void>("tasks_save", { path, tasks }),
   trustTasks: (path: string, fingerprint: string) => studioCall<void>("tasks_trust", { path, fingerprint }),
   planTask: (path: string, taskId: string) => studioCall<string>("task_plan", { path, taskId }),
@@ -328,6 +351,8 @@ export const studioApi = {
   aiConfigure: (ids: string[]) => studioCall<AiConfigureResult[]>("ai_configure", { ids }),
   aiUnconfigure: (id: string) => studioCall<void>("ai_unconfigure", { id }),
   engineActivity: () => studioCall<EngineActivity[]>("engine_activity"),
+  activeTime: (path: string) => studioCall<ActiveTimeSummary>("project_active_time", { path }),
+  activeTimeAll: () => studioCall<ProjectActiveTime[]>("active_time_all"),
   clearEngineActivity: () => studioCall<void>("clear_engine_activity"),
 };
 

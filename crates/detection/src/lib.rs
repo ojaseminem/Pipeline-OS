@@ -307,6 +307,11 @@ impl DetectionEngine {
 }
 
 pub(crate) fn infer_version(path: &std::path::Path) -> Option<Version> {
+    // Inside a macOS bundle the Info.plist is authoritative ("Blender.app"
+    // carries no version in its path, so path parsing would give 0.0.0).
+    if let Some(version) = mac_bundle_version(path) {
+        return Some(version);
+    }
     path.ancestors()
         .filter_map(|ancestor| ancestor.file_name())
         .filter_map(|name| {
@@ -317,6 +322,19 @@ pub(crate) fn infer_version(path: &std::path::Path) -> Option<Version> {
                 .max()
         })
         .max()
+}
+
+/// Version from the Info.plist of the nearest enclosing `.app` bundle.
+fn mac_bundle_version(path: &std::path::Path) -> Option<Version> {
+    // Follow symlinks (Homebrew's /opt/homebrew/bin/code points into the app).
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let bundle = resolved.ancestors().find(|ancestor| {
+        ancestor
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+    })?;
+    let metadata = unix_sources::read_info_plist(&bundle.join("Contents/Info.plist"))?;
+    (metadata.version != Version::new(0, 0, 0)).then_some(metadata.version)
 }
 
 fn parse_version_candidate(candidate: &str) -> Option<Version> {

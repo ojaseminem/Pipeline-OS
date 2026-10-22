@@ -1,7 +1,7 @@
 // Project "AI" tab: start an AI coding agent or a terminal in the project,
 // preview the project brief agents receive, and connect AI apps over MCP.
 import { useQuery } from "@tanstack/react-query";
-import { Bot, Check, ChevronDown, Clipboard, FileDown, RefreshCw, Sparkles, SquareTerminal } from "lucide-react";
+import { Bot, Check, ChevronDown, Clipboard, Code2, Eye, FileDown, RefreshCw, Sparkles, SquareTerminal } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { EmptyState } from "./empty-state";
 import { usePrefs } from "../lib/prefs";
 import { AGENTS } from "../lib/agents";
 import { AiClientSetup } from "./ai-clients";
+import { Markdown } from "./markdown";
 
 
 function CopyBlock({ label, value }: { label: string; value: string }) {
@@ -48,6 +49,7 @@ export function ProjectAi({ projectPath, projectName }: { projectPath: string; p
   const available = studioAvailable();
   const brief = useQuery({ queryKey: ["brief", projectPath], queryFn: () => studioApi.brief(projectPath), enabled: available });
   const [prefs] = usePrefs();
+  const [raw, setRaw] = useState(false);
   const primary = AGENTS.find((agent) => agent.id === prefs.defaultAgent) ?? AGENTS[0];
 
   async function open(agent?: AgentId) {
@@ -98,13 +100,16 @@ export function ProjectAi({ projectPath, projectName }: { projectPath: string; p
           <h2 className="text-base font-semibold">Project brief</h2>
           <span className="text-xs text-muted-foreground">What agents and new teammates see first</span>
           <span className="ml-auto flex gap-1.5">
+            <Button variant="ghost" size="icon" aria-pressed={raw} aria-label={raw ? "Show preview" : "Show Markdown source"} title={raw ? "Preview" : "Markdown source"} onClick={() => setRaw((value) => !value)}>{raw ? <Eye size={14} /> : <Code2 size={14} />}</Button>
             <Button variant="ghost" size="icon" aria-label="Refresh brief" onClick={() => void brief.refetch()}><RefreshCw size={14} className={brief.isFetching ? "animate-spin" : ""} /></Button>
             <Button variant="outline" size="sm" disabled={!brief.data} onClick={() => { void navigator.clipboard?.writeText(brief.data?.markdown ?? ""); toast.success("Brief copied. Paste it into any AI chat."); }}><Clipboard size={14} /> Copy</Button>
             <Button variant="outline" size="sm" onClick={() => void save()}><FileDown size={14} /> Save to context.md</Button>
           </span>
         </div>
         {brief.isError ? <p className="text-sm text-destructive">{String(brief.error)}</p> : null}
-        <pre className="min-h-64 flex-1 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/20 p-3 font-mono text-xs leading-relaxed">{brief.isLoading ? "Building brief…" : brief.data?.markdown}</pre>
+        {raw || brief.isLoading
+          ? <pre className="min-h-64 flex-1 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/20 p-3 font-mono text-xs leading-relaxed">{brief.isLoading ? "Building brief…" : brief.data?.markdown}</pre>
+          : <div className="min-h-64 flex-1 overflow-auto rounded-md border border-border bg-muted/10 p-4"><Markdown source={brief.data?.markdown ?? ""} /></div>}
       </CardContent></Card>
     </div>
   );

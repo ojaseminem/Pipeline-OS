@@ -121,6 +121,17 @@ export async function demoStudio(command: string, args: Record<string, unknown>)
       return { tasks: entry.tasks, fingerprint: entry.tasks.length ? fingerprint(entry.tasks) : null, trusted: entry.trusted };
     }
     case "tasks_templates": return templates;
+    case "tasks_presets": {
+      const engineOf = (id: string) => id.split("-")[0];
+      const groupOf: Record<string, string> = { unity: "Unity", unreal: "Unreal Engine", godot: "Godot", blender: "Blender", custom: "General" };
+      const presets = [
+        ...templates,
+        { id: "unity-android-dev", name: "Unity: Android development APK", kind: "build" as const, description: "Development build with script debugging. Needs Assets/Editor/PipelineOSBuild.cs.", program: "${engine}", args: ["-batchmode", "-quit", "-projectPath", "${project}", "-buildTarget", "Android", "-executeMethod", "PipelineOS.Build.Android", "-pipelineosDevelopment"] },
+        { id: "unity-android-release", name: "Unity: Android release (AAB)", kind: "build" as const, description: "Google Play App Bundle. Needs Assets/Editor/PipelineOSBuild.cs.", program: "${engine}", args: ["-batchmode", "-quit", "-projectPath", "${project}", "-buildTarget", "Android", "-executeMethod", "PipelineOS.Build.AndroidAppBundle"] },
+      ];
+      return presets.map((definition) => ({ definition, engine: engineOf(definition.id) === "custom" ? null : engineOf(definition.id), group: groupOf[engineOf(definition.id)] ?? "General", recommended: engineOf(definition.id) === "unity" }));
+    }
+    case "tasks_install_unity_script": return `${path}/Assets/Editor/PipelineOSBuild.cs`;
     case "tasks_save": { const entry = store(path); entry.tasks = args.tasks as TaskDefinition[]; entry.trusted = true; return undefined; }
     case "tasks_trust": { store(path).trusted = true; return undefined; }
     case "task_plan": {
@@ -217,6 +228,11 @@ export async function demoStudio(command: string, args: Record<string, unknown>)
       return ids.map((id) => ({ id, ok: true, error: null }));
     }
     case "ai_unconfigure": { const client = aiClients.find((item) => item.id === args.id); if (client) client.configured = false; return undefined; }
+    case "project_active_time": {
+      const days = Array.from({ length: 14 }, (_, index) => ({ date: new Date(Date.now() - (13 - index) * 86_400_000).toISOString().slice(0, 10), minutes: [0, 45, 120, 95, 0, 0, 210, 180, 60, 150, 240, 30, 0, 75][index] }));
+      return { todayMinutes: 75, weekMinutes: 765, totalMinutes: 5230, lastActive: iso(12), days };
+    }
+    case "active_time_all": return [{ path: "D:/Dev/Projects/Voidline", weekMinutes: 765, totalMinutes: 5230 }];
     case "engine_activity": return engineActivity.map((activity) => ({ ...activity }));
     case "clear_engine_activity": { for (let i = engineActivity.length - 1; i >= 0; i--) if (engineActivity[i].status !== "running") engineActivity.splice(i, 1); return undefined; }
     default: throw new Error(`demo: unsupported command ${command}`);

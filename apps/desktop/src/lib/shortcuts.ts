@@ -1,6 +1,6 @@
 export const SHORTCUTS: Array<{ keys: string[]; label: string }> = [
   { keys: ["Ctrl", "K"], label: "Command palette: search projects, apps, and actions" },
-  { keys: ["Ctrl", "1–7"], label: "Go to Home, Projects, Apps, Health, Tools, Activity, Settings" },
+  { keys: ["Ctrl", "1–8"], label: "Go to Home, Projects, Planning, Apps, Health, Tools, Activity, Settings" },
   { keys: ["Ctrl", "N"], label: "Add a project" },
   { keys: ["Ctrl", ","], label: "Settings" },
   { keys: ["Alt", "←"], label: "Back (or mouse back button)" },

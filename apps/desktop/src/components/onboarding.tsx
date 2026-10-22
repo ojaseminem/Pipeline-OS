@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bot, KanbanSquare, Rocket, Workflow } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,8 @@ import { BrandGlyph } from "./brand";
 import { ThemePicker } from "./settings-screen";
 import type { ThemePreference } from "../theme";
 import { platformExamples } from "../lib/platform";
+import { DiscoveredProjects } from "./discovered-projects";
+import { useDiscovery } from "../lib/discovery";
 
 export type OnboardingPrefs = {
   scanRoots: string;
@@ -20,10 +22,11 @@ const VALUE = [
   { icon: Bot, title: "AI-ready", text: "Start Claude Code in any project, and let AI apps work with your projects through MCP." },
 ];
 
-const STEPS = 3;
+const STEPS = 4;
 
-export function Onboarding({ open, onComplete, onSkip, initialTheme = "system", onPreviewTheme }: {
+export function Onboarding({ open, onComplete, onSkip, initialTheme = "system", onPreviewTheme, onProjectsAdded }: {
   open: boolean;
+  onProjectsAdded?: () => void;
   onComplete: (prefs: OnboardingPrefs) => void;
   onSkip: () => void;
   initialTheme?: ThemePreference;
@@ -32,11 +35,18 @@ export function Onboarding({ open, onComplete, onSkip, initialTheme = "system", 
   const [step, setStep] = useState(0);
   const [scanRoots, setScanRoots] = useState("");
   const [theme, setTheme] = useState<ThemePreference>(initialTheme);
-  const titles = ["Welcome to Pipeline OS", "Make it yours", "Find your creative apps"];
+  const titles = ["Welcome to Pipeline OS", "Make it yours", "Find your creative apps", "Bring in your projects"];
+  const discovery = useDiscovery();
+  const { refresh, scannedAt } = discovery;
+  // Start looking for projects early so the list is ready on the last step.
+  useEffect(() => {
+    if (open && step >= 2 && !scannedAt) void refresh().catch(() => undefined);
+  }, [open, step, scannedAt, refresh]);
   const descriptions = [
     "The local-first home for your game, CG, and VFX projects. No account, no telemetry.",
     "Pick a theme. You can change it any time in Settings.",
     `Pipeline OS looks for engines, DCCs, and editors in ${platformExamples().standardLocations}, and finds your Unity, Unreal, and Godot projects. Add extra folders if you keep tools elsewhere.`,
+    "Unity, Unreal, Godot, and other projects found on this computer. Pick the ones to add now, or add more any time.",
   ];
 
   return (
@@ -68,6 +78,8 @@ export function Onboarding({ open, onComplete, onSkip, initialTheme = "system", 
           </div>
         ) : null}
 
+        {step === 3 ? <div className="py-1"><DiscoveredProjects compact onAdded={() => onProjectsAdded?.()} /></div> : null}
+
         <DialogFooter className="items-center sm:justify-between">
           <span className="flex items-center gap-3">
             <Button variant="ghost" onClick={onSkip}>Skip setup</Button>
@@ -76,7 +88,7 @@ export function Onboarding({ open, onComplete, onSkip, initialTheme = "system", 
           <div className="flex gap-2">
             {step > 0 ? <Button variant="outline" onClick={() => setStep((value) => value - 1)}>Back</Button> : null}
             {step < STEPS - 1 ? <Button onClick={() => setStep((value) => value + 1)}>{step === 0 ? "Get started" : "Continue"}</Button>
-              : <Button onClick={() => onComplete({ scanRoots, theme })}>Scan and finish</Button>}
+              : <Button onClick={() => onComplete({ scanRoots, theme })}>Scan apps and finish</Button>}
           </div>
         </DialogFooter>
       </DialogContent>

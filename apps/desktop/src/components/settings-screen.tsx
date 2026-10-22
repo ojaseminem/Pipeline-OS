@@ -1,12 +1,14 @@
 // Settings, organized like a desktop app's preferences: a section list on the
 // left, one focused page on the right. Everything is stored on this machine.
-import { Bell, Bot, Bug, Check, Download, ExternalLink, FolderSearch, Info, Lock, Palette, RefreshCw, RotateCcw, ScanSearch, SlidersHorizontal } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Bell, Bot, Bug, Check, Download, ExternalLink, FileDown, FileUp, FolderSearch, Info, Lock, Palette, RefreshCw, RotateCcw, ScanSearch, SlidersHorizontal, Trash2 } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { openExternal, type AgentId, type UpdateInfo } from "../bridge";
-import { THEMES, type ThemePreference } from "../theme";
+import { THEME_FILE_EXTENSION, THEMES, captureCurrentTheme, deleteCustomTheme, parseThemeFile, saveCustomTheme, serializeTheme, useCustomThemes, type ThemePreference } from "../theme";
+import { saveTextFile } from "../bridge";
+import { toast } from "sonner";
 import { ACCENTS, SCALES, type Appearance, type Density, type Motion } from "../lib/appearance";
 import { AGENTS } from "../lib/agents";
 import { platformExamples } from "../lib/platform";
@@ -74,19 +76,29 @@ function Segmented<T extends string | number>({ value, options, onChange, label 
 }
 
 export function ThemePicker({ value, onChange }: { value: ThemePreference; onChange: (value: ThemePreference) => void }) {
-  const options: Array<{ id: ThemePreference; name: string; description: string; swatch: readonly string[] }> = [
+  const custom = useCustomThemes();
+  const options: Array<{ id: ThemePreference; name: string; description: string; swatch: readonly string[]; customId?: string }> = [
     { id: "system", name: "Match system", description: "Midnight or Daylight, following your OS.", swatch: ["#151a24", "#f7f8fa", "#4fd1c5"] },
     ...THEMES,
+    ...custom.map((theme) => ({
+      id: `custom:${theme.id}` as ThemePreference,
+      name: theme.name,
+      description: `${theme.author ? `By ${theme.author} · ` : ""}Imported ${theme.mode} theme${theme.glass ? " with glass" : ""}.`,
+      swatch: [theme.tokens.sidebar ?? theme.tokens.background ?? "#000", theme.tokens.card ?? theme.tokens.background ?? "#111", theme.tokens.primary ?? "#888"],
+      customId: theme.id,
+    })),
   ];
   return (
     <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4" role="radiogroup" aria-label="Theme">
       {options.map((option) => (
+        <div key={option.id} className="relative">
+        {option.customId ? <button aria-label={`Remove ${option.name}`} title="Remove theme" className="absolute right-1.5 top-1.5 z-10 rounded-md bg-background/80 p-1 text-muted-foreground hover:text-destructive" onClick={() => { if (value === option.id) onChange("system"); deleteCustomTheme(option.customId ?? ""); }}><Trash2 size={12} /></button> : null}
         <button
           key={option.id}
           role="radio"
           aria-checked={value === option.id}
           onClick={() => onChange(option.id)}
-          className={cn("group rounded-lg border p-2.5 text-left transition-colors", value === option.id ? "border-primary ring-1 ring-primary" : "border-border hover:border-primary/40")}
+          className={cn("group w-full rounded-lg border p-2.5 text-left transition-colors", value === option.id ? "border-primary ring-1 ring-primary" : "border-border hover:border-primary/40")}
         >
           <span className="mb-2 flex h-12 overflow-hidden rounded-md border border-border" aria-hidden>
             <span className="flex-[2]" style={{ background: option.swatch[0] }} />
@@ -95,6 +107,7 @@ export function ThemePicker({ value, onChange }: { value: ThemePreference; onCha
           <span className="flex items-center gap-1.5 text-sm font-medium">{option.name}{value === option.id ? <Check size={13} className="text-primary" /> : null}</span>
           <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span>
         </button>
+        </div>
       ))}
     </div>
   );
@@ -191,7 +204,7 @@ function GeneralSettings(props: SettingsProps) {
 function AppearanceSettings({ preference, setPreference, appearance, onAppearanceChange, onAppearanceReset }: SettingsProps) {
   return (
     <>
-      <Group title="Theme" description="Applies instantly. High contrast boosts text and focus outlines.">
+      <Group title="Theme" description="Applies instantly. Glass and Frost use translucent panels; High contrast boosts text and focus outlines." actions={<ThemeFileActions onImported={setPreference} />}>
         <ThemePicker value={preference} onChange={setPreference} />
       </Group>
       <Group title="Look and feel" actions={<Button variant="ghost" size="sm" onClick={onAppearanceReset}><RotateCcw size={14} /> Reset</Button>}>
@@ -220,6 +233,37 @@ function AppearanceSettings({ preference, setPreference, appearance, onAppearanc
         </Row>
       </Group>
     </>
+  );
+}
+
+/** Import a `.postheme` file, or export what's on screen (theme + accent). */
+function ThemeFileActions({ onImported }: { onImported: (id: ThemePreference) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  async function importFile(file: File) {
+    try {
+      const theme = parseThemeFile(await file.text());
+      onImported(saveCustomTheme(theme));
+      toast.success(`Theme “${theme.name}” imported`);
+    } catch (error) {
+      toast.error("Couldn't import theme", { description: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  async function exportCurrent() {
+    const name = document.querySelector('[role="radiogroup"][aria-label="Theme"] [aria-checked="true"] .font-medium')?.textContent?.trim() || "My theme";
+    const theme = captureCurrentTheme(name === "Match system" ? "My theme" : `${name} (custom)`);
+    try {
+      const saved = await saveTextFile({ defaultName: `${theme.name.replace(/[^\w -]+/g, "").trim() || "theme"}${THEME_FILE_EXTENSION}`, contents: serializeTheme(theme), filterName: "Pipeline OS theme", extensions: [THEME_FILE_EXTENSION.slice(1)] });
+      if (saved) toast.success("Theme exported", { description: saved });
+    } catch (error) {
+      toast.error("Couldn't export theme", { description: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return (
+    <div className="flex shrink-0 gap-1.5">
+      <input ref={input} type="file" accept={`${THEME_FILE_EXTENSION},.json`} className="hidden" aria-label="Theme file" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void importFile(file); }} />
+      <Button variant="outline" size="sm" onClick={() => input.current?.click()}><FileUp size={14} /> Import</Button>
+      <Button variant="outline" size="sm" onClick={() => void exportCurrent()}><FileDown size={14} /> Export</Button>
+    </div>
   );
 }
 

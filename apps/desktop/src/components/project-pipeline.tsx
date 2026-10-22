@@ -3,20 +3,21 @@
 // the repository.
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Copy, MoreHorizontal, Pencil, Play, Plus, ShieldAlert, ShieldCheck, Trash2, Workflow } from "lucide-react";
+import { Copy, MoreHorizontal, Pencil, Play, Plus, ShieldAlert, ShieldCheck, Trash2, Workflow } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { studioApi, studioAvailable, type TaskDefinition, type TaskKind } from "../bridge";
 import { confirmAction } from "../lib/confirm";
 import { EmptyState } from "./empty-state";
 import { RunProgress, RunRow } from "./task-runs";
 import { KIND_ICONS, cliRunCommand } from "../lib/task-meta";
 import { useTaskRuns } from "../lib/task-runs-context";
+import { TaskPresetDialog } from "./task-presets";
 
 const KIND_LABELS: Record<TaskKind, string> = { build: "Build", test: "Test", render: "Render", export: "Export", cook: "Cook / package", script: "Script" };
 
@@ -50,9 +51,9 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
   const queryClient = useQueryClient();
   const { runs, start } = useTaskRuns();
   const tasksQuery = useQuery({ queryKey: ["tasks", projectPath], queryFn: () => studioApi.tasks(projectPath), enabled: available });
-  const templates = useQuery({ queryKey: ["task-templates"], queryFn: () => studioApi.templates(), enabled: available, staleTime: Infinity });
   const [draft, setDraft] = useState<Draft | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [presetsOpen, setPresetsOpen] = useState(false);
   const tasks = useMemo(() => tasksQuery.data?.tasks ?? [], [tasksQuery.data]);
   const trusted = tasksQuery.data?.trusted ?? false;
   const projectRuns = runs.filter((run) => run.projectPath === projectPath);
@@ -103,6 +104,17 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
     if (await save(next, draft.original ? `Saved "${name}"` : `Added "${name}"`)) setDraft(null);
   }
 
+  async function addPresets(added: TaskDefinition[]) {
+    const taken = new Set(tasks.map((task) => task.id));
+    const next = [...tasks];
+    for (const preset of added) {
+      const id = uniqueId(preset.id, taken);
+      taken.add(id);
+      next.push({ ...preset, id });
+    }
+    return save(next, added.length === 1 ? `Added "${added[0].name}"` : `Added ${added.length} tasks`);
+  }
+
   async function remove(task: TaskDefinition) {
     if (!(await confirmAction({ title: `Delete "${task.name}"?`, description: "It's removed from .pipelineos/tasks.toml for everyone once you commit the change.", confirmLabel: "Delete task", destructive: true }))) return;
     await save(tasks.filter((existing) => existing.id !== task.id), `Deleted "${task.name}"`);
@@ -112,20 +124,7 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
     return <EmptyState icon={Workflow} title="Pipeline tasks run in the desktop app" description="Open Pipeline OS on your machine to define and run builds, cooks, renders, and exports." />;
   }
 
-  const addMenu = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild><Button size="sm"><Plus size={14} /> Add task <ChevronDown size={13} className="opacity-70" /></Button></DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72">
-        <DropdownMenuLabel>Start from a template</DropdownMenuLabel>
-        {(templates.data ?? []).map((template) => {
-          const Icon = KIND_ICONS[template.kind];
-          return <DropdownMenuItem key={template.id} onClick={() => addFromTemplate(template)}><Icon size={14} /> {template.name}</DropdownMenuItem>;
-        })}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => addFromTemplate(null)}><Plus size={14} /> Blank task</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+  const addMenu = <Button size="sm" onClick={() => setPresetsOpen(true)}><Plus size={14} /> Add tasks</Button>;
 
   return (
     <div className="space-y-4">
@@ -195,6 +194,7 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
       ) : null}
 
       <TaskEditor draft={draft} onChange={setDraft} onSubmit={() => void submitDraft()} />
+      <TaskPresetDialog open={presetsOpen} onOpenChange={setPresetsOpen} projectPath={projectPath} existing={tasks} onAdd={addPresets} onCustomize={addFromTemplate} />
       <TrustReview open={reviewing} projectPath={projectPath} tasks={tasks} fingerprint={tasksQuery.data?.fingerprint ?? null} onClose={() => setReviewing(false)} onTrusted={() => { setReviewing(false); void refresh(); }} />
     </div>
   );

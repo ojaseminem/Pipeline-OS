@@ -62,7 +62,7 @@ describe("dashboard", () => {
     expect(screen.queryByText("Emberfall")).not.toBeInTheDocument();
   });
 
-  it.each(["Projects", "Applications", "Health", "Tools", "Activity", "Settings"])("opens the %s screen", async (name) => {
+  it.each(["Projects", "Planning", "Applications", "Health", "Tools", "Activity", "Settings"])("opens the %s screen", async (name) => {
     render(<App />);
     await userEvent.click(nav(name));
     expect(screen.getByRole("heading", { level: 1, name })).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe("dashboard", () => {
 
   it("switches screens with Ctrl+number shortcuts", async () => {
     render(<App />);
-    await userEvent.keyboard("{Control>}7{/Control}");
+    await userEvent.keyboard("{Control>}8{/Control}");
     expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
     await userEvent.keyboard("{Control>}2{/Control}");
     expect(screen.getByRole("heading", { level: 1, name: "Projects" })).toBeInTheDocument();

@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { PathInput } from "./path-input";
 import { DiscoveredProjects } from "./discovered-projects";
 import { platformExamples } from "../lib/platform";
+import { useDiscovery } from "../lib/discovery";
 
 /** One place to bring projects in: pick a folder, add what Pipeline OS found
  *  on this computer (all at once or a few), or deep-scan drives (Windows).
@@ -25,6 +26,7 @@ export function AddProjectDialog({ open, onOpenChange, onImport, onScan, scannin
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const found = useDiscovery().projects.length > 0;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -42,6 +44,7 @@ export function AddProjectDialog({ open, onOpenChange, onImport, onScan, scannin
           <DialogTitle>Add a project</DialogTitle>
           <DialogDescription>Any Unity, Unreal, Godot, Blender, or creative folder works. Existing <code>.pipelineos</code> settings (for example from a teammate's commit) are used as-is; otherwise they're created. Tip: you can also drag a folder onto the window.</DialogDescription>
         </DialogHeader>
+        {found ? <div className="rounded-lg border border-primary/30 bg-primary/5 p-3"><DiscoveredProjects compact onAdded={onAdded} /></div> : null}
         <form className="space-y-3" onSubmit={(event) => void submit(event)}>
           <label className="block space-y-1 text-sm"><span className="font-medium">Project folder</span>
             <PathInput ariaLabel="Project path" required directory placeholder={platformExamples().projectFolder} value={path} onChange={setPath} className="w-full" />
@@ -51,7 +54,7 @@ export function AddProjectDialog({ open, onOpenChange, onImport, onScan, scannin
           </label>
           <div className="flex justify-end"><Button type="submit" disabled={busy || !path.trim()}><FolderPlus size={15} /> {busy ? "Adding…" : "Add project"}</Button></div>
         </form>
-        <div className="border-t border-border pt-4"><DiscoveredProjects compact onAdded={onAdded} /></div>
+        {!found ? <div className="border-t border-border pt-4"><DiscoveredProjects compact onAdded={onAdded} /></div> : null}
         {canScanDrives ? <div className="space-y-2 border-t border-border pt-4">
           <div className="text-sm font-medium">Deep scan drives</div>
           <p className="text-xs text-muted-foreground">Scans {driveSummary} for folders that already have Pipeline OS settings, e.g. after reinstalling or on a second drive.</p>

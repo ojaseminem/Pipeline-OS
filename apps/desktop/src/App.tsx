@@ -36,6 +36,7 @@ import {
   Trash2,
   Workflow,
   Wrench,
+  KanbanSquare,
 } from "lucide-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -75,6 +76,7 @@ import { ActivityScreen } from "./components/activity-screen";
 import { REPO_URL, SettingsScreen } from "./components/settings-screen";
 import { AddProjectDialog } from "./components/add-project-dialog";
 import { DiscoveredProjects } from "./components/discovered-projects";
+import { PlanningScreen } from "./components/planning-screen";
 import { useDiscovery } from "./lib/discovery";
 import { getPrefs, setPrefs, usePrefs } from "./lib/prefs";
 import { useAppearance } from "./lib/appearance";
@@ -89,6 +91,7 @@ type UndoEntry = { label: string; undo: () => Promise<void>; redo: () => Promise
 const navigation = [
   ["Home", Home],
   ["Projects", Folder],
+  ["Planning", KanbanSquare],
   ["Applications", Box],
   ["Health", Activity],
   ["Tools", Wrench],
@@ -338,7 +341,7 @@ function AppShell() {
       if (meta && key === "k") { event.preventDefault(); setPaletteOpen((open) => !open); }
       else if (meta && key === "n") { event.preventDefault(); setAddProjectOpen(true); }
       else if (meta && key === ",") { event.preventDefault(); openScreen("Settings"); }
-      else if (meta && /^[1-7]$/.test(key)) { event.preventDefault(); openScreen(navigation[Number(key) - 1][0]); }
+      else if (meta && /^[1-8]$/.test(key)) { event.preventDefault(); openScreen(navigation[Number(key) - 1][0]); }
       else if (meta && key === "z" && !event.shiftKey && !typing) { event.preventDefault(); void undoLast(); }
       else if (meta && (key === "y" || (key === "z" && event.shiftKey)) && !typing) { event.preventDefault(); void redoLast(); }
       else if (event.altKey && key === "arrowleft") { event.preventDefault(); goBack(); }
@@ -485,7 +488,7 @@ function AppShell() {
     setOnboarding(false);
     navigate("Applications");
     if (prefs.scanRoots.trim()) setPrefs({ extraScanFolders: prefs.scanRoots.trim() });
-    if (isNativeRuntime()) { void scanDrives(); void discovery.refresh().catch(() => undefined); }
+    if (isNativeRuntime()) void scanDrives();
   }
   function skipOnboarding() {
     writeFlag("vantadeck.onboarded", true);
@@ -1036,13 +1039,14 @@ function AppShell() {
   else if (activeScreen === "Health") content = <div className="pos-enter"><HealthScreen projects={registeredProjects} onOpenProject={openProject} /></div>;
   else if (activeScreen === "Tools") content = toolsScreen;
   else if (activeScreen === "Activity") content = <ActivityScreen />;
+  else if (activeScreen === "Planning") content = <PlanningScreen projects={allProjects} onOpenProject={(project, tab) => openProject(project, tab)} />;
   else if (activeScreen === "Settings") content = settingsScreen;
   else content = homeScreen;
 
   const paletteRun = (action: () => void) => () => { setPaletteOpen(false); action(); };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="app-shell flex h-screen overflow-hidden bg-background text-foreground">
       {dragOver ? <div className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm"><div className="rounded-2xl border-2 border-dashed border-primary px-10 py-8 text-center"><FolderPlus size={36} className="mx-auto mb-2 text-primary" /><p className="text-lg font-semibold">Drop a folder to add it as a project</p></div></div> : null}
       <aside className={cn("flex flex-none flex-col gap-4 border-r border-sidebar-border bg-sidebar p-3", appearance.appearance.sidebarLabels ? "w-60" : "w-16 items-center")}>
         <div className="flex items-center justify-between px-2 pt-1">
@@ -1091,7 +1095,10 @@ function AppShell() {
             <span className="ml-auto flex shrink-0 gap-1"><Kbd>{keyLabel("Ctrl")}</Kbd><Kbd>K</Kbd></span>
           </button>
           <div className="ml-auto flex items-center gap-2">
-            <Button size="sm" onClick={() => setAddProjectOpen(true)} title="Add project (Ctrl+N)"><FolderPlus size={15} /> Add project</Button>
+            <Button size="sm" className="relative" onClick={() => setAddProjectOpen(true)} title={discovery.projects.length ? `Add project (Ctrl+N) · ${discovery.projects.length} found on this computer` : "Add project (Ctrl+N)"}>
+              <FolderPlus size={15} /> Add project
+              {discovery.projects.length ? <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-background" aria-label={`${discovery.projects.length} projects found`}>{discovery.projects.length}</span> : null}
+            </Button>
           </div>
         </header>
 
@@ -1162,7 +1169,7 @@ function AppShell() {
           onAdded={() => { void invalidate.projects(); reloadDashboard(); }}
         />
         <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-        <Onboarding open={onboarding} onComplete={completeOnboarding} onSkip={skipOnboarding} initialTheme={preference} onPreviewTheme={setPreference} />
+        <Onboarding open={onboarding} onComplete={completeOnboarding} onSkip={skipOnboarding} initialTheme={preference} onPreviewTheme={setPreference} onProjectsAdded={() => { void invalidate.projects(); reloadDashboard(); }} />
         <CommandDialog open={paletteOpen} onOpenChange={setPaletteOpen}>
           <CommandInput placeholder="Type a command or search projects, apps…" />
           <CommandList>

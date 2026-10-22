@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ActiveTimeCard } from "./active-time";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowLeft, Archive, Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Cloud, Download, ExternalLink, FileCode2, Filter, FolderOpen, GitBranch, GitBranchPlus,
@@ -110,6 +111,22 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
   useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab, project.path]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [marked, setMarked] = useState<Set<string>>(new Set());
+  const changesRef = useRef<HTMLDivElement>(null);
+  // A file selection clears with Escape, or a click outside the changes list
+  // (menus and dialogs opened from it don't count).
+  useEffect(() => {
+    if (!marked.size) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setMarked(new Set()); };
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || changesRef.current?.contains(target)) return;
+      if (target.closest("[data-keep-selection], [data-radix-popper-content-wrapper], [role=dialog], [role=alertdialog], [role=menu]")) return;
+      setMarked(new Set());
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onDown); };
+  }, [marked.size]);
   const anchorRef = useRef<number | null>(null);
   const [diffPath, setDiffPath] = useState<string | null>(null);
   const commits = useQuery({ queryKey: ["git-log", project.path], queryFn: () => desktopApi.gitLog(project.path, 30), enabled: native && sourceView === "history", retry: false });
@@ -686,7 +703,7 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="max-w-full justify-start overflow-x-auto">
+        <TabsList className="no-scrollbar max-w-full justify-start overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="source">Source Control</TabsTrigger>
           <TabsTrigger value="pipeline"><Workflow size={14} /> Pipeline</TabsTrigger>
@@ -698,6 +715,7 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
+          <ActiveTimeCard projectPath={project.path} />
           <Card><CardContent className="space-y-3 p-5">
             <h2 className="text-base font-semibold">Launch</h2>
             {profiles.length ? <div className="flex flex-wrap gap-2">{profiles.map((profile) => <Button key={profile.id} variant="outline" size="sm" onClick={() => void run(`Launching ${profile.name}`, () => desktopApi.launchProjectProfile(project.path, profile.id))}><Play size={14} /> {profile.name}</Button>)}</div>
@@ -927,11 +945,11 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
                       <Filter size={13} className="shrink-0 text-muted-foreground" />
                       <Input aria-label="Filter changed files" placeholder="Filter" value={changesFilter} onChange={(e) => setChangesFilter(e.target.value)} className="h-7 border-none bg-transparent px-1 text-sm shadow-none focus-visible:ring-0" />
                     </div>
-                    {marked.size > 0 ? <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1.5 text-sm">
+                    {marked.size > 0 ? <div data-keep-selection className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1.5 text-sm">
                       <span className="text-muted-foreground">{marked.size} selected</span>
-                      <span className="flex items-center gap-1"><Button variant="ghost" size="sm" className="h-7" onClick={() => setMarked(new Set())}>Clear</Button><Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={!native} onClick={discardMarked}><Trash2 size={14} /> Discard selected</Button></span>
+                      <span className="flex items-center gap-1"><Button variant="ghost" size="sm" className="h-7" onClick={() => setMarked(new Set())} title="Clear selection (Esc)">Clear selection</Button><Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={!native} onClick={discardMarked}><Trash2 size={14} /> Discard selected</Button></span>
                     </div> : null}
-                    <div className="flex-1 overflow-y-auto">
+                    <div ref={changesRef} className="flex-1 overflow-y-auto" onClick={(event) => { if (event.target === event.currentTarget) setMarked(new Set()); }}>
                       {(() => {
                         const filtered = (git.data?.changedFiles ?? [])
                           .map((file, index) => ({ file, index }))
