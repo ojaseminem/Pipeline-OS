@@ -999,7 +999,7 @@ mod tests {
             ..Default::default()
         };
         assert!(discover(&sources, &[alias.join("Known")]).is_empty());
-        assert!(discover(&sources, &[project.clone()]).is_empty());
+        assert!(discover(&sources, std::slice::from_ref(&project)).is_empty());
         assert_eq!(path_key(&alias.join("Known")), path_key(&project));
     }
 }
