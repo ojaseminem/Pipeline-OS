@@ -96,7 +96,7 @@ export function PlanningScreen({ projects, onOpenProject }: { projects: Array<{ 
   const doneThisWeek = visible.filter((row) => row.status === "done" && now - Date.parse(row.updatedAt) < WEEK_MS).length;
   const createdThisWeek = visible.filter((row) => now - Date.parse(row.createdAt) < WEEK_MS).length;
   const hot = open.filter((row) => row.priority === "urgent" || row.priority === "high").length;
-  const weekMinutes = (activeTime.data ?? []).filter((entry) => !projectFilter || entry.path === projectFilter).reduce((sum, entry) => sum + entry.weekMinutes, 0);
+  const weekMinutes = (activeTime.data ?? []).filter((entry) => !projectFilter || entry.path === projectFilter).reduce((sum, entry) => sum + entry.minutes, 0);
 
   const filters = (
     <div className="flex flex-wrap items-center gap-2">
@@ -170,7 +170,7 @@ export function PlanningScreen({ projects, onOpenProject }: { projects: Array<{ 
                   <li key={project.path} className="space-y-1.5">
                     <div className="flex items-center gap-2 text-sm">
                       <button className="truncate font-medium hover:text-primary" onClick={() => onOpenProject(project, "board")}>{project.name}</button>
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">{items.length ? `${done}/${items.length} done` : "No issues"}{time?.weekMinutes ? ` · ${formatMinutes(time.weekMinutes)} this week` : ""}</span>
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">{items.length ? `${done}/${items.length} done` : "No issues"}{time?.minutes ? ` · ${formatMinutes(time.minutes)} this week` : ""}</span>
                     </div>
                     <Bar total={items.length} parts={STATUS_COLUMNS.map((column) => ({ label: column.label, value: items.filter((row) => row.status === column.id).length, className: STATUS_COLORS[column.id] }))} />
                   </li>

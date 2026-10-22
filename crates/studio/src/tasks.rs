@@ -105,6 +105,7 @@ pub fn save_tasks(root: &Path, tasks: &[TaskDefinition]) -> Result<(), StudioErr
     let header = "# Pipeline OS tasks: repeatable project commands (builds, renders, exports).\n\
                   # Each task is an argument vector, never a shell string. Variables:\n\
                   # ${project} project root, ${engine} resolved engine executable,\n\
+                  # ${engineDir} engine install root (Unreal: the folder holding Engine/),\n\
                   # ${projectName}, ${date} (YYYY-MM-DD), ${time} (HHMMSS).\n\n";
     write_atomic(&tasks_path(root), &format!("{header}{body}"))
 }
@@ -207,120 +208,30 @@ fn trust_key(root: &Path) -> String {
         .to_owned()
 }
 
-/// Ready-made tasks for common engines and DCCs, offered when adding a task.
+/// Ready-made tasks for common engines and DCCs, offered when adding a task:
+/// every preset's definition (see [`crate::task_presets`] for the grouped,
+/// project-aware list).
 pub fn task_templates() -> Vec<TaskDefinition> {
-    let task = |id: &str, name: &str, kind, description: &str, program: &str, args: &[&str]| {
-        TaskDefinition {
-            id: id.into(),
-            name: name.into(),
-            kind,
-            description: Some(description.into()),
-            program: program.into(),
-            args: args.iter().map(|a| (*a).to_owned()).collect(),
-            cwd: None,
-            env: BTreeMap::new(),
-        }
-    };
-    vec![
-        task(
-            "unity-build-win64",
-            "Unity: Build Windows (batch mode)",
-            TaskKind::Build,
-            "Headless Unity build. Requires a static build method in an Editor script, e.g. BuildScript.PerformBuild.",
-            "${engine}",
-            &[
-                "-batchmode",
-                "-quit",
-                "-nographics",
-                "-projectPath",
-                "${project}",
-                "-buildTarget",
-                "Win64",
-                "-executeMethod",
-                "BuildScript.PerformBuild",
-                "-logFile",
-                "-",
-            ],
-        ),
-        task(
-            "unity-tests",
-            "Unity: Run EditMode tests",
-            TaskKind::Test,
-            "Runs the EditMode test suite headlessly and writes results to Builds/test-results.xml.",
-            "${engine}",
-            &[
-                "-batchmode",
-                "-nographics",
-                "-projectPath",
-                "${project}",
-                "-runTests",
-                "-testPlatform",
-                "EditMode",
-                "-testResults",
-                "${project}/Builds/test-results.xml",
-                "-logFile",
-                "-",
-            ],
-        ),
-        task(
-            "unreal-buildcookrun",
-            "Unreal: BuildCookRun Win64 Development",
-            TaskKind::Cook,
-            "Builds, cooks, stages, and packages via RunUAT. Point the program at your engine's Engine/Build/BatchFiles/RunUAT.bat.",
-            "RunUAT.bat",
-            &[
-                "BuildCookRun",
-                "-project=${project}/${projectName}.uproject",
-                "-platform=Win64",
-                "-clientconfig=Development",
-                "-build",
-                "-cook",
-                "-stage",
-                "-pak",
-                "-archive",
-                "-archivedirectory=${project}/Builds/${date}",
-                "-unattended",
-                "-utf8output",
-            ],
-        ),
-        task(
-            "godot-export",
-            "Godot: Export release build",
-            TaskKind::Export,
-            "Exports the \"Windows Desktop\" preset headlessly. Adjust the preset name to match export_presets.cfg.",
-            "${engine}",
-            &[
-                "--headless",
-                "--path",
-                "${project}",
-                "--export-release",
-                "Windows Desktop",
-                "${project}/Builds/${projectName}.exe",
-            ],
-        ),
-        task(
-            "blender-render",
-            "Blender: Render animation",
-            TaskKind::Render,
-            "Renders the scene's frame range in the background. Set the .blend file path.",
-            "${engine}",
-            &[
-                "-b",
-                "${project}/scene.blend",
-                "-o",
-                "${project}/Renders/${date}/frame_####",
-                "-a",
-            ],
-        ),
-        task(
-            "custom-script",
-            "Custom script",
-            TaskKind::Script,
-            "Any program with arguments, e.g. python tools/export.py.",
-            "python",
-            &["tools/script.py"],
-        ),
-    ]
+    crate::task_presets::all_preset_definitions()
+}
+
+/// The engine's install root from its executable: for Unreal the folder that
+/// contains `Engine/`, for a macOS app bundle the folder holding the `.app`,
+/// otherwise the executable's folder.
+fn engine_dir(engine: &Path) -> Option<PathBuf> {
+    if let Some(engine_folder) = engine
+        .ancestors()
+        .find(|dir| dir.file_name().is_some_and(|name| name == "Engine"))
+    {
+        return engine_folder.parent().map(Path::to_path_buf);
+    }
+    if let Some(bundle) = engine.ancestors().find(|dir| {
+        dir.extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+    }) {
+        return bundle.parent().map(Path::to_path_buf);
+    }
+    engine.parent().map(Path::to_path_buf)
 }
 
 /// Values substituted into `${name}` placeholders.
@@ -339,6 +250,9 @@ impl TaskVariables {
         values.insert("time".into(), now.format("%H%M%S").to_string());
         if let Some(engine) = engine {
             values.insert("engine".into(), engine.display().to_string());
+            if let Some(dir) = engine_dir(engine) {
+                values.insert("engineDir".into(), dir.display().to_string());
+            }
         }
         Self { values }
     }
@@ -357,7 +271,7 @@ impl TaskVariables {
             }
         });
         match missing {
-            Some(key) if key == "engine" => Err(StudioError::Invalid(
+            Some(key) if key == "engine" || key == "engineDir" => Err(StudioError::Invalid(
                 "this task uses ${engine}, but no engine executable was found for the project; link an engine or set its version".into(),
             )),
             Some(key) => Err(StudioError::Invalid(format!("unknown variable ${{{key}}}"))),
@@ -677,6 +591,12 @@ mod tests {
         let resolved = resolve_task(root, &sample("a"), &vars).unwrap();
         assert_eq!(resolved.program, "/apps/unity");
         assert_eq!(resolved.args[1], "/work/Game");
+        let unreal = TaskVariables::for_project(
+            root,
+            "Game",
+            Some(Path::new("/epic/UE_5.4/Engine/Binaries/Linux/UnrealEditor")),
+        );
+        assert_eq!(unreal.values["engineDir"], "/epic/UE_5.4");
         let no_engine = TaskVariables::for_project(root, "Game", None);
         let error = resolve_task(root, &sample("a"), &no_engine).unwrap_err();
         assert!(error.to_string().contains("engine"), "{error}");
@@ -706,7 +626,7 @@ mod tests {
     fn every_template_is_valid() {
         let templates = task_templates();
         validate_tasks(&templates).unwrap();
-        assert!(templates.len() >= 5);
+        assert!(templates.len() >= 30);
     }
 
     #[test]

@@ -125,9 +125,18 @@ pub fn apply_layout(root: &Path, layout_id: &str) -> Result<LayoutResult, Studio
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AssetKind {
+    /// Flat or texture images (PNG, EXR, DDS...).
     Image,
+    /// Layered or procedural sources (PSD, Krita, Substance, ZBrush...).
     Source,
+    /// Interchange meshes (FBX, OBJ, glTF...).
     Model,
+    /// DCC scene files and USD stages (Blender, Maya, Houdini, USD...).
+    Scene,
+    /// Baked caches and volumes (Alembic, OpenVDB).
+    Cache,
+    /// Rigging and animation sources (Spine, BVH).
+    Animation,
     Video,
     Audio,
     Document,
@@ -137,14 +146,17 @@ pub fn asset_kind(path: &Path) -> Option<AssetKind> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     Some(match ext.as_str() {
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tga" | "tif" | "tiff" | "exr"
-        | "hdr" | "dds" => AssetKind::Image,
-        "psd" | "psb" | "kra" | "clip" | "procreate" | "afphoto" | "xcf" | "ai" | "svg" | "spp"
-        | "sbs" | "sbsar" | "ztl" | "zpr" => AssetKind::Source,
-        "fbx" | "obj" | "gltf" | "glb" | "usd" | "usda" | "usdc" | "usdz" | "abc" | "blend"
-        | "ma" | "mb" | "max" | "c4d" | "hip" | "hipnc" => AssetKind::Model,
+        | "hdr" | "dds" | "ktx" | "ktx2" | "avif" | "heic" => AssetKind::Image,
+        "psd" | "psb" | "kra" | "clip" | "procreate" | "afphoto" | "afdesign" | "xcf" | "ai"
+        | "svg" | "aseprite" | "ase" | "spp" | "sbs" | "sbsar" | "ztl" | "zpr" => AssetKind::Source,
+        "fbx" | "obj" | "gltf" | "glb" | "dae" | "stl" | "ply" | "3ds" => AssetKind::Model,
+        "usd" | "usda" | "usdc" | "usdz" | "blend" | "ma" | "mb" | "max" | "c4d" | "hip"
+        | "hiplc" | "hipnc" | "tbscene" => AssetKind::Scene,
+        "abc" | "vdb" => AssetKind::Cache,
+        "spine" | "bvh" => AssetKind::Animation,
         "mp4" | "mov" | "webm" | "mkv" | "avi" => AssetKind::Video,
         "wav" | "ogg" | "mp3" | "flac" | "aif" | "aiff" => AssetKind::Audio,
-        "pdf" | "md" | "docx" | "pptx" | "xlsx" => AssetKind::Document,
+        "pdf" | "md" | "docx" | "pptx" | "xlsx" | "txt" => AssetKind::Document,
         _ => return None,
     })
 }
@@ -371,6 +383,38 @@ mod tests {
         let hero = index.assets.iter().find(|a| a.name == "hero.png").unwrap();
         assert_eq!(hero.kind, AssetKind::Image);
         assert_eq!(hero.folder, "Art/Concept");
+    }
+
+    #[test]
+    fn classifies_creative_formats() {
+        let cases = [
+            ("shot.usdz", AssetKind::Scene),
+            ("set.usda", AssetKind::Scene),
+            ("hero.blend", AssetKind::Scene),
+            ("rig.mb", AssetKind::Scene),
+            ("fx.hiplc", AssetKind::Scene),
+            ("look.tbscene", AssetKind::Scene),
+            ("sim.abc", AssetKind::Cache),
+            ("smoke.vdb", AssetKind::Cache),
+            ("hero.spine", AssetKind::Animation),
+            ("crate.GLB", AssetKind::Model),
+            ("part.stl", AssetKind::Model),
+            ("prop.dae", AssetKind::Model),
+            ("sprite.aseprite", AssetKind::Source),
+            ("logo.afdesign", AssetKind::Source),
+            ("bust.ztl", AssetKind::Source),
+            ("rock.sbsar", AssetKind::Source),
+            ("albedo.ktx2", AssetKind::Image),
+            ("sky.exr", AssetKind::Image),
+            ("theme.flac", AssetKind::Audio),
+            ("cut.mkv", AssetKind::Video),
+            ("notes.txt", AssetKind::Document),
+        ];
+        for (file, kind) in cases {
+            assert_eq!(asset_kind(Path::new(file)), Some(kind), "{file}");
+        }
+        assert_eq!(asset_kind(Path::new("Player.cs")), None);
+        assert_eq!(asset_kind(Path::new("README")), None);
     }
 
     #[test]

@@ -5321,6 +5321,7 @@ version = "0.4.12"
 dependencies = [
  "async-trait",
  "chrono",
+ "regex",
  "serde",
  "tempfile",
  "thiserror 2.0.18",

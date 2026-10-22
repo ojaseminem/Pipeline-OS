@@ -272,7 +272,7 @@ export type Issue = {
 export type NewIssue = { title: string; status?: IssueStatus; priority?: IssuePriority; kind?: IssueKind; assignee?: string | null; labels?: string[]; files?: string[]; body?: string };
 export type ProjectIssue = Issue & { projectName: string; projectPath: string };
 
-export type AssetKind = "image" | "source" | "model" | "video" | "audio" | "document";
+export type AssetKind = "image" | "source" | "model" | "scene" | "cache" | "animation" | "video" | "audio" | "document";
 export type ReviewStatus = "none" | "wip" | "review" | "approved" | "rejected";
 export type AssetMeta = { status: ReviewStatus; note?: string | null; owner?: string | null };
 export type AssetEntry = { path: string; name: string; folder: string; kind: AssetKind; size: number; modified: number; meta: AssetMeta };
@@ -286,7 +286,7 @@ export type SyncSummary = { created: number; updated: number; unchanged: number 
 export type SelfHostResult = { composePath: string; dockerAvailable: boolean; started: boolean; url: string };
 export type CliInfo = { cliPath: string | null; channel: "stable" | "dev"; mcpArgs: string[] };
 export type AgentId = "claude" | "codex" | "gemini" | "aider";
-export type ProjectEngine = "unity" | "unreal" | "godot" | "pipeline-os";
+export type ProjectEngine = "unity" | "unreal" | "godot" | "pipeline-os" | "gamemaker" | "defold" | "blender" | "houdini" | "maya" | "spine" | "xcode" | "android-studio" | "visual-studio";
 export type DiscoveredProject = { path: string; name: string; engine: ProjectEngine; engineVersion: string | null; source: string; modified: number };
 export type Discovery = { projects: DiscoveredProject[]; scannedAt: string | null };
 export type AiClientStatus = { id: string; name: string; installed: boolean; configured: boolean; configPath: string; problem: string | null };
@@ -294,7 +294,7 @@ export type AiSetupState = { clients: AiClientStatus[]; agentClis: string[]; can
 export type AiConfigureResult = { id: string; ok: boolean; error: string | null };
 export type EngineKind = "unreal" | "unity";
 export type ActiveTimeSummary = { todayMinutes: number; weekMinutes: number; totalMinutes: number; lastActive: string | null; days: Array<{ date: string; minutes: number }> };
-export type ProjectActiveTime = { path: string; weekMinutes: number; totalMinutes: number };
+export type ProjectActiveTime = { path: string; minutes: number; totalMinutes: number; lastActive: string | null };
 export type EngineActivityKind = "lighting" | "shaders" | "cook" | "compile" | "build" | "import";
 export type EngineActivity = {
   id: string; engine: EngineKind; projectPath: string | null; projectName: string | null;

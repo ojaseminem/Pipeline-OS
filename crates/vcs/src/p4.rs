@@ -643,6 +643,7 @@ fn operation_result(output: Output) -> VcsOperationResult {
     VcsOperationResult {
         stdout: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        attempts: 1,
     }
 }
 

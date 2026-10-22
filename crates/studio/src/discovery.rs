@@ -6,11 +6,15 @@
 //! folders people actually keep projects in. It finishes in well under a
 //! second on a typical machine, so the app can run it on every launch and
 //! keep the results cached.
+//!
+//! Besides engine projects it recognizes other creative and app projects
+//! (GameMaker, Defold, Xcode, Android Studio, Visual Studio, and DCC working
+//! folders for Blender, Houdini, Maya and Spine) so they can be added too.
 
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +26,26 @@ pub enum ProjectEngine {
     Unreal,
     Godot,
     PipelineOs,
+    #[serde(rename = "gamemaker")]
+    GameMaker,
+    Defold,
+    Blender,
+    Houdini,
+    Maya,
+    Spine,
+    Xcode,
+    AndroidStudio,
+    VisualStudio,
+}
+
+impl ProjectEngine {
+    /// Loose DCC working folders (a folder of `.blend`/`.hip`/`.spine`
+    /// files). They are only recognized below a scanned folder, never as the
+    /// scanned folder itself, so `~/Desktop` with one `.blend` on it is not
+    /// taken for a project.
+    pub fn is_loose_folder(self) -> bool {
+        matches!(self, Self::Blender | Self::Houdini | Self::Spine)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,9 +69,20 @@ pub struct DiscoverySources {
     pub unity_hub_lists: Vec<PathBuf>,
     pub unreal_settings_globs: Vec<String>,
     pub godot_lists: Vec<PathBuf>,
+    /// Unity Hub `projectDir.json` files naming the default projects folder.
+    pub unity_hub_project_dirs: Vec<PathBuf>,
     pub folders: Vec<PathBuf>,
     pub max_depth: usize,
+    /// Directories visited per scanned folder (0: [`DEFAULT_MAX_DIRS`]).
+    pub max_dirs: usize,
+    /// Overall time budget for the folder pass (`None`: [`DEFAULT_BUDGET`]).
+    pub time_budget: Option<Duration>,
 }
+
+/// Default cap on directories visited under one scanned folder.
+pub const DEFAULT_MAX_DIRS: usize = 25_000;
+/// Default time budget for the whole folder pass.
+pub const DEFAULT_BUDGET: Duration = Duration::from_secs(8);
 
 impl DiscoverySources {
     pub fn system() -> Self {
@@ -80,6 +115,9 @@ impl DiscoverySources {
             sources
                 .unity_hub_lists
                 .push(config.join("UnityHub/projects-v1.json"));
+            sources
+                .unity_hub_project_dirs
+                .push(config.join("UnityHub/projectDir.json"));
             sources.godot_lists.push(config.join("Godot/projects.cfg"));
         }
         if let Some(local) = &local {
@@ -118,14 +156,29 @@ impl DiscoverySources {
             "Unreal Projects",
             "Godot",
             "Games",
+            "Documents/Unreal Projects",
+            "Documents/Unity Projects",
+            "Documents/GameMakerStudio2",
+            "AndroidStudioProjects",
+            "Xcode Projects",
         ] {
             sources.folders.push(home.join(folder));
         }
-        // Windows: project folders at the root of every drive.
         if cfg!(windows) {
+            // OneDrive moves Documents/Desktop when folder backup is on.
+            for var in ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"] {
+                if let Some(onedrive) = std::env::var_os(var).map(PathBuf::from) {
+                    for folder in ["Documents", "Desktop", "Documents/Unreal Projects"] {
+                        sources.folders.push(onedrive.join(folder));
+                    }
+                }
+            }
+            // Project folders at the root of every fixed (local) drive.
+            // Network and removable drives are skipped: probing them can
+            // stall or wake hardware.
             for letter in b'C'..=b'Z' {
                 let drive = PathBuf::from(format!("{}:\\", letter as char));
-                if !drive.is_dir() {
+                if !is_fixed_drive(&drive) {
                     continue;
                 }
                 for folder in [
@@ -137,7 +190,11 @@ impl DiscoverySources {
                     "Repos",
                     "Work",
                     "Unity",
+                    "UnityProjects",
+                    "Unity Projects",
+                    "Unreal",
                     "Unreal Projects",
+                    "Godot",
                 ] {
                     sources.folders.push(drive.join(folder));
                 }
@@ -148,6 +205,29 @@ impl DiscoverySources {
         sources.folders.dedup();
         sources
     }
+}
+
+#[cfg(windows)]
+fn is_fixed_drive(root: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetDriveTypeW(root_path_name: *const u16) -> u32;
+    }
+    const DRIVE_FIXED: u32 = 3;
+    let wide: Vec<u16> = root
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `wide` is a NUL-terminated UTF-16 buffer alive for the call.
+    unsafe { GetDriveTypeW(wide.as_ptr()) == DRIVE_FIXED }
+}
+
+#[cfg(not(windows))]
+fn is_fixed_drive(root: &Path) -> bool {
+    root.is_dir()
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -197,6 +277,75 @@ pub fn identify_project(dir: &Path) -> Option<(ProjectEngine, Option<String>, Pa
     if pipeline.is_file() {
         return Some((ProjectEngine::PipelineOs, None, pipeline));
     }
+    identify_other(dir)
+}
+
+/// Non-engine project types, by marker files at the folder's top level.
+fn identify_other(dir: &Path) -> Option<(ProjectEngine, Option<String>, PathBuf)> {
+    let mut files: Vec<(String, PathBuf, bool)> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .take(2_000)
+        .filter_map(|entry| {
+            let is_dir = entry.file_type().ok()?.is_dir();
+            Some((
+                entry.file_name().to_string_lossy().to_ascii_lowercase(),
+                entry.path(),
+                is_dir,
+            ))
+        })
+        .collect();
+    files.sort();
+    let with_ext = |exts: &[&str], want_dir: bool| {
+        files.iter().find_map(|(name, path, is_dir)| {
+            let ext = Path::new(name).extension()?.to_str()?;
+            (*is_dir == want_dir && exts.contains(&ext)).then(|| path.clone())
+        })
+    };
+    let named = |file: &str| {
+        files
+            .iter()
+            .find(|(name, _, is_dir)| !is_dir && name == file)
+            .map(|(_, path, _)| path.clone())
+    };
+    if let Some(yyp) = with_ext(&["yyp"], false) {
+        static IDE_VERSION: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let pattern = IDE_VERSION
+            .get_or_init(|| regex::Regex::new(r#""IDEVersion"\s*:\s*"([^"]+)""#).expect("regex"));
+        let version = std::fs::read_to_string(&yyp)
+            .ok()
+            .and_then(|raw| pattern.captures(&raw).map(|caps| caps[1].to_owned()));
+        return Some((ProjectEngine::GameMaker, version, yyp));
+    }
+    if let Some(defold) = named("game.project") {
+        return Some((ProjectEngine::Defold, None, defold));
+    }
+    if let Some(xcode) = with_ext(&["xcworkspace", "xcodeproj"], true) {
+        return Some((ProjectEngine::Xcode, None, xcode));
+    }
+    let has_app = files
+        .iter()
+        .any(|(name, _, is_dir)| *is_dir && name == "app");
+    if has_app
+        && let Some(settings) = named("settings.gradle.kts").or_else(|| named("settings.gradle"))
+    {
+        return Some((ProjectEngine::AndroidStudio, None, settings));
+    }
+    if let Some(sln) = with_ext(&["sln", "slnx"], false) {
+        return Some((ProjectEngine::VisualStudio, None, sln));
+    }
+    if let Some(workspace) = named("workspace.mel") {
+        return Some((ProjectEngine::Maya, None, workspace));
+    }
+    if let Some(hip) = with_ext(&["hip", "hiplc", "hipnc"], false) {
+        return Some((ProjectEngine::Houdini, None, hip));
+    }
+    if let Some(spine) = with_ext(&["spine"], false) {
+        return Some((ProjectEngine::Spine, None, spine));
+    }
+    if let Some(blend) = with_ext(&["blend"], false) {
+        return Some((ProjectEngine::Blender, None, blend));
+    }
     None
 }
 
@@ -211,7 +360,10 @@ fn modified(path: &Path) -> u64 {
 
 fn project_name(dir: &Path, engine: ProjectEngine, marker: &Path) -> String {
     match engine {
-        ProjectEngine::Unreal => marker.file_stem(),
+        ProjectEngine::Unreal
+        | ProjectEngine::GameMaker
+        | ProjectEngine::Xcode
+        | ProjectEngine::VisualStudio => marker.file_stem(),
         _ => dir.file_name(),
     }
     .map(|name| name.to_string_lossy().into_owned())
@@ -270,6 +422,25 @@ pub fn unreal_recent_projects(raw: &str) -> Vec<PathBuf> {
     out
 }
 
+/// Folders new Unreal projects were created in (`CreatedProjectPaths=`).
+pub fn unreal_created_project_dirs(raw: &str) -> Vec<PathBuf> {
+    raw.lines()
+        .filter_map(|line| line.trim().strip_prefix("CreatedProjectPaths="))
+        .map(|value| value.trim().trim_matches('"'))
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// The default projects folder from Unity Hub's `projectDir.json`.
+pub fn unity_hub_project_dir(raw: &str) -> Option<PathBuf> {
+    let json = serde_json::from_str::<serde_json::Value>(raw).ok()?;
+    json.get("directoryPath")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
 /// Project folders from Godot's `projects.cfg` (`[path]` section headers).
 pub fn godot_projects(raw: &str) -> Vec<PathBuf> {
     raw.lines()
@@ -284,6 +455,17 @@ pub fn godot_projects(raw: &str) -> Vec<PathBuf> {
 
 const SKIP: &[&str] = &[
     "node_modules",
+    "ShaderCache",
+    "UserSettings",
+    "Pods",
+    "DerivedData",
+    "bower_components",
+    "$RECYCLE.BIN",
+    "System Volume Information",
+    "Windows",
+    "Program Files",
+    "Program Files (x86)",
+    "ProgramData",
     "Library",
     "Temp",
     "Logs",
@@ -306,13 +488,32 @@ const SKIP: &[&str] = &[
     "target",
 ];
 
-fn scan_folder(root: &Path, max_depth: usize, found: &mut BTreeMap<String, DiscoveredProject>) {
-    let mut walker = walkdir_lite(root, max_depth);
-    while let Some(dir) = walker.next_dir() {
-        if identify_project(&dir).is_some() {
-            record(found, &dir, "folders");
-            walker.skip_children_of(&dir);
+fn scan_folder(
+    root: &Path,
+    sources: &DiscoverySources,
+    deadline: Instant,
+    found: &mut BTreeMap<String, DiscoveredProject>,
+) {
+    let max_dirs = if sources.max_dirs == 0 {
+        DEFAULT_MAX_DIRS
+    } else {
+        sources.max_dirs
+    };
+    let mut walker = walkdir_lite(root, sources.max_depth);
+    let mut visited = 0;
+    while let Some((dir, depth)) = walker.next_dir() {
+        visited += 1;
+        if visited > max_dirs || Instant::now() >= deadline {
+            break;
         }
+        let Some((engine, ..)) = identify_project(&dir) else {
+            continue;
+        };
+        if depth == 0 && engine.is_loose_folder() {
+            continue;
+        }
+        record(found, &dir, "folders");
+        walker.skip_children_of(&dir);
     }
 }
 
@@ -331,11 +532,11 @@ fn walkdir_lite(root: &Path, max_depth: usize) -> WalkLite {
 }
 
 impl WalkLite {
-    /// Returns the next directory, queueing its children; call
+    /// Returns the next directory and its depth, queueing its children; call
     /// [`Self::skip_children_of`] to drop them again.
-    fn next_dir(&mut self) -> Option<PathBuf> {
+    fn next_dir(&mut self) -> Option<(PathBuf, usize)> {
         let (dir, depth) = self.queue.pop_front()?;
-        Some(self.expand(dir, depth))
+        Some((self.expand(dir, depth), depth))
     }
 
     fn expand(&mut self, dir: PathBuf, depth: usize) -> PathBuf {
@@ -351,7 +552,11 @@ impl WalkLite {
                 }
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if (name.starts_with('.') && name != ".pipelineos") || SKIP.contains(&name.as_ref())
+                if (name.starts_with('.') && name != ".pipelineos")
+                    || SKIP.contains(&name.as_ref())
+                    || name.ends_with(".xcodeproj")
+                    || name.ends_with(".xcworkspace")
+                    || name.ends_with(".app")
                 {
                     continue;
                 }
@@ -378,6 +583,15 @@ pub fn discover(sources: &DiscoverySources, known: &[PathBuf]) -> Vec<Discovered
             }
         }
     }
+    let mut folders = sources.folders.clone();
+    for list in &sources.unity_hub_project_dirs {
+        if let Some(dir) = std::fs::read_to_string(list)
+            .ok()
+            .and_then(|raw| unity_hub_project_dir(&raw))
+        {
+            folders.push(dir);
+        }
+    }
     for pattern in &sources.unreal_settings_globs {
         let Ok(paths) = glob_paths(pattern) else {
             continue;
@@ -389,6 +603,7 @@ pub fn discover(sources: &DiscoverySources, known: &[PathBuf]) -> Vec<Discovered
                         record(&mut found, dir, "unreal-recent");
                     }
                 }
+                folders.extend(unreal_created_project_dirs(&raw));
             }
         }
     }
@@ -399,8 +614,24 @@ pub fn discover(sources: &DiscoverySources, known: &[PathBuf]) -> Vec<Discovered
             }
         }
     }
-    for folder in &sources.folders {
-        scan_folder(folder, sources.max_depth, &mut found);
+    // Scan each folder once, skipping ones inside an already-listed folder.
+    folders.retain(|folder| folder.is_dir());
+    folders.sort();
+    folders.dedup();
+    let mut scanned: Vec<PathBuf> = Vec::new();
+    let deadline = Instant::now() + sources.time_budget.unwrap_or(DEFAULT_BUDGET);
+    for folder in folders {
+        // Already covered by an earlier scan of a parent folder.
+        let covered = scanned.iter().any(|done| {
+            folder
+                .strip_prefix(done)
+                .is_ok_and(|rest| rest.components().count() < sources.max_depth.max(1))
+        });
+        if covered {
+            continue;
+        }
+        scan_folder(&folder, sources, deadline, &mut found);
+        scanned.push(folder);
     }
     let known: Vec<String> = known
         .iter()
@@ -563,6 +794,151 @@ mod tests {
         assert_eq!(mech.engine_version.as_deref(), Some("5.4"));
         let atlas = found.iter().find(|p| p.name == "Atlas").unwrap();
         assert_eq!(atlas.engine_version.as_deref(), Some("4.3"));
+    }
+
+    #[test]
+    fn identifies_other_project_types() {
+        let root = tempfile::tempdir().unwrap();
+        let case = |name: &str, files: &[&str]| {
+            let dir = root.path().join(name);
+            for file in files {
+                if let Some(folder) = file.strip_suffix('/') {
+                    std::fs::create_dir_all(dir.join(folder)).unwrap();
+                } else {
+                    write(
+                        &dir.join(file),
+                        "{\"MetaData\": {\"IDEVersion\": \"2024.8.1.171\"}}",
+                    );
+                }
+            }
+            identify_project(&dir).map(|(engine, version, _)| (engine, version))
+        };
+        assert_eq!(
+            case("Gm", &["Gm.yyp"]),
+            Some((ProjectEngine::GameMaker, Some("2024.8.1.171".into())))
+        );
+        assert_eq!(
+            case("Df", &["game.project"]).unwrap().0,
+            ProjectEngine::Defold
+        );
+        assert_eq!(
+            case("Xc", &["App.xcodeproj/"]).unwrap().0,
+            ProjectEngine::Xcode
+        );
+        assert_eq!(
+            case("As", &["settings.gradle.kts", "app/"]).unwrap().0,
+            ProjectEngine::AndroidStudio
+        );
+        assert_eq!(case("Gradle", &["settings.gradle"]), None, "needs app/");
+        assert_eq!(
+            case("Vs", &["Tool.sln"]).unwrap().0,
+            ProjectEngine::VisualStudio
+        );
+        assert_eq!(
+            case("My", &["workspace.mel"]).unwrap().0,
+            ProjectEngine::Maya
+        );
+        assert_eq!(
+            case("Hou", &["fx.hiplc"]).unwrap().0,
+            ProjectEngine::Houdini
+        );
+        assert_eq!(case("Sp", &["hero.spine"]).unwrap().0, ProjectEngine::Spine);
+        assert_eq!(
+            case("Bl", &["shot.blend"]).unwrap().0,
+            ProjectEngine::Blender
+        );
+        assert_eq!(case("Empty", &["notes.txt"]), None);
+        // Unity wins over the .sln it generates.
+        let unity_dir = root.path().join("U");
+        unity(&unity_dir, "6000.0.1f1");
+        write(&unity_dir.join("U.sln"), "");
+        assert_eq!(
+            identify_project(&unity_dir).unwrap().0,
+            ProjectEngine::Unity
+        );
+        assert_eq!(
+            serde_json::to_value(ProjectEngine::GameMaker).unwrap(),
+            "gamemaker"
+        );
+        assert_eq!(
+            serde_json::to_value(ProjectEngine::AndroidStudio).unwrap(),
+            "android-studio"
+        );
+    }
+
+    #[test]
+    fn loose_dcc_folders_and_extra_sources() {
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path();
+        // A .blend sitting on the scanned folder itself is not a project...
+        write(&root.join("Desktop/quick.blend"), "");
+        // ...but a folder of .blend files below it is.
+        write(&root.join("Desktop/Shorts/shot010.blend"), "");
+        // Never descended into: generated folders.
+        write(&root.join("Desktop/node_modules/pkg/x.blend"), "");
+        // Unity Hub's default project folder and Unreal's created-projects
+        // folder are scanned too.
+        let hub_dir = root.join("HubProjects");
+        unity(&hub_dir.join("Comet"), "2022.3.1f1");
+        write(
+            &root.join("config/UnityHub/projectDir.json"),
+            &format!(r#"{{"directoryPath":"{}"}}"#, slash(&hub_dir)),
+        );
+        let created = root.join("UnrealCreated");
+        write(&created.join("Rift/Rift.uproject"), "{}");
+        let settings = root.join("UnrealEngine/5.4/Saved/Config/WindowsEditor/EditorSettings.ini");
+        write(
+            &settings,
+            &format!(
+                "[/Script/UnrealEd.EditorSettings]\nCreatedProjectPaths={}\n",
+                slash(&created)
+            ),
+        );
+        let sources = DiscoverySources {
+            unity_hub_project_dirs: vec![root.join("config/UnityHub/projectDir.json")],
+            unreal_settings_globs: vec![format!(
+                "{}/UnrealEngine/*/Saved/Config/*/EditorSettings.ini",
+                slash(root)
+            )],
+            folders: vec![root.join("Desktop")],
+            max_depth: 4,
+            ..Default::default()
+        };
+        let found = discover(&sources, &[]);
+        let names: Vec<_> = found.iter().map(|p| (p.name.as_str(), p.engine)).collect();
+        assert!(
+            names.contains(&("Shorts", ProjectEngine::Blender)),
+            "{names:?}"
+        );
+        assert!(
+            names.contains(&("Comet", ProjectEngine::Unity)),
+            "{names:?}"
+        );
+        assert!(
+            names.contains(&("Rift", ProjectEngine::Unreal)),
+            "{names:?}"
+        );
+        assert!(
+            !names.iter().any(|(n, _)| *n == "Desktop" || *n == "pkg"),
+            "{names:?}"
+        );
+    }
+
+    #[test]
+    fn walker_respects_the_directory_cap() {
+        let home = tempfile::tempdir().unwrap();
+        for i in 0..20 {
+            std::fs::create_dir_all(home.path().join(format!("Projects/d{i:02}"))).unwrap();
+        }
+        write(&home.path().join("Projects/zz/Late/game.project"), "");
+        let sources = |max_dirs| DiscoverySources {
+            folders: vec![home.path().join("Projects")],
+            max_depth: 4,
+            max_dirs,
+            ..Default::default()
+        };
+        assert_eq!(discover(&sources(0), &[]).len(), 1);
+        assert!(discover(&sources(5), &[]).is_empty());
     }
 
     #[test]

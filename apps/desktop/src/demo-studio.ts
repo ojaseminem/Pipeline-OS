@@ -6,7 +6,7 @@ import type { AiClientStatus, AssetEntry, DiscoveredProject, EngineActivity, Ass
 const iso = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60_000).toISOString().replace(/\.\d+Z$/, "Z");
 
 const templates: TaskDefinition[] = [
-  { id: "unity-build-win64", name: "Unity: Build Windows (batch mode)", kind: "build", description: "Headless Unity build via an Editor build method.", program: "${engine}", args: ["-batchmode", "-quit", "-projectPath", "${project}", "-buildTarget", "Win64", "-executeMethod", "BuildScript.PerformBuild", "-logFile", "-"] },
+  { id: "unity-build-win64", name: "Unity: Build Windows (batch mode)", kind: "build", description: "Headless Unity build via an Editor build method.", program: "${engine}", args: ["-batchmode", "-quit", "-projectPath", "${project}", "-buildTarget", "Win64", "-executeMethod", "PipelineOS.Build.Windows", "-logFile", "-"] },
   { id: "unity-tests", name: "Unity: Run EditMode tests", kind: "test", description: "Runs the EditMode test suite headlessly.", program: "${engine}", args: ["-batchmode", "-runTests", "-testPlatform", "EditMode", "-projectPath", "${project}"] },
   { id: "unreal-buildcookrun", name: "Unreal: BuildCookRun Win64 Development", kind: "cook", description: "Builds, cooks, stages and packages via RunUAT.", program: "RunUAT.bat", args: ["BuildCookRun", "-project=${project}/${projectName}.uproject", "-platform=Win64", "-build", "-cook", "-stage", "-pak"] },
   { id: "godot-export", name: "Godot: Export release build", kind: "export", description: "Exports a preset headlessly.", program: "${engine}", args: ["--headless", "--export-release", "Windows Desktop"] },
@@ -232,7 +232,7 @@ export async function demoStudio(command: string, args: Record<string, unknown>)
       const days = Array.from({ length: 14 }, (_, index) => ({ date: new Date(Date.now() - (13 - index) * 86_400_000).toISOString().slice(0, 10), minutes: [0, 45, 120, 95, 0, 0, 210, 180, 60, 150, 240, 30, 0, 75][index] }));
       return { todayMinutes: 75, weekMinutes: 765, totalMinutes: 5230, lastActive: iso(12), days };
     }
-    case "active_time_all": return [{ path: "D:/Dev/Projects/Voidline", weekMinutes: 765, totalMinutes: 5230 }];
+    case "active_time_all": return [{ path: "D:/Dev/Projects/Voidline", minutes: 765, totalMinutes: 5230, lastActive: iso(12) }];
     case "engine_activity": return engineActivity.map((activity) => ({ ...activity }));
     case "clear_engine_activity": { for (let i = engineActivity.length - 1; i >= 0; i--) if (engineActivity[i].status !== "running") engineActivity.splice(i, 1); return undefined; }
     default: throw new Error(`demo: unsupported command ${command}`);

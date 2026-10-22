@@ -3,7 +3,7 @@
 // folder layouts that give every file a predictable home.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Clipboard, FileAudio, FileText, Film, FolderOpen, FolderTree, ImageIcon, Layers, MoreHorizontal, Search, SquarePen } from "lucide-react";
+import { Box, Clipboard, FileAudio, FileText, Film, FolderOpen, FolderTree, ImageIcon, Layers, MoreHorizontal, Search, SquarePen, Boxes, Database, PersonStanding } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,10 @@ import { EmptyState } from "./empty-state";
 const KIND_META: Record<AssetKind, { label: string; icon: typeof Box }> = {
   image: { label: "Images", icon: ImageIcon },
   source: { label: "Source art", icon: Layers },
-  model: { label: "3D", icon: Box },
+  model: { label: "3D models", icon: Box },
+  scene: { label: "Scenes", icon: Boxes },
+  cache: { label: "Caches", icon: Database },
+  animation: { label: "Animation", icon: PersonStanding },
   video: { label: "Video", icon: Film },
   audio: { label: "Audio", icon: FileAudio },
   document: { label: "Docs", icon: FileText },

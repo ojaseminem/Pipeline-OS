@@ -244,6 +244,12 @@ impl ApplicationService {
         Self { storage, git }
     }
 
+    /// The Git provider, for source-control features that don't need
+    /// storage or activity recording (checks, blame, merge tools…).
+    pub fn git(&self) -> &GitProvider {
+        &self.git
+    }
+
     pub async fn set_manual_override(
         &self,
         app_id: &str,
@@ -1215,8 +1221,9 @@ impl ApplicationService {
                 kind: "task",
                 id: task_id.to_owned(),
             })?;
-        let engine = if task.program.contains("${engine}")
-            || task.args.iter().any(|arg| arg.contains("${engine}"))
+        // `${engine}` and `${engineDir}` both need the engine executable.
+        let engine = if task.program.contains("${engine")
+            || task.args.iter().any(|arg| arg.contains("${engine"))
         {
             self.project_engine_executable(root).await?
         } else {

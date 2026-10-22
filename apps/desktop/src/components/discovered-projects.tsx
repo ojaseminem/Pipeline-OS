@@ -12,7 +12,10 @@ import { desktopApi, isNativeRuntime, studioApi, type DiscoveredProject } from "
 import { DISCOVERY_KEY, useDiscovery } from "../lib/discovery";
 import { formatLastOpened } from "../lib/format";
 
-const ENGINE_LABEL: Record<DiscoveredProject["engine"], string> = { unity: "Unity", unreal: "Unreal", godot: "Godot", "pipeline-os": "Pipeline OS" };
+const ENGINE_LABEL: Record<DiscoveredProject["engine"], string> = {
+  unity: "Unity", unreal: "Unreal", godot: "Godot", "pipeline-os": "Pipeline OS", gamemaker: "GameMaker", defold: "Defold",
+  blender: "Blender", houdini: "Houdini", maya: "Maya", spine: "Spine", xcode: "Xcode", "android-studio": "Android Studio", "visual-studio": "Visual Studio",
+};
 const SOURCE_LABEL: Record<string, string> = { "unity-hub": "Unity Hub", "unreal-recent": "Unreal recents", "godot-projects": "Godot", folders: "Project folders" };
 
 export function DiscoveredProjects({ onAdded, compact = false }: { onAdded: () => void; compact?: boolean }) {

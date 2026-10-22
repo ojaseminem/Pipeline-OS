@@ -6,13 +6,17 @@
 //! Everything here is project-local and plain-text under `.pipelineos/`, so it
 //! travels with the repository and diffs cleanly in code review.
 
+pub mod active_time;
 pub mod ai_clients;
 pub mod assets;
 pub mod context;
 pub mod discovery;
 pub mod engine_activity;
+pub mod github;
 pub mod issues;
+pub mod task_presets;
 pub mod tasks;
+pub mod toml_merge;
 pub mod trackers;
 
 use std::path::{Path, PathBuf};

@@ -18,7 +18,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use vantadeck_studio::{
     assets::{self, AssetIndex, AssetMeta, FolderLayout, LayoutResult},
     issues::{self, Issue, NewIssue},
+    task_presets::{self, TaskPreset},
     tasks::{self, LogTail, OutputStream, RunStatus, TaskDefinition, TrustStore},
+    toml_merge::{self, FileMergeReport, Side},
     trackers::{self, SyncSummary, TrackerConfig},
 };
 
@@ -141,6 +143,22 @@ pub async fn tasks_list(
 #[tauri::command]
 pub async fn tasks_templates() -> Vec<TaskDefinition> {
     tasks::task_templates()
+}
+
+/// Grouped task presets for the project, the ones that fit its engine and
+/// this computer first (`recommended`).
+#[tauri::command]
+pub async fn tasks_presets(path: String) -> Vec<TaskPreset> {
+    task_presets::task_presets(&root(&path))
+}
+
+/// Installs the Pipeline OS Unity build script
+/// (`Assets/Editor/PipelineOSBuild.cs`) unless one exists; returns its path.
+#[tauri::command]
+pub async fn tasks_install_unity_script(path: String) -> Result<String, String> {
+    task_presets::install_unity_build_script(&root(&path))
+        .map(|written| written.display().to_string())
+        .map_err(err)
 }
 
 /// Saves the task list. Commands written in the app by this user are trusted
@@ -681,6 +699,36 @@ pub async fn project_brief(
         markdown,
         written_to,
     })
+}
+
+// ------------------------------------------------- TOML merge conflicts
+
+/// Merges every conflicted `.pipelineos/` TOML file key by key; clean merges
+/// are staged, the rest are reported with their conflicting keys.
+#[tauri::command]
+pub async fn toml_conflicts_auto_merge(path: String) -> Result<Vec<FileMergeReport>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        toml_merge::auto_merge_pipeline_files(&root(&path))
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// Finishes one conflicted Pipeline OS file with per-key choices
+/// (`keyPath` -> "ours" | "theirs" | "base") and stages it.
+#[tauri::command]
+pub async fn toml_conflict_resolve(
+    path: String,
+    file: String,
+    choices: BTreeMap<String, Side>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        toml_merge::apply_toml_choices(&root(&path), &file, &choices)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
 }
 
 // ---------------------------------------------------------------- assets
