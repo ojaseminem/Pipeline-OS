@@ -2,7 +2,7 @@
 //! operations, and network retry against real temporary repositories. Each
 //! test skips itself when `git` isn't installed.
 
-use std::{fs, path::Path, process::Command, time::Duration};
+use std::{fs, path::Path, process::Command};
 
 use vantadeck_vcs::{FixKind, GitProvider, MergeOutcome, VcsError};
 
@@ -386,7 +386,7 @@ async fn network_operations_retry_transient_failures_only() {
         2,
         "fatal: unable to access 'https://example.invalid/': Could not resolve host: example.invalid",
     );
-    let provider = GitProvider::new(&flaky).with_retry_backoff(Duration::ZERO);
+    let provider = GitProvider::new(&flaky).with_retry_backoff(std::time::Duration::ZERO);
     let result = provider
         .fetch(work.path())
         .await
@@ -399,7 +399,7 @@ async fn network_operations_retry_transient_failures_only() {
         5,
         "fatal: Authentication failed for 'https://example.invalid/'",
     );
-    let provider = GitProvider::new(&auth).with_retry_backoff(Duration::ZERO);
+    let provider = GitProvider::new(&auth).with_retry_backoff(std::time::Duration::ZERO);
     assert!(provider.fetch(work.path()).await.is_err());
     let count = fs::read_to_string(auth_dir.path().join("count")).unwrap();
     assert_eq!(count.trim(), "1", "auth failures must not be retried");

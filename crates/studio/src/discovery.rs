@@ -370,20 +370,33 @@ fn project_name(dir: &Path, engine: ProjectEngine, marker: &Path) -> String {
     .unwrap_or_else(|| dir.display().to_string())
 }
 
-fn record(found: &mut BTreeMap<String, DiscoveredProject>, dir: &Path, source: &str) {
-    // The same folder reaches us spelled differently (Unreal's recent list
-    // keeps `..` segments, `./`, symlinks, a trailing slash); resolve it so
-    // each project is suggested once.
-    let resolved = std::fs::canonicalize(dir)
+/// The real path of a folder (symlinks, `..`, `/var` → `/private/var` on
+/// macOS resolved), without Windows' `\\?\` prefix; the input if it can't be
+/// resolved. Used for both found and registered paths so they compare.
+pub fn resolve_path(dir: &Path) -> PathBuf {
+    std::fs::canonicalize(dir)
         .map(|path| {
-            // Windows canonical paths carry a `\\?\` prefix; drop it for display.
             let text = path.display().to_string();
             match text.strip_prefix(r"\\?\") {
                 Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
                 _ => path,
             }
         })
-        .unwrap_or_else(|_| dir.to_path_buf());
+        .unwrap_or_else(|_| dir.to_path_buf())
+}
+
+/// Comparison key for a project folder.
+pub fn path_key(dir: &Path) -> String {
+    slash(&resolve_path(dir))
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
+}
+
+fn record(found: &mut BTreeMap<String, DiscoveredProject>, dir: &Path, source: &str) {
+    // The same folder reaches us spelled differently (Unreal's recent list
+    // keeps `..` segments, `./`, symlinks, a trailing slash); resolve it so
+    // each project is suggested once.
+    let resolved = resolve_path(dir);
     let dir = resolved.as_path();
     let Some((engine, engine_version, marker)) = identify_project(dir) else {
         return;
@@ -647,10 +660,7 @@ pub fn discover(sources: &DiscoverySources, known: &[PathBuf]) -> Vec<Discovered
         scan_folder(&folder, sources, deadline, &mut found);
         scanned.push(folder);
     }
-    let known: Vec<String> = known
-        .iter()
-        .map(|p| slash(p).trim_end_matches('/').to_ascii_lowercase())
-        .collect();
+    let known: Vec<String> = known.iter().map(|p| path_key(p)).collect();
     let mut projects: Vec<_> = found
         .into_iter()
         .filter(|(key, _)| !known.contains(key))
@@ -967,5 +977,29 @@ mod tests {
             slash(home.path())
         );
         assert_eq!(glob_paths(&pattern).unwrap(), vec![settings]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn registered_projects_match_however_their_path_is_spelled() {
+        // macOS temp and home folders resolve through symlinks (/var ->
+        // /private/var); a project registered under one spelling must not be
+        // suggested again under the other.
+        let root = tempfile::tempdir().expect("root");
+        let project = root.path().join("real/Known");
+        write(
+            &project.join(".pipelineos/project.toml"),
+            "name = \"Known\"",
+        );
+        let alias = root.path().join("alias");
+        std::os::unix::fs::symlink(root.path().join("real"), &alias).expect("symlink");
+        let sources = DiscoverySources {
+            folders: vec![alias.clone()],
+            max_depth: 3,
+            ..Default::default()
+        };
+        assert!(discover(&sources, &[alias.join("Known")]).is_empty());
+        assert!(discover(&sources, &[project.clone()]).is_empty());
+        assert_eq!(path_key(&alias.join("Known")), path_key(&project));
     }
 }

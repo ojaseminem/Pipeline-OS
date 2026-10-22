@@ -593,10 +593,10 @@ fn read_json<T: serde::de::DeserializeOwned + Default>(path: Option<PathBuf>) ->
         .unwrap_or_default()
 }
 
+/// Same key discovery uses, so registered/dismissed/found paths compare even
+/// when spelled differently (symlinks, /private/var on macOS, slashes).
 fn normalized(path: &str) -> String {
-    path.replace('\\', "/")
-        .trim_end_matches('/')
-        .to_ascii_lowercase()
+    vantadeck_studio::discovery::path_key(Path::new(path))
 }
 
 /// Projects on this computer that aren't in Pipeline OS yet: from Unity Hub,
