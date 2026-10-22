@@ -22,6 +22,8 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/ojaseminem/Vantadeck"
 rust-version = "1.96"
+# Internal crates of one application; never published to crates.io.
+publish = false
 
 [workspace.dependencies]
 anyhow = "1.0.98"
