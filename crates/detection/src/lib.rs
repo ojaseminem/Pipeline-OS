@@ -463,6 +463,37 @@ fn version_resource_value(bytes: &[u8], key: &str) -> Option<Version> {
     None
 }
 
+/// Version from the Info.plist of the nearest enclosing `.app` bundle.
+fn mac_bundle_version(path: &std::path::Path) -> Option<Version> {
+    // Follow symlinks (Homebrew's /opt/homebrew/bin/code points into the app).
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let bundle = resolved.ancestors().find(|ancestor| {
+        ancestor
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+    })?;
+    let metadata = unix_sources::read_info_plist(&bundle.join("Contents/Info.plist"))?;
+    (metadata.version != Version::new(0, 0, 0)).then_some(metadata.version)
+}
+
+fn parse_version_candidate(candidate: &str) -> Option<Version> {
+    let candidate = candidate.trim_matches('.');
+    let dot_count = candidate.bytes().filter(|byte| *byte == b'.').count();
+    match dot_count {
+        // A bare integer is only treated as a version when it's a plausible
+        // year-style release (Maya 2024, 3ds Max 2025, ZBrush 2024…). This keeps
+        // stray numbers like the "86" in "Program Files (x86)" from matching.
+        0 => candidate
+            .parse::<u64>()
+            .ok()
+            .filter(|year| (1990..=2100).contains(year))
+            .map(|year| Version::new(year, 0, 0)),
+        1 => Version::parse(&format!("{candidate}.0")).ok(),
+        2 => Version::parse(candidate).ok(),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod version_tests {
     use super::*;
@@ -497,36 +528,5 @@ mod version_tests {
             unreal_build_version(&engine.join("Binaries/Win64/UnrealEditor.exe")),
             Some(Version::new(5, 4, 2))
         );
-    }
-}
-
-/// Version from the Info.plist of the nearest enclosing `.app` bundle.
-fn mac_bundle_version(path: &std::path::Path) -> Option<Version> {
-    // Follow symlinks (Homebrew's /opt/homebrew/bin/code points into the app).
-    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let bundle = resolved.ancestors().find(|ancestor| {
-        ancestor
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
-    })?;
-    let metadata = unix_sources::read_info_plist(&bundle.join("Contents/Info.plist"))?;
-    (metadata.version != Version::new(0, 0, 0)).then_some(metadata.version)
-}
-
-fn parse_version_candidate(candidate: &str) -> Option<Version> {
-    let candidate = candidate.trim_matches('.');
-    let dot_count = candidate.bytes().filter(|byte| *byte == b'.').count();
-    match dot_count {
-        // A bare integer is only treated as a version when it's a plausible
-        // year-style release (Maya 2024, 3ds Max 2025, ZBrush 2024…). This keeps
-        // stray numbers like the "86" in "Program Files (x86)" from matching.
-        0 => candidate
-            .parse::<u64>()
-            .ok()
-            .filter(|year| (1990..=2100).contains(year))
-            .map(|year| Version::new(year, 0, 0)),
-        1 => Version::parse(&format!("{candidate}.0")).ok(),
-        2 => Version::parse(candidate).ok(),
-        _ => None,
     }
 }
