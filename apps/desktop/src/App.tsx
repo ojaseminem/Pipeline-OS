@@ -185,7 +185,7 @@ function AppShell() {
   const [localTools, setLocalTools] = useState<ToolManifest[]>([]);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [autoUpdate, setAutoUpdate] = useState(() => { try { return localStorage.getItem("vantadeck.autoUpdate") !== "false"; } catch { return true; } });
-  const [appVersion, setAppVersion] = useState("0.4.12");
+  const [appVersion, setAppVersion] = useState("0.5.0");
   const [autostart, setAutostart] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
