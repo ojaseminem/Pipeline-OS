@@ -45,6 +45,9 @@
     ],
     "resources": {
       "../../../manifests/apps/": "manifests/apps/"
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   }
 }

@@ -93,8 +93,10 @@ reaches a release:
 - Dev installs side by side with stable, keeps its own data, and self-updates
   from `releases/download/dev-latest/latest.json` when the signing secrets are
   available.
-- macOS dev builds are ad-hoc signed but not notarized: on first launch use
-  *System Settings → Privacy & Security → Open Anyway*.
+- macOS builds (dev and stable) are ad-hoc signed (`signingIdentity: "-"`)
+  but not notarized: on first launch use *System Settings → Privacy &
+  Security → Open Anyway*. Without that signature, Apple Silicon reports
+  downloaded apps as "damaged". Notarization needs an Apple Developer ID.
 - Promote by merging `dev` into `main` and cutting a release as below.
 
 ## Continuous builds

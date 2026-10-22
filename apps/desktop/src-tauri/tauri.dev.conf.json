@@ -19,10 +19,5 @@
         "https://github.com/ojaseminem/Pipeline-OS/releases/download/dev-latest/latest.json"
       ]
     }
-  },
-  "bundle": {
-    "macOS": {
-      "signingIdentity": "-"
-    }
   }
 }
