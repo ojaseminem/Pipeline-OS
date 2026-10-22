@@ -10,6 +10,7 @@ pub mod ai_clients;
 pub mod assets;
 pub mod context;
 pub mod discovery;
+pub mod engine_activity;
 pub mod issues;
 pub mod tasks;
 pub mod trackers;

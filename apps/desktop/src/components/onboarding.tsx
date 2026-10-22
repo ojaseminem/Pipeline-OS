@@ -6,6 +6,7 @@ import { PathInput } from "./path-input";
 import { BrandGlyph } from "./brand";
 import { ThemePicker } from "./settings-screen";
 import type { ThemePreference } from "../theme";
+import { platformExamples } from "../lib/platform";
 
 export type OnboardingPrefs = {
   scanRoots: string;
@@ -35,7 +36,7 @@ export function Onboarding({ open, onComplete, onSkip, initialTheme = "system", 
   const descriptions = [
     "The local-first home for your game, CG, and VFX projects. No account, no telemetry.",
     "Pick a theme. You can change it any time in Settings.",
-    "Pipeline OS looks for engines, DCCs, and editors in standard install folders on every drive. Add extra folders if you keep tools elsewhere.",
+    `Pipeline OS looks for engines, DCCs, and editors in ${platformExamples().standardLocations}, and finds your Unity, Unreal, and Godot projects. Add extra folders if you keep tools elsewhere.`,
   ];
 
   return (
@@ -63,7 +64,7 @@ export function Onboarding({ open, onComplete, onSkip, initialTheme = "system", 
         {step === 2 ? (
           <div className="space-y-1.5 py-1 text-sm">
             <span className="font-medium">Extra folders to scan <span className="font-normal text-muted-foreground">(optional)</span></span>
-            <PathInput ariaLabel="Scan locations" directory multi className="min-w-0" placeholder="e.g. D:/Tools; E:/Apps" value={scanRoots} onChange={setScanRoots} />
+            <PathInput ariaLabel="Scan locations" directory multi className="min-w-0" placeholder={platformExamples().toolFolders} value={scanRoots} onChange={setScanRoots} />
           </div>
         ) : null}
 

@@ -4,10 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PathInput } from "./path-input";
+import { DiscoveredProjects } from "./discovered-projects";
+import { platformExamples } from "../lib/platform";
 
-/** One place to bring projects in: pick a folder, or scan drives for
- *  existing Pipeline OS projects. Dragging a folder onto the window works too. */
-export function AddProjectDialog({ open, onOpenChange, onImport, onScan, scanning, scanLabel, onCancelScan, driveSummary }: {
+/** One place to bring projects in: pick a folder, add what Pipeline OS found
+ *  on this computer (all at once or a few), or deep-scan drives (Windows).
+ *  Dragging a folder onto the window works too. */
+export function AddProjectDialog({ open, onOpenChange, onImport, onScan, scanning, scanLabel, onCancelScan, driveSummary, canScanDrives, onAdded }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImport: (path: string, name: string) => Promise<boolean>;
@@ -16,6 +19,8 @@ export function AddProjectDialog({ open, onOpenChange, onImport, onScan, scannin
   scanLabel: string;
   onCancelScan: () => void;
   driveSummary: string;
+  canScanDrives: boolean;
+  onAdded: () => void;
 }) {
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
@@ -39,15 +44,16 @@ export function AddProjectDialog({ open, onOpenChange, onImport, onScan, scannin
         </DialogHeader>
         <form className="space-y-3" onSubmit={(event) => void submit(event)}>
           <label className="block space-y-1 text-sm"><span className="font-medium">Project folder</span>
-            <PathInput ariaLabel="Project path" required directory placeholder="D:/Projects/MyGame" value={path} onChange={setPath} className="w-full" />
+            <PathInput ariaLabel="Project path" required directory placeholder={platformExamples().projectFolder} value={path} onChange={setPath} className="w-full" />
           </label>
           <label className="block space-y-1 text-sm"><span className="font-medium">Display name <span className="font-normal text-muted-foreground">(optional)</span></span>
             <Input aria-label="Project name" placeholder="Defaults to the folder name" value={name} onChange={(event) => setName(event.target.value)} />
           </label>
           <div className="flex justify-end"><Button type="submit" disabled={busy || !path.trim()}><FolderPlus size={15} /> {busy ? "Adding…" : "Add project"}</Button></div>
         </form>
-        <div className="space-y-2 border-t border-border pt-4">
-          <div className="text-sm font-medium">Find projects already on disk</div>
+        <div className="border-t border-border pt-4"><DiscoveredProjects compact onAdded={onAdded} /></div>
+        {canScanDrives ? <div className="space-y-2 border-t border-border pt-4">
+          <div className="text-sm font-medium">Deep scan drives</div>
           <p className="text-xs text-muted-foreground">Scans {driveSummary} for folders that already have Pipeline OS settings, e.g. after reinstalling or on a second drive.</p>
           {scanning ? (
             <div className="flex items-center justify-between gap-3 rounded-lg border bg-secondary/40 px-3 py-2 text-sm">
@@ -55,7 +61,7 @@ export function AddProjectDialog({ open, onOpenChange, onImport, onScan, scannin
               <Button variant="outline" size="sm" onClick={onCancelScan}>Cancel</Button>
             </div>
           ) : <Button variant="outline" onClick={onScan}><HardDrive size={15} /> Scan drives</Button>}
-        </div>
+        </div> : null}
       </DialogContent>
     </Dialog>
   );

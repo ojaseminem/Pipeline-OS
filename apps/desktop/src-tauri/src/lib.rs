@@ -1,3 +1,4 @@
+mod engine_watch;
 mod studio;
 
 use std::path::{Path, PathBuf};
@@ -2159,10 +2160,14 @@ pub fn run() {
                 project_scan_cancel: Arc::new(AtomicBool::new(false)),
             });
             app.manage(studio::StudioState::load(&data_dir));
+            app.manage(engine_watch::EngineWatchState::default());
+            engine_watch::spawn(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             dashboard_snapshot,
+            engine_watch::engine_activity,
+            engine_watch::clear_engine_activity,
             list_projects,
             import_project,
             remove_project,

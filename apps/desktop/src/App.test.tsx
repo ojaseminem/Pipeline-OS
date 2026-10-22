@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmHost } from "./components/confirm";
 import { confirmAction } from "./lib/confirm";
+import { reloadPrefs, setPrefs } from "./lib/prefs";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (command: string) => {
@@ -32,6 +33,8 @@ function nav(name: string) {
 describe("dashboard", () => {
   beforeEach(() => {
     localStorage.clear();
+    reloadPrefs();
+    document.documentElement.removeAttribute("style");
     window.history.replaceState({}, "", "/?demo=true");
   });
   afterEach(() => {
@@ -95,6 +98,7 @@ describe("dashboard", () => {
   it("applies a theme picked in Settings", async () => {
     render(<App />);
     await userEvent.click(nav("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Appearance" }));
     await userEvent.click(screen.getByRole("radio", { name: /Ember/ }));
     expect(document.documentElement.dataset.theme).toBe("ember");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
@@ -105,7 +109,58 @@ describe("dashboard", () => {
   it("shows MCP setup for AI apps in Settings", async () => {
     render(<App />);
     await userEvent.click(nav("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "AI & automation" }));
     expect(await screen.findByText(/claude mcp add pipeline-os/)).toBeInTheDocument();
+  });
+
+  it("connects every found AI app at once", async () => {
+    render(<App />);
+    await userEvent.click(nav("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "AI & automation" }));
+    const connectAll = await screen.findByRole("button", { name: /Connect all \(\d+\)/ });
+    await userEvent.click(connectAll);
+    expect(await screen.findByRole("button", { name: /All found apps connected/ })).toBeDisabled();
+    expect(screen.getAllByText("Connected").length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("applies accent, density, and interface size from Appearance", async () => {
+    render(<App />);
+    await userEvent.click(nav("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Appearance" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Violet" }));
+    expect(document.documentElement.style.getPropertyValue("--primary")).toContain("295");
+    await userEvent.click(screen.getByRole("radio", { name: "Compact" }));
+    expect(document.documentElement.dataset.density).toBe("compact");
+    await userEvent.click(screen.getByRole("radio", { name: "110%" }));
+    expect(document.documentElement.style.fontSize).toBe("110%");
+    await userEvent.click(screen.getByRole("button", { name: /Reset/ }));
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("");
+  });
+
+  it("collapses the sidebar to icons", async () => {
+    render(<App />);
+    await userEvent.click(nav("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Appearance" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Show sidebar labels" }));
+    expect(within(screen.getByRole("navigation", { name: "Primary navigation" })).queryByText("Projects")).not.toBeInTheDocument();
+    expect(nav("Projects")).toBeInTheDocument();
+  });
+
+  it("suggests projects found on this computer and adds them all at once", async () => {
+    render(<App />);
+    await userEvent.click(nav("Projects"));
+    expect(await screen.findByText("Found on this computer")).toBeInTheDocument();
+    expect(screen.getByText("Skyline")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Add all 3" }));
+    await waitFor(() => expect(screen.queryByText("Found on this computer")).not.toBeInTheDocument());
+  });
+
+  it("shows editor activity from Unity and Unreal logs", async () => {
+    render(<App />);
+    await userEvent.click(nav("Activity"));
+    expect(await screen.findByText("In your editors")).toBeInTheDocument();
+    expect(await screen.findByText("Lighting build · Reactor")).toBeInTheDocument();
+    expect(screen.getByText("Player build · Voidline")).toBeInTheDocument();
   });
 
   it("opens the shortcuts sheet with ?", async () => {
@@ -149,6 +204,7 @@ describe("dashboard", () => {
 describe("project workspace (demo backend)", () => {
   beforeEach(() => {
     localStorage.clear();
+    reloadPrefs();
     window.history.replaceState({}, "", "/?demo=true");
   });
   afterEach(() => {
@@ -163,6 +219,7 @@ describe("project workspace (demo backend)", () => {
   }
 
   it("requires a trust review before running repository tasks, then runs them", async () => {
+    setPrefs({ engineWatch: false }); // count only pipeline tasks in the sidebar badge
     await openTab("Mech Bay", "Pipeline");
     expect(await screen.findByText(/came from the project files/)).toBeInTheDocument();
     const runButtons = screen.getAllByRole("button", { name: /^Run$/ });

@@ -1,7 +1,7 @@
 // In-memory stand-in for the studio commands, used only in the browser demo
 // (?demo=true) so tasks, the board, assets, and AI screens are explorable and
 // testable without the desktop runtime. Mirrors the Rust command contracts.
-import type { AssetEntry, AssetMeta, FolderLayout, Issue, NewIssue, TaskDefinition, TaskLineBatch, TaskRun, TrackerConfig } from "./bridge";
+import type { AiClientStatus, AssetEntry, DiscoveredProject, EngineActivity, AssetMeta, FolderLayout, Issue, NewIssue, TaskDefinition, TaskLineBatch, TaskRun, TrackerConfig } from "./bridge";
 
 const iso = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60_000).toISOString().replace(/\.\d+Z$/, "Z");
 
@@ -208,8 +208,53 @@ export async function demoStudio(command: string, args: Record<string, unknown>)
     case "selfhost_forgejo": return { composePath: `${String(args.dir)}/docker-compose.yml`, dockerAvailable: false, started: false, url: "http://localhost:3000" };
     case "open_terminal": return undefined;
     case "cli_info": return { cliPath: "C:/Program Files/PipelineOS/vantadeck.exe", channel: "stable", mcpArgs: ["mcp"] };
+    case "discover_projects": return { projects: discovered.filter((project) => !dismissed.has(project.path)), scannedAt: iso(1) };
+    case "dismiss_discovered": { dismissed.add(String(args.path)); return undefined; }
+    case "ai_clients": return { clients: aiClients.map((client) => ({ ...client })), agentClis: ["claude", "codex"], canConfigure: true };
+    case "ai_configure": {
+      const ids = args.ids as string[];
+      for (const client of aiClients) if (ids.includes(client.id)) client.configured = true;
+      return ids.map((id) => ({ id, ok: true, error: null }));
+    }
+    case "ai_unconfigure": { const client = aiClients.find((item) => item.id === args.id); if (client) client.configured = false; return undefined; }
+    case "engine_activity": return engineActivity.map((activity) => ({ ...activity }));
+    case "clear_engine_activity": { for (let i = engineActivity.length - 1; i >= 0; i--) if (engineActivity[i].status !== "running") engineActivity.splice(i, 1); return undefined; }
     default: throw new Error(`demo: unsupported command ${command}`);
   }
+}
+
+const discovered: DiscoveredProject[] = [
+  { path: "D:/Dev/Unity/Skyline", name: "Skyline", engine: "unity", engineVersion: "6000.0.23f1", source: "unity-hub", modified: Math.floor(Date.now() / 1000) - 3600 },
+  { path: "D:/Dev/Unreal/Reactor", name: "Reactor", engine: "unreal", engineVersion: "5.4", source: "unreal-recent", modified: Math.floor(Date.now() / 1000) - 86_400 },
+  { path: "D:/Dev/Godot/Pocket Garden", name: "Pocket Garden", engine: "godot", engineVersion: "4.3", source: "godot-projects", modified: Math.floor(Date.now() / 1000) - 7 * 86_400 },
+];
+const dismissed = new Set<string>();
+
+const aiClients: AiClientStatus[] = [
+  { id: "claude-desktop", name: "Claude Desktop", installed: true, configured: false, configPath: "%APPDATA%/Claude/claude_desktop_config.json", problem: null },
+  { id: "claude-code", name: "Claude Code", installed: true, configured: true, configPath: "~/.claude.json", problem: null },
+  { id: "cursor", name: "Cursor", installed: true, configured: false, configPath: "~/.cursor/mcp.json", problem: null },
+  { id: "vscode", name: "VS Code (Copilot)", installed: true, configured: false, configPath: "%APPDATA%/Code/User/mcp.json", problem: null },
+  { id: "codex", name: "Codex CLI", installed: true, configured: false, configPath: "~/.codex/config.toml", problem: null },
+  { id: "windsurf", name: "Windsurf", installed: false, configured: false, configPath: "~/.codeium/windsurf/mcp_config.json", problem: null },
+  { id: "gemini-cli", name: "Gemini CLI", installed: false, configured: false, configPath: "~/.gemini/settings.json", problem: null },
+];
+
+const engineActivity: EngineActivity[] = [
+  { id: "demo-light", engine: "unreal", projectPath: "D:/Dev/Unreal/Reactor", projectName: "Reactor", kind: "lighting", status: "running", progress: 42, detail: "LogStaticLightingSystem: Running Lightmass w/ ImmediateImport mode ENABLED", startedAt: iso(6), updatedAt: iso(), finishedAt: null },
+  { id: "demo-build", engine: "unity", projectPath: "D:/Dev/Projects/Voidline", projectName: "Voidline", kind: "build", status: "succeeded", progress: 100, detail: "Build completed with a result of 'Succeeded' in 182 seconds", startedAt: iso(48), updatedAt: iso(45), finishedAt: iso(45) },
+];
+
+export function demoEngineEvents(handler: (activity: EngineActivity) => void): () => void {
+  const timer = window.setInterval(() => {
+    const running = engineActivity.find((activity) => activity.status === "running");
+    if (!running) return;
+    running.progress = Math.min(100, (running.progress ?? 0) + 7);
+    running.updatedAt = iso();
+    if (running.progress >= 100) { running.status = "succeeded"; running.finishedAt = iso(); running.detail = "Lighting build took 312.4 seconds"; }
+    handler({ ...running });
+  }, 4000);
+  return () => window.clearInterval(timer);
 }
 
 export function demoTaskEvents(onRun: (run: TaskRun) => void, onLines: (batch: TaskLineBatch) => void): () => void {

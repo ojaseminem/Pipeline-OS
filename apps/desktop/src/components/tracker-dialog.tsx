@@ -160,7 +160,7 @@ function SelfHost({ onBack, onUse }: { onBack: () => void; onUse: (url: string) 
       </ol>
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-64 flex-1 space-y-1 text-sm"><span className="font-medium">Server folder</span>
-          <span className="flex gap-2"><Input value={dir} onChange={(event) => setDir(event.target.value)} placeholder="D:/Servers/forgejo" />
+          <span className="flex gap-2"><Input value={dir} onChange={(event) => setDir(event.target.value)} placeholder="Folder for the server data, e.g. Servers/forgejo" />
             <Button type="button" variant="outline" disabled={!isNativeRuntime()} onClick={() => void browsePath({ directory: true, title: "Choose a folder for Forgejo" }).then((value) => value && setDir(value))}>Browse…</Button></span>
         </label>
         <label className="w-24 space-y-1 text-sm"><span className="font-medium">Port</span><Input value={port} onChange={(event) => setPort(event.target.value.replace(/\D/g, ""))} /></label>

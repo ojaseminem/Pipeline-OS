@@ -1061,7 +1061,7 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
             <div><h2 className="text-base font-semibold">References</h2><p className="text-sm text-muted-foreground">Design docs, art bibles, tickets, or local files — one click to open.</p></div>
             <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (!refUrl.trim()) return; setWs({ ...ws, references: [...ws.references, { id: newId(), label: refLabel.trim() || refUrl.trim(), url: refUrl.trim() }] }); setRefLabel(""); setRefUrl(""); }}>
               <label className="flex flex-col gap-1 text-xs text-muted-foreground">Label<Input aria-label="Reference label" placeholder="e.g. Art bible" value={refLabel} onChange={(e) => setRefLabel(e.target.value)} className="w-48" /></label>
-              <label className="flex flex-1 flex-col gap-1 text-xs text-muted-foreground">Link or file path<Input aria-label="Reference URL or path" required placeholder="https://…  or  D:/Docs/spec.pdf" value={refUrl} onChange={(e) => setRefUrl(e.target.value)} className="min-w-56" /></label>
+              <label className="flex flex-1 flex-col gap-1 text-xs text-muted-foreground">Link or file path<Input aria-label="Reference URL or path" required placeholder="https://…  or a path to a file" value={refUrl} onChange={(e) => setRefUrl(e.target.value)} className="min-w-56" /></label>
               <Button type="submit"><Plus size={15} /> Add reference</Button>
             </form>
             <ul className="space-y-1.5">{ws.references.length ? ws.references.map((reference) => {

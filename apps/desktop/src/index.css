@@ -296,10 +296,20 @@
 .pos-indeterminate { animation: pos-indeterminate 1.2s ease-in-out infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  :root:not([data-motion="full"]) *, :root:not([data-motion="full"]) *::before, :root:not([data-motion="full"]) *::after {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Appearance preferences (Settings → Appearance). Compact density tightens
+   Tailwind's spacing scale everywhere; motion can be forced off or on. */
+:root[data-density="compact"] { --spacing: 0.21rem; }
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
 }

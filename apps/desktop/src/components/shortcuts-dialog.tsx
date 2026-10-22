@@ -1,4 +1,5 @@
 import { SHORTCUTS } from "../lib/shortcuts";
+import { keyLabel } from "../lib/platform";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export function Kbd({ children }: { children: string }) {
@@ -17,7 +18,7 @@ export function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenC
           {SHORTCUTS.map((shortcut) => (
             <li key={shortcut.label} className="flex items-center justify-between gap-4 py-2 text-sm">
               <span>{shortcut.label}</span>
-              <span className="flex shrink-0 gap-1">{shortcut.keys.map((key) => <Kbd key={key}>{key}</Kbd>)}</span>
+              <span className="flex shrink-0 gap-1">{shortcut.keys.map((key) => <Kbd key={key}>{keyLabel(key)}</Kbd>)}</span>
             </li>
           ))}
         </ul>

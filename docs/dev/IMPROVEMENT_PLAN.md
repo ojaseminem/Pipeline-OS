@@ -96,6 +96,28 @@ New capabilities:
   (Git + LFS + issues + PRs) and starts it when Docker is present, then
   connects the board to it.
 - **Dev channel** (below).
+- **macOS-native detection:** reads each `.app` bundle's `Info.plist`
+  (binary or XML) under `/Applications`, `~/Applications` and
+  `/Users/Shared/Epic Games`, matches by bundle id, never walks `/` or
+  `~/Library` (which triggered the "access data from other apps" prompt).
+  Catalog grew to 50 apps (Spine, Xcode, Android Studio, Cursor, GameMaker,
+  Defold, FMOD, Wwise, RenderDoc, P4V, Fork, Figma, and more).
+- **Fast project discovery:** reads Unity Hub's project list, Unreal's recent
+  projects and Godot's project list, plus a bounded pass over common project
+  folders. Cached, refreshed in the background on launch, shown as
+  "Found on this computer" with *Add all*, *Add selected* and dismiss.
+- **Editor activity:** follows Unity's `Editor.log` and every registered
+  Unreal project's `Saved/Logs/<Project>.log` (only appended bytes, every
+  2 s) and recognizes lighting builds (Lightmass / baking), shader compiles,
+  cooks, player builds, BuildCookRun and Live Coding, with progress when the
+  log reports it. Shown in Activity and the sidebar, with a toast on finish.
+- **One-click AI app setup:** detects Claude Desktop, Claude Code, Cursor,
+  VS Code, Windsurf, Codex CLI and Gemini CLI on Windows/macOS/Linux and
+  registers the bundled MCP server in each one's config (backed up first,
+  only the `pipeline-os` entry touched). Also `vantadeck ai setup`.
+- **Settings reorganized** into General, Appearance, Apps & projects,
+  AI & automation, Updates, Privacy and About; appearance gained accent
+  colors, density, interface size, motion and an icon-only sidebar.
 
 ## 4. Roadmap (priority order)
 
@@ -103,6 +125,16 @@ Priorities are scored by *reach × pain ÷ effort*, biased toward things that ma
 the free product indispensable for one person first, then for a team.
 
 ### P0: next dev iterations
+
+0. **AI chat panel, staged.** Don't embed a separate chat server
+   (Open WebUI, LibreChat, AnythingLLM, Jan): each is a large web app with its
+   own accounts and storage, which breaks the local-first, single-binary
+   model. Stage it instead: (a) the embedded terminal below, so Claude Code /
+   Codex sessions live inside a project; (b) a native chat panel with
+   bring-your-own API key (Anthropic, OpenAI) or a local Ollama endpoint,
+   calling the same in-process tools the MCP server exposes and seeded with
+   the project brief, with every write going through the existing trust and
+   confirmation gates.
 
 1. **Tracker write-back.** Connectors now *pull* (shipped, see §3); next is
    pushing status changes and new issues back to GitHub/Gitea/Jira/Linear/

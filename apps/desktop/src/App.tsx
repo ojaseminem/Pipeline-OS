@@ -57,7 +57,7 @@ import { categoryClass } from "./lib/categories";
 import { ProjectThumb } from "./components/thumbnail";
 import { createQueryClient, useApps, useInvalidate, useProjects, useTools } from "./lib/queries";
 import { THEMES, type ThemePreference, useTheme } from "./theme";
-import { BrandLockup } from "./components/brand";
+import { BrandGlyph, BrandLockup } from "./components/brand";
 import { Onboarding, type OnboardingPrefs } from "./components/onboarding";
 import { PathInput } from "./components/path-input";
 import { ProjectDetail } from "./components/project-detail";
@@ -74,6 +74,12 @@ import { ActiveTasksCard, GettingStarted, MyWorkCard } from "./components/home-w
 import { ActivityScreen } from "./components/activity-screen";
 import { REPO_URL, SettingsScreen } from "./components/settings-screen";
 import { AddProjectDialog } from "./components/add-project-dialog";
+import { DiscoveredProjects } from "./components/discovered-projects";
+import { useDiscovery } from "./lib/discovery";
+import { getPrefs, setPrefs, usePrefs } from "./lib/prefs";
+import { useAppearance } from "./lib/appearance";
+import { ACTIVITY_LABELS, useEngineActivity, useEngineActivityFeed } from "./lib/engine-activity";
+import { keyLabel } from "./lib/platform";
 import { Kbd, ShortcutsDialog } from "./components/shortcuts-dialog";
 import { loadCustomApps, loadQuickLaunch, loadToolSources, newId, saveCustomApps, saveQuickLaunch, saveToolSources, type CustomApp, type QuickLaunchEntry, type ToolSource } from "./lib/local-store";
 import voidlineImage from "./assets/voidline-reactor.png";
@@ -134,7 +140,7 @@ function Panel({ title, description, children, actions }: { title: string; descr
 }
 
 function AppShell() {
-  const [activeScreen, setActiveScreen] = useState<Screen>("Home");
+  const [activeScreen, setActiveScreen] = useState<Screen>(() => getPrefs().startScreen);
   const [projectView, setProjectView] = useState<"pinned" | "recent">("pinned");
   const [continueProject, setContinueProject] = useState<Project | null>(isDemoMode() ? sampleContinueProject : null);
   const [continueFiles, setContinueFiles] = useState<RecentFile[]>([]);
@@ -196,10 +202,16 @@ function AppShell() {
   const [selectedProject, setSelectedProject] = useState<ProjectTarget | null>(null);
   const undoStack = useRef<UndoEntry[]>([]);
   const redoStack = useRef<UndoEntry[]>([]);
-  const navHistory = useRef<Array<{ screen: Screen; project: ProjectTarget | null }>>([{ screen: "Home", project: null }]);
+  const navHistory = useRef<Array<{ screen: Screen; project: ProjectTarget | null }>>([{ screen: getPrefs().startScreen, project: null }]);
   const navIndex = useRef(0);
   const [nav, setNav] = useState({ canBack: false, canForward: false });
   const { preference, setPreference } = useTheme();
+  const appearance = useAppearance();
+  const [prefs] = usePrefs();
+  const discovery = useDiscovery();
+  useEngineActivityFeed();
+  const engineActivity = useEngineActivity();
+  const engineRunning = (prefs.engineWatch ? engineActivity.data ?? [] : []).filter((activity) => activity.status === "running");
   const projects = projectView === "pinned" ? pinnedProjects : recentProjects;
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const homeCategories = useMemo(() => [...new Set([...pinnedProjects, ...recentProjects].map((project) => project.category).filter((value): value is string => Boolean(value)))].sort(), [pinnedProjects, recentProjects]);
@@ -267,6 +279,8 @@ function AppShell() {
       desktopApi.checkForUpdate().then((info) => { if (info.available) setUpdate(info); }).catch(() => undefined);
     }
     if (!readFlag("vantadeck.onboarded")) setOnboarding(true);
+    // Refresh "Found on this computer" in the background; the cached list shows instantly.
+    if (getPrefs().discoverOnLaunch) window.setTimeout(() => { void discovery.refresh().catch(() => undefined); }, 1500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -352,51 +366,32 @@ function AppShell() {
     }
   }
 
-  async function scanWith(rootsValue: string) {
-    if (scanning) return;
-    setScanning(true);
-    setScanProgress({ completed: 0, total: 0, current: "", done: false });
-    const unsubscribe = await onScanProgress(setScanProgress);
-    try {
-      await run("Scanning applications", async () => {
-        await desktopApi.scanApps(rootsValue.split(";").map((value) => value.trim()).filter(Boolean));
-        await invalidate.apps();
-        reloadDashboard();
-      });
-    } finally {
-      unsubscribe();
-      setScanning(false);
-      setScanProgress(null);
-    }
-  }
-
-  // Drives are scanned one at a time so a single huge drive can't stall the
-  // whole scan; the loop is cancellable between and during drives.
-  async function scanDrives() {
+  // Scans run as passes (each drive on Windows, or the standard install
+  // locations on macOS/Linux, then any extra folders from Settings) so a huge
+  // drive can't stall the whole scan; the loop is cancellable between passes.
+  async function runScanPasses(passes: Array<{ label: string; roots: string[] }>) {
     if (scanning) return;
     if (!isNativeRuntime()) { toast.message("Scanning is available in the desktop app."); return; }
-    const targets = drives.filter((drive) => selectedDrives.has(drive));
-    if (!targets.length) { toast.message("Select at least one drive to scan."); return; }
     setScanning(true);
     cancelScanRef.current = false;
     setScanProgress({ completed: 0, total: 0, current: "", done: false });
     const unsubscribe = await onScanProgress(setScanProgress);
     try {
-      for (let i = 0; i < targets.length; i++) {
+      for (let i = 0; i < passes.length; i++) {
         if (cancelScanRef.current) break;
-        const drive = targets[i];
-        setScanDriveLabel(`${drive} (${i + 1}/${targets.length})`);
+        const pass = passes[i];
+        setScanDriveLabel(passes.length > 1 ? `${pass.label} (${i + 1}/${passes.length})` : pass.label);
         setScanProgress({ completed: 0, total: 0, current: "", done: false });
         try {
-          await desktopApi.scanApps([drive]);
+          await desktopApi.scanApps(pass.roots);
         } catch (error) {
           if (cancelScanRef.current) break;
-          toast.error(`Couldn't scan ${drive}`, { description: error instanceof Error ? error.message : String(error) });
+          toast.error(`Couldn't scan ${pass.label}`, { description: error instanceof Error ? error.message : String(error) });
         }
         await invalidate.apps();
       }
       reloadDashboard();
-      if (!cancelScanRef.current) toast.success(`Scanned ${targets.length} drive${targets.length === 1 ? "" : "s"}.`);
+      if (!cancelScanRef.current) toast.success(passes.length === 1 ? `Scanned ${passes[0].label}.` : `Scanned ${passes.length} locations.`);
     } finally {
       unsubscribe();
       setScanning(false);
@@ -405,11 +400,35 @@ function AppShell() {
     }
   }
 
+  async function scanDrives() {
+    if (drives.length && !drives.some((drive) => selectedDrives.has(drive))) { toast.message("Select at least one drive to scan."); return; }
+    const passes = drives.length
+      ? drives.filter((drive) => selectedDrives.has(drive)).map((drive) => ({ label: drive, roots: [drive] }))
+      : [{ label: "standard app locations", roots: [] as string[] }];
+    const extra = getPrefs().extraScanFolders.split(";").map((value) => value.trim()).filter(Boolean);
+    await runScanPasses([...passes, ...extra.map((folder) => ({ label: folder, roots: [folder] }))]);
+  }
+
+  async function scanFolder() {
+    const folder = await browsePath({ directory: true, title: "Choose a folder to scan for apps" });
+    if (folder) await runScanPasses([{ label: folder, roots: [folder] }]);
+  }
+
   function cancelDriveScan() {
     cancelScanRef.current = true;
     void desktopApi.cancelScan();
   }
 
+  async function findProjects() {
+    openScreen("Projects");
+    try {
+      await discovery.refresh();
+    } catch (error) {
+      toast.error("Couldn't look for projects", { description: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  // Deep scan (Windows drives) for folders that already carry Pipeline OS settings.
   async function scanForProjects() {
     if (projectScanning) return;
     if (!isNativeRuntime()) { toast.message("Scanning is available in the desktop app."); return; }
@@ -465,7 +484,8 @@ function AppShell() {
     setPreference(prefs.theme);
     setOnboarding(false);
     navigate("Applications");
-    if (isNativeRuntime()) void scanWith(prefs.scanRoots);
+    if (prefs.scanRoots.trim()) setPrefs({ extraScanFolders: prefs.scanRoots.trim() });
+    if (isNativeRuntime()) { void scanDrives(); void discovery.refresh().catch(() => undefined); }
   }
   function skipOnboarding() {
     writeFlag("vantadeck.onboarded", true);
@@ -677,14 +697,13 @@ function AppShell() {
   };
   const driveSummary = drives.length === 0 ? "your drives" : drives.filter((d) => selectedDrives.has(d)).length === drives.length ? `all ${drives.length} drives` : drives.filter((d) => selectedDrives.has(d)).join(", ");
 
-  const drivePicker = (disabled: boolean) => (
+  const drivePicker = (disabled: boolean) => drives.length === 0 ? null : (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" disabled={disabled || drives.length === 0} className="gap-2">
+        <Button variant="outline" disabled={disabled} className="gap-2">
           <HardDrive size={15} />
           {(() => {
             const count = drives.filter((drive) => selectedDrives.has(drive)).length;
-            if (drives.length === 0) return isNativeRuntime() ? "No drives found" : "Drives";
             if (count === 0) return "No drives selected";
             if (count === drives.length) return `All drives (${count})`;
             return drives.filter((drive) => selectedDrives.has(drive)).join(", ");
@@ -828,13 +847,14 @@ function AppShell() {
     return (
       <section className="pos-enter space-y-5">
         <PageHeader title="Projects" description="Every project on this machine. Open one for its workspace: source control, pipeline, board, assets, and AI." actions={<>
-          <Button variant="outline" onClick={() => void scanForProjects()} disabled={projectScanning}>{projectScanning ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} />} Find on disk</Button>
+          <Button variant="outline" onClick={() => void findProjects()} disabled={discovery.refreshing}>{discovery.refreshing ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} />} Find projects</Button>
           <Button onClick={() => setAddProjectOpen(true)}><FolderPlus size={15} /> Add project</Button>
         </>} />
         {projectScanning ? <div className="flex items-center justify-between gap-3 rounded-lg border bg-secondary/40 px-3 py-2 text-sm">
-          <span className="flex min-w-0 items-center gap-2"><RefreshCw size={14} className="shrink-0 animate-spin" /><span className="truncate">{projectScanDriveLabel ? `Scanning ${projectScanDriveLabel}${projectScanProgress?.current ? ` — ${projectScanProgress.current}` : "…"}` : "Scanning your drives…"}</span></span>
+          <span className="flex min-w-0 items-center gap-2"><RefreshCw size={14} className="shrink-0 animate-spin" /><span className="truncate">{projectScanDriveLabel ? `Scanning ${projectScanDriveLabel}${projectScanProgress?.current ? ` — ${projectScanProgress.current}` : "…"}` : "Scanning…"}</span></span>
           <Button variant="outline" size="sm" onClick={cancelProjectScan}>Cancel</Button>
         </div> : null}
+        <DiscoveredProjects onAdded={() => { void invalidate.projects(); reloadDashboard(); }} />
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-56 flex-1">
             <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -876,7 +896,7 @@ function AppShell() {
         ))}</div> : registeredProjects.length ? (
           <EmptyState compact icon={Search} title="No projects match" action={<Button variant="outline" size="sm" onClick={() => { setProjectFilter(""); setTagFilter(null); }}>Clear filters</Button>} />
         ) : (
-          <Card><CardContent className="p-0"><EmptyState icon={FolderPlus} title={isNativeRuntime() ? "No projects yet" : "Projects appear in the desktop app"} description="Add a project folder, or scan your drives for projects you've used with Pipeline OS before." action={<><Button onClick={() => setAddProjectOpen(true)}><FolderPlus size={15} /> Add project</Button><Button variant="outline" onClick={() => void scanForProjects()}><ScanSearch size={15} /> Find on disk</Button></>} /></CardContent></Card>
+          <Card><CardContent className="p-0"><EmptyState icon={FolderPlus} title={isNativeRuntime() ? "No projects yet" : "Projects appear in the desktop app"} description="Add a project folder, or let Pipeline OS find the Unity, Unreal, and Godot projects already on this computer." action={<><Button onClick={() => setAddProjectOpen(true)}><FolderPlus size={15} /> Add project</Button><Button variant="outline" onClick={() => void findProjects()}><ScanSearch size={15} /> Find projects</Button></>} /></CardContent></Card>
         )}
       </section>
     );
@@ -886,12 +906,13 @@ function AppShell() {
     <section className="pos-enter space-y-5">
       <PageHeader title="Applications" description="Every installed engine, DCC, and editor, with each version side by side. Star the versions you use most for Quick Launch." actions={<>
         {drivePicker(scanning)}
-        <Button variant="outline" disabled={scanning} aria-busy={scanning} onClick={() => void scanDrives()}>{scanning ? <><Loader2 size={15} className="animate-spin" /> Scanning…</> : <><ScanSearch size={15} /> Scan</>}</Button>
+        <Button variant="outline" disabled={scanning} aria-busy={scanning} onClick={() => void scanDrives()} title={drives.length ? "Scan the selected drives' install folders" : "Scan standard install locations"}>{scanning ? <><Loader2 size={15} className="animate-spin" /> Scanning…</> : <><ScanSearch size={15} /> Scan</>}</Button>
+        <Button variant="outline" disabled={scanning} onClick={() => void scanFolder()}><FolderOpen size={15} /> Scan a folder…</Button>
         <Button onClick={() => setAddAppOpen(true)}><Plus size={15} /> Add app</Button>
       </>} />
       {scanning ? <Card><CardContent className="space-y-2 p-4">
         <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
-          <span className="flex min-w-0 items-center gap-2"><RefreshCw size={14} className="shrink-0 animate-spin" /><span className="truncate">{scanDriveLabel ? `Scanning ${scanDriveLabel}${scanProgress?.current ? ` — ${scanProgress.current}` : "…"}` : "Scanning your drives…"}</span></span>
+          <span className="flex min-w-0 items-center gap-2"><RefreshCw size={14} className="shrink-0 animate-spin" /><span className="truncate">{scanDriveLabel ? `Scanning ${scanDriveLabel}${scanProgress?.current ? ` — ${scanProgress.current}` : "…"}` : "Scanning…"}</span></span>
           <span className="flex shrink-0 items-center gap-3 tabular-nums">{scanProgress && scanProgress.total ? `${scanProgress.completed}/${scanProgress.total}` : ""}<Button variant="outline" size="sm" onClick={cancelDriveScan}>Cancel</Button></span>
         </div>
         <Progress value={scanProgress && scanProgress.total ? (scanProgress.completed / scanProgress.total) * 100 : 8} />
@@ -988,6 +1009,11 @@ function AppShell() {
     <SettingsScreen
       preference={preference}
       setPreference={setPreference}
+      appearance={appearance.appearance}
+      onAppearanceChange={appearance.update}
+      onAppearanceReset={appearance.reset}
+      onScanApps={() => { openScreen("Applications"); void scanDrives(); }}
+      onFindProjects={() => void findProjects()}
       appVersion={appVersion}
       channel={CHANNEL}
       update={update}
@@ -1018,33 +1044,39 @@ function AppShell() {
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       {dragOver ? <div className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm"><div className="rounded-2xl border-2 border-dashed border-primary px-10 py-8 text-center"><FolderPlus size={36} className="mx-auto mb-2 text-primary" /><p className="text-lg font-semibold">Drop a folder to add it as a project</p></div></div> : null}
-      <aside className="flex w-60 flex-none flex-col gap-4 border-r border-sidebar-border bg-sidebar p-3">
+      <aside className={cn("flex flex-none flex-col gap-4 border-r border-sidebar-border bg-sidebar p-3", appearance.appearance.sidebarLabels ? "w-60" : "w-16 items-center")}>
         <div className="flex items-center justify-between px-2 pt-1">
-          <BrandLockup />
+          {appearance.appearance.sidebarLabels ? <BrandLockup /> : <BrandGlyph className="h-8 w-8 rounded-lg" />}
           {CHANNEL === "dev" ? <span className="rounded bg-warning/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-warning" title="Dev channel build">Dev</span> : null}
         </div>
         <nav aria-label="Primary navigation" className="flex flex-col gap-0.5">
           {navigation.map(([label, Icon], index) => {
             const current = activeScreen === label || (label === "Projects" && activeScreen === "Project");
             return (
-              <button key={label} onClick={() => openScreen(label)} aria-current={current ? "page" : undefined} title={`${label} (Ctrl+${index + 1})`} className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors", current ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground")}>
-                <Icon size={18} aria-hidden /><span>{label}</span>
-                {label === "Health" && health.length ? <Badge variant="secondary" className="ml-auto">{health.length}</Badge> : null}
-                {label === "Activity" && activeRuns.length ? <span className="ml-auto flex items-center gap-1 text-xs text-primary"><Loader2 size={12} className="animate-spin" />{activeRuns.length}</span> : null}
+              <button key={label} onClick={() => openScreen(label)} aria-current={current ? "page" : undefined} title={`${label} (${keyLabel("Ctrl")}+${index + 1})`} aria-label={label} className={cn("relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors", current ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground")}>
+                <Icon size={18} aria-hidden />{appearance.appearance.sidebarLabels ? <span>{label}</span> : null}
+                {label === "Health" && health.length ? (appearance.appearance.sidebarLabels ? <Badge variant="secondary" className="ml-auto">{health.length}</Badge> : <span className="absolute right-1 top-1 size-2 rounded-full bg-warning" />) : null}
+                {label === "Activity" && activeRuns.length + engineRunning.length ? (appearance.appearance.sidebarLabels ? <span className="ml-auto flex items-center gap-1 text-xs text-primary"><Loader2 size={12} className="animate-spin" />{activeRuns.length + engineRunning.length}</span> : <span className="absolute right-1 top-1 size-2 animate-pulse rounded-full bg-primary" />) : null}
               </button>
             );
           })}
         </nav>
-        {activeRuns.length ? (
+        {appearance.appearance.sidebarLabels && !activeRuns.length && engineRunning.length ? (
+          <button onClick={() => openScreen("Activity")} className="mx-1 rounded-lg border border-primary/30 bg-primary/10 p-2.5 text-left text-xs">
+            <span className="flex items-center gap-1.5 font-medium text-primary"><Loader2 size={12} className="animate-spin" /> {engineRunning.length === 1 ? ACTIVITY_LABELS[engineRunning[0].kind] : `${engineRunning.length} editor jobs running`}</span>
+            <span className="mt-0.5 block truncate text-muted-foreground">{engineRunning[0].projectName ?? (engineRunning[0].engine === "unreal" ? "Unreal Engine" : "Unity")}{engineRunning[0].progress != null ? ` · ${Math.round(engineRunning[0].progress)}%` : ""}</span>
+          </button>
+        ) : null}
+        {appearance.appearance.sidebarLabels && activeRuns.length ? (
           <button onClick={() => openScreen("Activity")} className="mx-1 rounded-lg border border-primary/30 bg-primary/10 p-2.5 text-left text-xs">
             <span className="flex items-center gap-1.5 font-medium text-primary"><Loader2 size={12} className="animate-spin" /> {activeRuns.length === 1 ? activeRuns[0].taskName : `${activeRuns.length} tasks running`}</span>
             <span className="mt-0.5 block truncate text-muted-foreground">{activeRuns[0].projectName}{activeRuns[0].progress != null ? ` · ${Math.round(activeRuns[0].progress)}%` : ""}</span>
           </button>
         ) : null}
-        <div className="mt-auto space-y-2 px-2 text-xs text-muted-foreground">
+        {appearance.appearance.sidebarLabels ? <div className="mt-auto space-y-2 px-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5" title="No account, no telemetry. Your data stays on this machine."><Lock size={12} className="text-success" /> Local &amp; private</div>
           <div className="flex items-center justify-between"><span>v{appVersion}{CHANNEL === "dev" ? " · dev" : ""}</span><button className="flex items-center gap-1 hover:text-foreground" onClick={() => setShortcutsOpen(true)} title="Keyboard shortcuts (?)"><Keyboard size={13} /> Shortcuts</button></div>
-        </div>
+        </div> : <button className="mt-auto rounded-lg p-2 text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground" onClick={() => setShortcutsOpen(true)} title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"><Keyboard size={16} /></button>}
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -1056,7 +1088,7 @@ function AppShell() {
           <button onClick={() => setPaletteOpen(true)} className="flex h-9 min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border border-border bg-secondary/50 px-3 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground" aria-label="Search and commands">
             <Search size={15} className="shrink-0" aria-hidden />
             <span className="truncate">Search projects, apps, and actions…</span>
-            <span className="ml-auto flex shrink-0 gap-1"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
+            <span className="ml-auto flex shrink-0 gap-1"><Kbd>{keyLabel("Ctrl")}</Kbd><Kbd>K</Kbd></span>
           </button>
           <div className="ml-auto flex items-center gap-2">
             <Button size="sm" onClick={() => setAddProjectOpen(true)} title="Add project (Ctrl+N)"><FolderPlus size={15} /> Add project</Button>
@@ -1126,6 +1158,8 @@ function AppShell() {
           scanLabel={projectScanDriveLabel ? `Scanning ${projectScanDriveLabel}${projectScanProgress?.current ? ` — ${projectScanProgress.current}` : "…"}` : ""}
           onCancelScan={cancelProjectScan}
           driveSummary={driveSummary}
+          canScanDrives={drives.length > 0}
+          onAdded={() => { void invalidate.projects(); reloadDashboard(); }}
         />
         <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
         <Onboarding open={onboarding} onComplete={completeOnboarding} onSkip={skipOnboarding} initialTheme={preference} onPreviewTheme={setPreference} />
@@ -1135,7 +1169,7 @@ function AppShell() {
             <CommandEmpty>No results found.</CommandEmpty>
             <CommandGroup heading="Actions">
               <CommandItem value="add project import folder" onSelect={paletteRun(() => setAddProjectOpen(true))}><FolderPlus size={15} /> Add project…<CommandShortcut>Ctrl N</CommandShortcut></CommandItem>
-              <CommandItem value="find projects on disk scan drives" onSelect={paletteRun(() => { openScreen("Projects"); void scanForProjects(); })}><ScanSearch size={15} /> Find projects on disk</CommandItem>
+              <CommandItem value="find projects on disk scan drives discover" onSelect={paletteRun(() => void findProjects())}><ScanSearch size={15} /> Find projects on this computer</CommandItem>
               <CommandItem value="scan applications detect apps" onSelect={paletteRun(() => { openScreen("Applications"); void scanDrives(); })}><RefreshCw size={15} /> Scan for applications</CommandItem>
               <CommandItem value="check for updates" onSelect={paletteRun(() => { if (isNativeRuntime()) checkForUpdates(); else toast.message("Updates are checked by the desktop app."); })}><Download size={15} /> Check for updates</CommandItem>
               <CommandItem value="keyboard shortcuts help" onSelect={paletteRun(() => setShortcutsOpen(true))}><Keyboard size={15} /> Keyboard shortcuts<CommandShortcut>?</CommandShortcut></CommandItem>
@@ -1162,9 +1196,9 @@ function AppShell() {
   );
 }
 
-const queryClient = createQueryClient();
-
 export function App() {
+  // One client per app instance (the app mounts once; tests mount many).
+  const [queryClient] = useState(createQueryClient);
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

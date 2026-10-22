@@ -6,6 +6,7 @@ import { Ban, CheckCircle2, Clipboard, Clock3, Loader2, Play, Square, TerminalSq
 import { KIND_ICONS, formatDuration } from "../lib/task-meta";
 import { TaskRunsContext, useTaskRuns, type TaskRunsContextValue } from "../lib/task-runs-context";
 import { toast } from "sonner";
+import { getPrefs } from "../lib/prefs";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -53,7 +54,7 @@ export function TaskRunsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     for (const run of runs) {
       const before = previous.current.get(run.id);
-      if (before === "running" && run.status !== "running") {
+      if (before === "running" && run.status !== "running" && getPrefs().taskToasts) {
         const detail = `${run.projectName} · ${formatDuration(run.durationMs)}`;
         const action = { label: "View log", onClick: () => setViewing(run.id) };
         if (run.status === "succeeded") toast.success(`${run.taskName} finished`, { description: detail, action });

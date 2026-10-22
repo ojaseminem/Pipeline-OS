@@ -1,7 +1,8 @@
 // Activity: every pipeline task run across projects (live), plus the local
-// activity log (imports, scans, launches, VCS operations).
+// activity log (imports, scans, launches, VCS operations), and engine work
+// (lighting builds, cooks, player builds) read from Unity/Unreal editor logs.
 import { useQuery } from "@tanstack/react-query";
-import { Activity, History, Trash2, Workflow } from "lucide-react";
+import { Activity, Cpu, History, Trash2, Workflow } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +14,10 @@ import { EmptyState } from "./empty-state";
 import { PageHeader } from "./page-header";
 import { RunRow } from "./task-runs";
 import { useTaskRuns } from "../lib/task-runs-context";
+import { ENGINE_ACTIVITY_KEY, useEngineActivity } from "../lib/engine-activity";
+import { usePrefs } from "../lib/prefs";
+import { EngineActivityRow } from "./engine-activity";
+import { useQueryClient } from "@tanstack/react-query";
 
 const FILTERS: Array<{ id: RunStatus | "all"; label: string }> = [
   { id: "all", label: "All" },
@@ -26,6 +31,15 @@ export function ActivityScreen() {
   const [filter, setFilter] = useState<RunStatus | "all">("all");
   const log = useQuery({ queryKey: ["activity-log"], queryFn: () => desktopApi.recentActivity(40), enabled: isNativeRuntime(), refetchInterval: 15_000 });
   const shown = runs.filter((run) => filter === "all" || run.status === filter);
+  const [prefs] = usePrefs();
+  const engine = useEngineActivity();
+  const queryClient = useQueryClient();
+  const engineItems = engine.data ?? [];
+
+  async function clearEngine() {
+    await studioApi.clearEngineActivity().catch(() => undefined);
+    await queryClient.invalidateQueries({ queryKey: ENGINE_ACTIVITY_KEY });
+  }
 
   async function clearHistory() {
     if (!(await confirmAction({ title: "Clear task history?", description: "Finished runs are removed from this list. Running tasks keep running.", confirmLabel: "Clear history" }))) return;
@@ -48,6 +62,17 @@ export function ActivityScreen() {
           {shown.length ? <div className="space-y-0.5">{shown.map((run) => <RunRow key={run.id} run={run} />)}</div>
             : <EmptyState compact icon={Workflow} title={runs.length ? "No runs match this filter" : "No pipeline runs yet"} description={runs.length ? undefined : "Add a build, render, or export to a project's Pipeline tab and run it from there, the CLI, or an AI agent."} />}
         </CardContent></Card>
+        <div className="space-y-4">
+        {prefs.engineWatch ? (
+          <Card><CardContent className="space-y-2 p-4">
+            <div className="flex items-center gap-2">
+              <h2 className="mr-auto flex items-center gap-2 text-sm font-semibold"><Cpu size={15} className="text-primary" /> In your editors</h2>
+              {engineItems.some((item) => item.status !== "running") ? <Button variant="ghost" size="sm" onClick={() => void clearEngine()}>Clear</Button> : null}
+            </div>
+            {engineItems.length ? <div className="space-y-0.5">{engineItems.map((item) => <EngineActivityRow key={item.id} activity={item} />)}</div>
+              : <EmptyState compact icon={Cpu} title="Nothing running in Unity or Unreal" description="Lighting builds, shader compiles, cooks, and player builds you start in the editor show up here, with a notification when they finish." />}
+          </CardContent></Card>
+        ) : null}
         <Card><CardContent className="space-y-2 p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold"><History size={15} className="text-primary" /> Activity log</h2>
           {log.data?.length ? (
@@ -56,6 +81,7 @@ export function ActivityScreen() {
             ))}</ul>
           ) : <EmptyState compact icon={History} title="Nothing logged yet" description={isNativeRuntime() ? "Scans, imports, and launches show up here." : "The activity log is available in the desktop app."} />}
         </CardContent></Card>
+        </div>
       </div>
     </section>
   );

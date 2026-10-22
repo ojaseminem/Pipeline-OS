@@ -9,13 +9,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { studioApi, studioAvailable, type AgentId } from "../bridge";
 import { EmptyState } from "./empty-state";
+import { usePrefs } from "../lib/prefs";
+import { AGENTS } from "../lib/agents";
+import { AiClientSetup } from "./ai-clients";
 
-const AGENTS: Array<{ id: AgentId; name: string; hint: string }> = [
-  { id: "claude", name: "Claude Code", hint: "claude" },
-  { id: "codex", name: "Codex CLI", hint: "codex" },
-  { id: "gemini", name: "Gemini CLI", hint: "gemini" },
-  { id: "aider", name: "Aider", hint: "aider" },
-];
 
 function CopyBlock({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -50,9 +47,13 @@ export function McpSetup() {
 export function ProjectAi({ projectPath, projectName }: { projectPath: string; projectName: string }) {
   const available = studioAvailable();
   const brief = useQuery({ queryKey: ["brief", projectPath], queryFn: () => studioApi.brief(projectPath), enabled: available });
+  const [prefs] = usePrefs();
+  const primary = AGENTS.find((agent) => agent.id === prefs.defaultAgent) ?? AGENTS[0];
 
   async function open(agent?: AgentId) {
     try {
+      // Refresh context.md first so the agent starts with an up-to-date brief.
+      if (agent && prefs.writeBriefOnAgentStart) await studioApi.brief(projectPath, true).catch(() => undefined);
       await studioApi.openTerminal(projectPath, agent);
       const name = AGENTS.find((item) => item.id === agent)?.name;
       toast.success(name ? `Starting ${name} in ${projectName}` : `Opened a terminal in ${projectName}`, { description: name ? "If it doesn't start, install the agent's CLI and make sure it's on your PATH." : undefined });
@@ -75,11 +76,11 @@ export function ProjectAi({ projectPath, projectName }: { projectPath: string; p
           <div className="flex items-center gap-2"><Sparkles size={18} className="text-primary" aria-hidden /><h2 className="text-base font-semibold">Work on this project with AI</h2></div>
           <p className="text-sm text-muted-foreground">Starts an agent in the project folder with the <code>vantadeck</code> CLI on its PATH. Point it at <code>.pipelineos/context.md</code>, or connect it over MCP, so it knows the engine, the generated folders to leave alone, and how to build.</p>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => void open("claude")}><Bot size={15} /> Open Claude Code here</Button>
+            <Button onClick={() => void open(primary.id)}><Bot size={15} /> Open {primary.name} here</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild><Button variant="outline">Other agents <ChevronDown size={14} className="opacity-70" /></Button></DropdownMenuTrigger>
               <DropdownMenuContent>
-                {AGENTS.slice(1).map((agent) => <DropdownMenuItem key={agent.id} onClick={() => void open(agent.id)}>{agent.name} <span className="ml-auto font-mono text-xs text-muted-foreground">{agent.hint}</span></DropdownMenuItem>)}
+                {AGENTS.filter((agent) => agent.id !== primary.id).map((agent) => <DropdownMenuItem key={agent.id} onClick={() => void open(agent.id)}>{agent.name} <span className="ml-auto font-mono text-xs text-muted-foreground">{agent.hint}</span></DropdownMenuItem>)}
               </DropdownMenuContent>
             </DropdownMenu>
             <Button variant="outline" onClick={() => void open()}><SquareTerminal size={15} /> Terminal</Button>
@@ -87,7 +88,9 @@ export function ProjectAi({ projectPath, projectName }: { projectPath: string; p
         </CardContent></Card>
         <Card><CardContent className="space-y-3 p-5">
           <h2 className="text-base font-semibold">Connect AI apps</h2>
-          <McpSetup />
+          <p className="text-sm text-muted-foreground">Give Claude, Cursor, VS Code, Codex and other AI apps the Pipeline OS tools: list projects, read briefs, run trusted tasks, and update the board.</p>
+          <AiClientSetup />
+          <details className="group text-sm"><summary className="cursor-pointer text-muted-foreground hover:text-foreground">Set up manually</summary><div className="pt-3"><McpSetup /></div></details>
         </CardContent></Card>
       </div>
       <Card><CardContent className="flex h-full flex-col gap-3 p-5">

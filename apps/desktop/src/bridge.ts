@@ -267,6 +267,19 @@ export type SyncSummary = { created: number; updated: number; unchanged: number 
 export type SelfHostResult = { composePath: string; dockerAvailable: boolean; started: boolean; url: string };
 export type CliInfo = { cliPath: string | null; channel: "stable" | "dev"; mcpArgs: string[] };
 export type AgentId = "claude" | "codex" | "gemini" | "aider";
+export type ProjectEngine = "unity" | "unreal" | "godot" | "pipeline-os";
+export type DiscoveredProject = { path: string; name: string; engine: ProjectEngine; engineVersion: string | null; source: string; modified: number };
+export type Discovery = { projects: DiscoveredProject[]; scannedAt: string | null };
+export type AiClientStatus = { id: string; name: string; installed: boolean; configured: boolean; configPath: string; problem: string | null };
+export type AiSetupState = { clients: AiClientStatus[]; agentClis: string[]; canConfigure: boolean };
+export type AiConfigureResult = { id: string; ok: boolean; error: string | null };
+export type EngineKind = "unreal" | "unity";
+export type EngineActivityKind = "lighting" | "shaders" | "cook" | "compile" | "build" | "import";
+export type EngineActivity = {
+  id: string; engine: EngineKind; projectPath: string | null; projectName: string | null;
+  kind: EngineActivityKind; status: "running" | "succeeded" | "failed"; progress: number | null;
+  detail: string; startedAt: string; updatedAt: string; finishedAt: string | null;
+};
 
 async function studioCall<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   if (isNativeRuntime()) return invokeDesktop<T>(command, args);
@@ -309,6 +322,13 @@ export const studioApi = {
   setAssetMeta: (path: string, asset: string, meta: AssetMeta) => studioCall<void>("asset_set_meta", { path, asset, meta }),
   openTerminal: (path: string, agent?: AgentId) => studioCall<void>("open_terminal", { path, agent: agent ?? null }),
   cliInfo: () => studioCall<CliInfo>("cli_info"),
+  discoverProjects: (refresh: boolean) => studioCall<Discovery>("discover_projects", { refresh }),
+  dismissDiscovered: (path: string) => studioCall<void>("dismiss_discovered", { path }),
+  aiClients: () => studioCall<AiSetupState>("ai_clients"),
+  aiConfigure: (ids: string[]) => studioCall<AiConfigureResult[]>("ai_configure", { ids }),
+  aiUnconfigure: (id: string) => studioCall<void>("ai_unconfigure", { id }),
+  engineActivity: () => studioCall<EngineActivity[]>("engine_activity"),
+  clearEngineActivity: () => studioCall<void>("clear_engine_activity"),
 };
 
 type Unlisten = () => void;
@@ -329,6 +349,24 @@ export async function onTaskEvents(onRun: (run: TaskRun) => void, onLines: (batc
   if (isDemoMode()) {
     const { demoTaskEvents } = await import("./demo-studio");
     return demoTaskEvents(onRun, onLines);
+  }
+  return () => undefined;
+}
+
+/** Subscribes to engine activity (lighting builds, cooks, player builds…)
+ *  parsed from Unity and Unreal editor logs. */
+export async function onEngineActivity(handler: (activity: EngineActivity) => void): Promise<Unlisten> {
+  if (isNativeRuntime()) {
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      return await listen<EngineActivity>("engine://activity", (event) => handler(event.payload));
+    } catch {
+      return () => undefined;
+    }
+  }
+  if (isDemoMode()) {
+    const { demoEngineEvents } = await import("./demo-studio");
+    return demoEngineEvents(handler);
   }
   return () => undefined;
 }
