@@ -412,3 +412,79 @@ export async function onUpdateState(handler: (state: UpdateState) => void): Prom
     return () => undefined;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Source control: pre-commit checks, safe branch/tag operations, GitHub pull
+// requests and checks, external merge tools, and Pipeline OS TOML auto-merge.
+
+export type OpResult = { stdout: string; stderr: string; attempts: number };
+export type FixKind =
+  | { kind: "trackWithLfs"; patterns: string[]; paths: string[] }
+  | { kind: "addGitignore"; entries: string[] }
+  | { kind: "untrackPaths"; paths: string[]; gitignore: string[] };
+export type CheckFinding = { id: string; severity: "error" | "warning" | "info"; title: string; detail: string; paths: string[]; locations: string[]; fix: FixKind | null };
+export type DeleteDecision = { allowed: boolean; reason: string };
+export type GitTag = { name: string; target: string; annotated: boolean; date: string; subject: string };
+export type MergeTool = { id: string; name: string; kind: string; path: string; supportsMerge: boolean; supportsDiff: boolean; unityOnly: boolean };
+export type GithubRepo = { host: string; owner: string; repo: string; apiBase: string; htmlUrl: string };
+export type GithubViewer = { login: string; name: string | null; avatarUrl: string | null };
+export type GithubRepoInfo = {
+  fullName: string; defaultBranch: string; private: boolean; visibility: string; htmlUrl: string; archived: boolean;
+  permissions: { admin: boolean; maintain: boolean; push: boolean; triage: boolean; pull: boolean } | null;
+  allowMergeCommit: boolean; allowSquashMerge: boolean; allowRebaseMerge: boolean; deleteBranchOnMerge: boolean;
+};
+export type GithubStatus = { remoteUrl: string | null; repo: GithubRepo | null; tokenSource: "keychain" | "env" | "ghCli" | "none"; viewer: GithubViewer | null; repoInfo: GithubRepoInfo | null; error: string | null };
+export type CheckRollup = "success" | "failure" | "pending" | "neutral";
+export type PullRequest = {
+  number: number; title: string; body: string | null; url: string; state: "open" | "closed" | "merged"; draft: boolean;
+  author: string; authorAvatar: string | null; head: string; base: string; headSha: string; headRepo: string | null;
+  createdAt: string; updatedAt: string; reviewDecision: "approved" | "changes_requested" | "review_required" | null;
+  mergeable: boolean | null; mergeableState: string | null; checks: CheckRollup | null; requestedReviewers: string[];
+  additions: number; deletions: number; changedFiles: number;
+};
+export type CheckItem = { name: string; kind: "checkRun" | "status"; status: "queued" | "in_progress" | "completed"; conclusion: string | null; url: string | null; startedAt: string | null; completedAt: string | null; app: string | null; description: string | null; runId: number | null; jobId: number | null };
+export type BranchChecks = { gitRef: string; sha: string; rollup: CheckRollup; total: number; passed: number; failed: number; pending: number; items: CheckItem[] };
+export type AutoRetryResult = { retried: Array<{ runId: number; name: string; attempt: number; url: string }>; skipped: Array<{ runId: number; name: string; reason: string }> };
+export type FailedJobLog = { jobId: number; name: string; url: string; conclusion: string | null; failedStep: string | null; logTail: string; truncated: boolean };
+export type TomlConflict = { keyPath: string; ours: string | null; theirs: string | null; base: string | null };
+export type TomlMergeReport = { path: string; autoResolved: boolean; conflicts: TomlConflict[]; error?: string | null };
+export type MergeLaunch = { toolId: string; pid: number; base: string | null; ours: string | null; theirs: string | null; result: string };
+
+export const scmApi = {
+  checks: (root: string, paths?: string[]) => invokeDesktop<CheckFinding[]>("scm_checks", { root, paths: paths ?? null }),
+  fix: (root: string, fix: FixKind) => invokeDesktop<OpResult>("scm_fix", { root, fix, confirmed: true }),
+  canDeleteRemote: (root: string, branch: string) => invokeDesktop<DeleteDecision>("scm_can_delete_remote_branch", { root, branch }),
+  deleteBranch: (root: string, name: string, remote: boolean, force: boolean) => invokeDesktop<OpResult>("scm_delete_branch", { root, name, remote, force, confirmed: true }),
+  renameBranch: (root: string, oldName: string, newName: string) => invokeDesktop<OpResult>("scm_rename_branch", { root, oldName, newName, confirmed: true }),
+  tags: (root: string) => invokeDesktop<GitTag[]>("scm_tags", { root }),
+  createTag: (root: string, name: string, message?: string, target?: string) => invokeDesktop<OpResult>("scm_create_tag", { root, name, message: message || null, target: target ?? null, confirmed: true }),
+  pushTag: (root: string, name: string) => invokeDesktop<OpResult>("scm_push_tag", { root, name, confirmed: true }),
+  cherryPick: (root: string, hash: string) => invokeDesktop<MergeOutcome>("scm_cherry_pick", { root, hash, confirmed: true }),
+  revert: (root: string, hash: string) => invokeDesktop<MergeOutcome>("scm_revert", { root, hash, confirmed: true }),
+  pendingOperation: (root: string) => invokeDesktop<"merge" | "cherryPick" | "revert" | "rebase" | null>("scm_pending_operation", { root }),
+  abortOperation: (root: string) => invokeDesktop<OpResult>("scm_abort_operation", { root, confirmed: true }),
+  amendMessage: (root: string, message: string) => invokeDesktop<OpResult>("scm_amend_message", { root, message, confirmed: true }),
+  undoLastCommit: (root: string) => invokeDesktop<OpResult>("scm_undo_last_commit", { root, confirmed: true }),
+  fileHistory: (root: string, path: string, limit?: number) => invokeDesktop<GitCommit[]>("scm_file_history", { root, path, limit: limit ?? null }),
+  mergeTools: (path?: string) => invokeDesktop<{ tools: MergeTool[]; recommended: string | null }>("scm_merge_tools", { path: path ?? null }),
+  launchMergeTool: (root: string, path: string, toolId: string) => invokeDesktop<MergeLaunch>("scm_launch_merge_tool", { root, path, toolId }),
+  openDiffTool: (root: string, path: string, toolId: string) => invokeDesktop<MergeLaunch>("scm_open_diff_tool", { root, path, toolId }),
+  markResolved: (root: string, path: string) => invokeDesktop<OpResult>("scm_mark_resolved", { root, path }),
+  githubStatus: (root: string) => invokeDesktop<GithubStatus>("scm_github_status", { root }),
+  githubSetToken: (host: string, token: string) => invokeDesktop<GithubViewer>("scm_github_set_token", { host, token }),
+  githubClearToken: (host: string) => invokeDesktop<string>("scm_github_clear_token", { host }),
+  prs: (root: string) => invokeDesktop<PullRequest[]>("scm_prs", { root }),
+  prForBranch: (root: string, branch?: string) => invokeDesktop<PullRequest | null>("scm_pr_for_branch", { root, branch: branch ?? null }),
+  createPr: (root: string, pr: { title: string; body?: string; base?: string; head?: string; draft?: boolean }) => invokeDesktop<PullRequest>("scm_pr_create", { root, title: pr.title, body: pr.body ?? null, base: pr.base ?? null, head: pr.head ?? null, draft: pr.draft ?? false }),
+  updatePr: (root: string, number: number, patch: { title?: string; body?: string; draft?: boolean }) => invokeDesktop<PullRequest>("scm_pr_update", { root, number, title: patch.title ?? null, body: patch.body ?? null, draft: patch.draft ?? null }),
+  requestReviewers: (root: string, number: number, reviewers: string[]) => invokeDesktop<PullRequest>("scm_pr_request_reviewers", { root, number, reviewers }),
+  commentPr: (root: string, number: number, body: string) => invokeDesktop<string>("scm_pr_comment", { root, number, body }),
+  mergePr: (root: string, number: number, method: "merge" | "squash" | "rebase") => invokeDesktop<{ merged: boolean; sha: string | null; message: string }>("scm_pr_merge", { root, number, method, commitTitle: null, commitMessage: null, confirmed: true }),
+  closePr: (root: string, number: number) => invokeDesktop<PullRequest>("scm_pr_close", { root, number, confirmed: true }),
+  checksForBranch: (root: string, branch?: string) => invokeDesktop<BranchChecks>("scm_checks_for_branch", { root, branch: branch ?? null }),
+  rerunFailed: (root: string, runId: number) => invokeDesktop<null>("scm_rerun_failed", { root, runId }),
+  autoRetryChecks: (root: string, branch?: string, maxAttempts?: number) => invokeDesktop<AutoRetryResult>("scm_auto_retry_checks", { root, branch: branch ?? null, maxAttempts: maxAttempts ?? null }),
+  failedJobLogs: (root: string, runId: number) => invokeDesktop<FailedJobLog[]>("scm_failed_job_logs", { root, runId }),
+  tomlAutoMerge: (path: string) => invokeDesktop<TomlMergeReport[]>("toml_conflicts_auto_merge", { path }),
+  tomlResolve: (path: string, file: string, choices: Record<string, "ours" | "theirs" | "base">) => invokeDesktop<void>("toml_conflict_resolve", { path, file, choices }),
+};

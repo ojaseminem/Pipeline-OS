@@ -287,6 +287,14 @@ function AppsSettings({ onScanApps, onFindProjects }: SettingsProps) {
           <Switch label="Show editor activity" checked={prefs.engineWatch} onChange={(engineWatch) => setPrefs({ engineWatch })} />
         </Row>
       </Group>
+      <Group title="Source control" description="GitHub sign-in is per repository, from a project's Source Control tab. Tokens stay in your OS keychain.">
+        <Row label="Check changes before committing" description="Blocks commits with conflict markers, secrets, files over GitHub's 100 MB limit, or missing Unity .meta files; warns about generated folders and risky file names. One-click fixes where possible.">
+          <Switch label="Check changes before committing" checked={prefs.precommitChecks} onChange={(precommitChecks) => setPrefs({ precommitChecks })} />
+        </Row>
+        <Row label="Re-run failed checks automatically" description="Re-runs each failed GitHub Actions workflow once per commit, so a flaky runner doesn't need a manual click.">
+          <Switch label="Re-run failed checks automatically" checked={prefs.autoRetryChecks} onChange={(autoRetryChecks) => setPrefs({ autoRetryChecks })} />
+        </Row>
+      </Group>
     </>
   );
 }

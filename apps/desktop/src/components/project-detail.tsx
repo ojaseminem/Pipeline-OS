@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ActiveTimeCard } from "./active-time";
+import { usePrefs } from "../lib/prefs";
+import { scmApi } from "../bridge";
+import { PrecommitChecks } from "./scm/precommit";
+import { MergeToolItems, PipelineFilesMerge } from "./scm/conflicts";
+import { PullRequests } from "./scm/pull-requests";
+import { BranchChecks } from "./scm/branch-checks";
+import { BranchesAndTags } from "./scm/branches-tags";
+import { GithubConnect } from "./scm/github-connect";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowLeft, Archive, Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Cloud, Download, ExternalLink, FileCode2, Filter, FolderOpen, GitBranch, GitBranchPlus,
@@ -22,7 +30,7 @@ import { ProjectBoard } from "./project-board";
 import { ProjectAssets } from "./project-assets";
 import { ProjectAi } from "./project-ai";
 import { studioApi } from "../bridge";
-import { Bot, KanbanSquare, SquareTerminal, Workflow } from "lucide-react";
+import { Bot, CircleCheckBig, GitPullRequest, KanbanSquare, SquareTerminal, Tags, Undo2, Workflow } from "lucide-react";
 import { browsePath, desktopApi, isNativeRuntime, openExternal, type BranchInfo, type ConflictResolution, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
 import { PROJECT_CATEGORIES } from "../lib/categories";
@@ -111,6 +119,10 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
   useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab, project.path]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [marked, setMarked] = useState<Set<string>>(new Set());
+  const [prefs] = usePrefs();
+  const [blockingFindings, setBlockingFindings] = useState(0);
+  const [commitAnyway, setCommitAnyway] = useState(false);
+  const [scmSection, setScmSection] = useState<"changes" | "prs" | "checks" | "branches">("changes");
   const changesRef = useRef<HTMLDivElement>(null);
   // A file selection clears with Escape, or a click outside the changes list
   // (menus and dialogs opened from it don't count).
@@ -373,7 +385,14 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
       return next;
     });
   }
+  async function undoLastCommit() {
+    if (!(await confirmAction({ title: "Undo the last commit?", description: "Its changes go back to your working copy, staged and ready to commit again. Only possible before it's pushed.", confirmLabel: "Undo commit" }))) return;
+    await run("Undoing the last commit", () => scmApi.undoLastCommit(project.path));
+    void refreshGit();
+  }
+
   async function commitSelected() {
+    setCommitAnyway(false);
     if (!commit.trim() || selected.size === 0) return;
     if (await confirmAction({ title: `Commit ${selected.size} file(s)?`, description: `"${commit.trim()}" in ${project.name}.`, confirmLabel: "Commit" })) {
       void run("Committing", async () => { await desktopApi.gitCommitPaths(project.path, commit, [...selected], true); setCommit(""); setDiffPath(null); await refreshGit(); });
@@ -816,7 +835,20 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
               )}
             </CardContent></Card>
           ) : (
-            <ResizablePanelGroup direction="horizontal" className="min-h-[320px] gap-4" style={{ height: "calc(100vh - 230px)" }}>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div role="tablist" aria-label="Source control sections" className="inline-flex rounded-lg border border-border bg-secondary/40 p-0.5">
+                  {([["changes", "Changes", GitCommitHorizontal], ["prs", "Pull requests", GitPullRequest], ["checks", "Checks", CircleCheckBig], ["branches", "Branches & tags", Tags]] as const).map(([id, label, Icon]) => (
+                    <button key={id} role="tab" aria-selected={scmSection === id} onClick={() => setScmSection(id)} className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-sm ${scmSection === id ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground"}`}><Icon size={14} /> {label}</button>
+                  ))}
+                </div>
+                {scmSection !== "changes" ? <div className="ml-auto min-w-0"><GithubConnect root={project.path} compact /></div> : null}
+              </div>
+              {scmSection === "prs" ? <PullRequests root={project.path} branch={git.data?.branch} published={Boolean(git.data?.hasUpstream)} /> : null}
+              {scmSection === "checks" ? <Card><CardContent className="p-4"><BranchChecks root={project.path} /></CardContent></Card> : null}
+              {scmSection === "branches" ? <BranchesAndTags root={project.path} current={git.data?.branch} /> : null}
+              {scmSection === "changes" ? (
+            <ResizablePanelGroup direction="horizontal" className="min-h-[320px] gap-4" style={{ height: "calc(100vh - 280px)" }}>
               <ResizablePanel defaultSize={62} minSize={30} className="flex min-w-0 flex-col">
               <Card className="flex h-full flex-col overflow-hidden"><CardContent className="flex min-h-0 flex-1 flex-col p-0">
                 <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -885,6 +917,7 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
                                 {codeEditors.map(({ app, executable }) => (
                                   <DropdownMenuItem key={app.id} onClick={() => void run(`Opening in ${app.name}`, () => desktopApi.launchAppFile(app.id, executable, `${project.path}/${path}`, project.path))}>{app.name}</DropdownMenuItem>
                                 ))}
+                                <MergeToolItems root={project.path} path={path} onResolved={() => void refreshGit()} />
                               </DropdownMenuContent>
                             </DropdownMenu>
                             <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void resolveConflict(path, "ours")}>Use mine</Button>
@@ -894,6 +927,7 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
                         ))}
                       </ul>
                     ) : <p className="text-xs text-muted-foreground">All conflicts resolved — complete the merge to finish.</p>}
+                    <PipelineFilesMerge root={project.path} conflicted={mergeStatus.data.conflictedFiles} onDone={() => void refreshGit()} />
                   </div>
                 ) : null}
                 <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2">
@@ -929,11 +963,12 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
                       ) : null}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="More change actions" disabled={!native || gitBusy || !git.data?.changedFiles.length}><MoreHorizontal size={14} /></Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="More change actions" disabled={!native || gitBusy}><MoreHorizontal size={14} /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={stashAllChanges}><Archive size={14} /> Stash all changes</DropdownMenuItem>
-                          <DropdownMenuItem variant="destructive" onClick={discardAllChanges}><Trash2 size={14} /> Discard all changes…</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => void undoLastCommit()}><Undo2 size={14} /> Undo last commit</DropdownMenuItem>
+                          <DropdownMenuItem disabled={!git.data?.changedFiles.length} variant="destructive" onClick={discardAllChanges}><Trash2 size={14} /> Discard all changes…</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -983,8 +1018,10 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
                       })()}
                     </div>
                     <div className="space-y-2 border-t border-border p-3">
+                      {native && prefs.precommitChecks ? <PrecommitChecks root={project.path} paths={[...selected]} statusKey={(git.data?.changedFiles ?? []).map((file) => `${file.status}:${file.path}`).join("|")} onBlockingChange={setBlockingFindings} /> : null}
                       <Input aria-label="Commit message" placeholder="Summary of changes" value={commit} onChange={(e) => setCommit(e.target.value)} />
-                      <Button className="w-full" disabled={!native || !commit.trim() || selected.size === 0} onClick={commitSelected}><GitCommitHorizontal size={15} /> Commit {selected.size} to {git.data?.branch ?? "branch"}</Button>
+                      {blockingFindings > 0 && prefs.precommitChecks ? <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={commitAnyway} onChange={(event) => setCommitAnyway(event.target.checked)} /> Commit anyway, ignoring the problems above</label> : null}
+                      <Button className="w-full" disabled={!native || !commit.trim() || selected.size === 0 || (prefs.precommitChecks && blockingFindings > 0 && !commitAnyway)} onClick={commitSelected}><GitCommitHorizontal size={15} /> Commit {selected.size} to {git.data?.branch ?? "branch"}</Button>
                     </div>
                   </>
                 ) : (
@@ -1026,6 +1063,8 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
               </CardContent></Card>
               </ResizablePanel>
             </ResizablePanelGroup>
+              ) : null}
+            </div>
           )}
         </TabsContent>
 

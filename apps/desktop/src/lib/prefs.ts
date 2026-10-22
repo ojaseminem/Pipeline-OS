@@ -21,6 +21,10 @@ export type Prefs = {
   /** Include the project brief when starting an agent. */
   writeBriefOnAgentStart: boolean;
   startScreen: StartScreen;
+  /** Re-run failed GitHub Actions checks once per commit. */
+  autoRetryChecks: boolean;
+  /** Run pre-commit checks before every commit. */
+  precommitChecks: boolean;
 };
 
 export const DEFAULT_PREFS: Prefs = {
@@ -32,6 +36,8 @@ export const DEFAULT_PREFS: Prefs = {
   defaultAgent: "claude",
   writeBriefOnAgentStart: true,
   startScreen: "Home",
+  autoRetryChecks: true,
+  precommitChecks: true,
 };
 
 const KEY = "vantadeck.prefs";
