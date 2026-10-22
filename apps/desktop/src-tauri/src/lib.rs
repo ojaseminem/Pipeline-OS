@@ -1,6 +1,8 @@
 mod engine_watch;
+mod files;
 mod scm;
 mod studio;
+mod updates;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1513,6 +1515,9 @@ struct UpdateInfo {
     current_version: String,
     version: String,
     notes: Option<String>,
+    /// Why the check couldn't complete (offline, feed unreachable), if so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 /// Checks the configured release feed for a newer signed build. Returns update
@@ -1525,6 +1530,7 @@ async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
         version: current_version.clone(),
         current_version: current_version.clone(),
         notes: None,
+        error: None,
     };
     // No published release feed yet (or it's unreachable) is a normal state, not
     // an error — treat it as "you're on the latest version" rather than surfacing
@@ -1538,8 +1544,13 @@ async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
             current_version,
             version: update.version.clone(),
             notes: update.body.clone(),
+            error: None,
         }),
-        Ok(None) | Err(_) => Ok(up_to_date),
+        Ok(None) => Ok(up_to_date),
+        Err(error) => Ok(UpdateInfo {
+            error: Some(error.to_string()),
+            ..up_to_date
+        }),
     }
 }
 
@@ -2162,12 +2173,19 @@ pub fn run() {
             });
             app.manage(studio::StudioState::load(&data_dir));
             app.manage(engine_watch::EngineWatchState::default());
+            app.manage(updates::UpdateManager::default());
             engine_watch::spawn(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             dashboard_snapshot,
             engine_watch::engine_activity,
+            files::save_text_file,
+            updates::update_state,
+            updates::update_download,
+            updates::update_cancel,
+            updates::update_install,
+            updates::update_installer_url,
             engine_watch::clear_engine_activity,
             engine_watch::project_active_time,
             engine_watch::active_time_all,

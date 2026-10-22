@@ -77,6 +77,7 @@ import { REPO_URL, SettingsScreen } from "./components/settings-screen";
 import { AddProjectDialog } from "./components/add-project-dialog";
 import { DiscoveredProjects } from "./components/discovered-projects";
 import { PlanningScreen } from "./components/planning-screen";
+import { UpdateIndicator } from "./components/update-indicator";
 import { useDiscovery } from "./lib/discovery";
 import { getPrefs, setPrefs, usePrefs } from "./lib/prefs";
 import { useAppearance } from "./lib/appearance";
@@ -526,15 +527,16 @@ function AppShell() {
     navigate(screen, null);
   }
 
-  function viewUpdate() {
-    openScreen("Settings");
-    if (isNativeRuntime()) desktopApi.checkForUpdate().then(setUpdate).catch(() => undefined);
-  }
-
+  // Downloads in the background; the header's update icon shows progress and
+  // offers "Install & restart" (or the installer) when it's ready.
   async function startUpdate() {
     if (!update?.available || !isNativeRuntime()) return;
-    if (!(await confirmAction({ title: `Install Pipeline OS ${update.version}?`, description: "It downloads, verifies the signature, installs, and restarts the app. Running tasks will be stopped.", confirmLabel: "Install & restart" }))) return;
-    void run("Installing update", () => desktopApi.installUpdate());
+    try {
+      await desktopApi.updateDownload();
+      toast.message(`Downloading Pipeline OS ${update.version}`, { description: "Follow progress with the download icon at the top right." });
+    } catch (error) {
+      toast.error("Couldn't start the update", { description: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   function openProject(target: { path: string; name: string }, tab?: string) {
@@ -1095,6 +1097,7 @@ function AppShell() {
             <span className="ml-auto flex shrink-0 gap-1"><Kbd>{keyLabel("Ctrl")}</Kbd><Kbd>K</Kbd></span>
           </button>
           <div className="ml-auto flex items-center gap-2">
+            <UpdateIndicator update={update} releaseNotesUrl={CHANNEL === "dev" ? `${REPO_URL}/releases/tag/dev-latest` : `${REPO_URL}/releases/tag/v${update?.version ?? ""}`} />
             <Button size="sm" className="relative" onClick={() => setAddProjectOpen(true)} title={discovery.projects.length ? `Add project (Ctrl+N) · ${discovery.projects.length} found on this computer` : "Add project (Ctrl+N)"}>
               <FolderPlus size={15} /> Add project
               {discovery.projects.length ? <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-background" aria-label={`${discovery.projects.length} projects found`}>{discovery.projects.length}</span> : null}
@@ -1102,7 +1105,6 @@ function AppShell() {
           </div>
         </header>
 
-        {update?.available ? <div className="flex items-center gap-2 border-b border-border bg-primary/10 px-5 py-2 text-sm"><Download size={15} className="shrink-0 text-primary" /><span className="min-w-0 flex-1 truncate">Pipeline OS {update.version} is ready to install.</span><Button variant="link" size="sm" className="h-auto shrink-0 p-0" onClick={viewUpdate}>See what's new</Button></div> : null}
 
         <div className="flex-1 overflow-y-auto p-5 lg:p-6">
           <div className="mx-auto max-w-[1600px]">{content}</div>

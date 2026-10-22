@@ -10,7 +10,9 @@ export type AppInstallation = { version: string; executable: string; state: stri
 export type ManagedApp = { id: string; name: string; category: string; launchable: boolean; installations: AppInstallation[] };
 export type RegisteredProject = { name: string; path: string; pinned: boolean; tags: string[]; category: string };
 export type ActivityRecord = { id: number; kind: string; message: string; createdAt: string };
-export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null };
+export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null; error?: string | null };
+export type UpdatePhase = "idle" | "downloading" | "ready" | "installing" | "restarting" | "failed" | "cancelled";
+export type UpdateState = { phase: UpdatePhase; version: string | null; downloaded: number; total: number | null; error: string | null; installerUrl: string | null; blocker: string | null };
 export type PathInfo = { exists: boolean; isDir: boolean; isFile: boolean };
 export type LaunchProfile = { id: string; name: string; app_id: string; arguments: string[]; working_directory?: string | null; preferred_version?: string | null; fallback_version?: string | null };
 export type LinkedApp = { app_id: string; preferred_version?: string | null; project_file?: string | null; folder?: string | null };
@@ -190,6 +192,11 @@ export const desktopApi = {
   appIcon: (executable: string) => invokeDesktop<string | null>("app_icon", { executable }),
   checkForUpdate: () => invokeDesktop<UpdateInfo>("check_for_update"),
   installUpdate: () => invokeDesktop<void>("install_update"),
+  updateState: () => invokeDesktop<UpdateState>("update_state"),
+  updateDownload: () => invokeDesktop<UpdateState>("update_download"),
+  updateCancel: () => invokeDesktop<void>("update_cancel"),
+  updateInstall: () => invokeDesktop<void>("update_install"),
+  updateInstallerUrl: () => invokeDesktop<string | null>("update_installer_url"),
   pathInfo: (path: string) => invokeDesktop<PathInfo>("path_info", { path }),
   projectConfig: (root: string) => invokeDesktop<ProjectConfig>("project_config", { root }),
   repairProjectConfig: (root: string, confirmed: boolean) => invokeDesktop<ProjectConfig>("repair_project_config", { root, confirmed }),
@@ -394,4 +401,14 @@ export async function onEngineActivity(handler: (activity: EngineActivity) => vo
     return demoEngineEvents(handler);
   }
   return () => undefined;
+}
+
+export async function onUpdateState(handler: (state: UpdateState) => void): Promise<Unlisten> {
+  if (!isNativeRuntime()) return () => undefined;
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    return await listen<UpdateState>("update://state", (event) => handler(event.payload));
+  } catch {
+    return () => undefined;
+  }
 }

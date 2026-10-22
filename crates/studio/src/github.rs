@@ -883,7 +883,7 @@ pub fn summarize_checks(git_ref: &str, check_runs: &Value, combined: &Value) -> 
             .flatten()
             .map(parse_status),
     );
-    items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    items.sort_by_key(|item| item.name.to_lowercase());
     let failed = items
         .iter()
         .filter(|i| rollup(std::slice::from_ref(i)) == Rollup::Failure)
