@@ -37,6 +37,11 @@ function walk(dir) {
   return out;
 }
 
+/** The name GitHub will publish a file under (spaces become dots). */
+export function assetName(name) {
+  return name.replace(/ /g, ".");
+}
+
 // Map an updater artifact filename to a Tauri updater platform key.
 function platformFor(name) {
   if (name.endsWith("-setup.exe")) return "windows-x86_64";
@@ -53,12 +58,14 @@ const platforms = {};
 
 for (const sigPath of signatures) {
   const artifactPath = sigPath.slice(0, -4); // drop ".sig"
-  const name = basename(artifactPath);
+  // GitHub replaces spaces in asset names with dots (e.g. "PipelineOS Dev"),
+  // so publish under that name up front and point the feed at it.
+  const name = assetName(basename(artifactPath));
   const platform = platformFor(name);
   if (!platform) continue;
   // Copy the updater artifact next to the release assets so the URL resolves.
   copyFileSync(artifactPath, join(releaseAssetsDir, name));
-  copyFileSync(sigPath, join(releaseAssetsDir, basename(sigPath)));
+  copyFileSync(sigPath, join(releaseAssetsDir, `${name}.sig`));
   platforms[platform] = {
     signature: readFileSync(sigPath, "utf8").trim(),
     url: `${downloadBase}/${name}`,

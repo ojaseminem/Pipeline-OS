@@ -147,7 +147,7 @@ Grab the latest signed Windows build from [GitHub Releases](https://github.com/o
 
 ### Dev builds
 
-Want the newest work before it is released? Install **PipelineOS Dev** from the rolling [`dev-latest` pre-release](https://github.com/ojaseminem/Pipeline-OS/releases/tag/dev-latest). It installs next to the stable app with its own data and updates itself. See [RELEASING.md](RELEASING.md#dev-channel) and the [improvement plan](docs/dev/IMPROVEMENT_PLAN.md).
+Want the newest work before it is released? Install **PipelineOS Dev** (Windows, or macOS on Apple Silicon or Intel) from the rolling [`dev-latest` pre-release](https://github.com/ojaseminem/Pipeline-OS/releases/tag/dev-latest), built from the `dev` branch. It installs next to the stable app with its own data and updates itself. See [RELEASING.md](RELEASING.md#dev-channel) and the [improvement plan](docs/dev/IMPROVEMENT_PLAN.md).
 
 ### Prerequisites
 

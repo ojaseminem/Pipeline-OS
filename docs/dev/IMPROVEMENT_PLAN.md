@@ -166,13 +166,13 @@ the free product indispensable for one person first, then for a team.
 
 | Channel | App identity | Built by | Published to | Updates from |
 | --- | --- | --- | --- | --- |
-| **Dev** | "PipelineOS Dev" (`com.vantadeck.launcher.dev`), own data dir | `dev-build.yml` on every push to `dev`, `claude/**`, `codex/**` | Rolling **`dev-latest` pre-release** (never "latest") | `releases/download/dev-latest/latest.json` |
+| **Dev** | "PipelineOS Dev" (`com.vantadeck.launcher.dev`), own data dir | `dev-build.yml` on every push to the `dev` branch: Windows x64, macOS Apple Silicon + Intel | Rolling **`dev-latest` pre-release** (never "latest") | `releases/download/dev-latest/latest.json` |
 | **Stable** | "PipelineOS" (`com.vantadeck.launcher`) | `release.yml` on an annotated `vX.Y.Z` tag | GitHub Release (latest), SBOM, Sigstore, provenance | `releases/latest/download/latest.json` |
 
 Dev builds are versioned `X.Y.(Z+1)-<run>`, so they sort above the current
 stable release and below the next one. They install side by side with stable
 and never touch its data. Promotion: dev → PR to `main` → `release/X.Y` →
-tag. The CLI follows the same split: `vantadeck --channel dev …`.
+tag; feature branches merge into `dev` first. The CLI follows the same split: `vantadeck --channel dev …`.
 
 ## 7. Competitive landscape (Oct 2026)
 

@@ -79,17 +79,23 @@ and GPG-sign release tags.
 Work in progress ships to testers through a separate **dev channel** before it
 reaches a release:
 
-- [`.github/workflows/dev-build.yml`](.github/workflows/dev-build.yml) runs on
-  every push to `dev`, `claude/**` and `codex/**`. It builds **PipelineOS Dev**
-  (identifier `com.vantadeck.launcher.dev`, via
-  `apps/desktop/src-tauri/tauri.dev.conf.json`), versioned `X.Y.(Z+1)-<run>`.
-- The Windows installer, `latest.json` and checksums replace the rolling
-  **`dev-latest` pre-release**. Pre-releases are never "latest", so the stable
-  updater never sees them.
+- Integrate work into the **`dev` branch**. Every push to `dev` runs
+  [`.github/workflows/dev-build.yml`](.github/workflows/dev-build.yml) (it can
+  also be started by hand from the Actions tab). Feature/agent branches don't
+  publish; merge them into `dev` when they're ready for testers.
+- It builds **PipelineOS Dev** (identifier `com.vantadeck.launcher.dev`, via
+  `apps/desktop/src-tauri/tauri.dev.conf.json`), versioned `X.Y.(Z+1)-<run>`,
+  for **Windows x64**, **macOS Apple Silicon** and **macOS Intel**.
+- Installers (`…_x64-setup.exe`, `…_aarch64.dmg`, `…_x64.dmg`), updater
+  artifacts, `latest.json` and checksums replace the rolling **`dev-latest`
+  pre-release**. Pre-releases are never "latest", so the stable updater never
+  sees them.
 - Dev installs side by side with stable, keeps its own data, and self-updates
   from `releases/download/dev-latest/latest.json` when the signing secrets are
   available.
-- Promote by merging the work to `main` and cutting a release as below.
+- macOS dev builds are ad-hoc signed but not notarized: on first launch use
+  *System Settings → Privacy & Security → Open Anyway*.
+- Promote by merging `dev` into `main` and cutting a release as below.
 
 ## Continuous builds
 
