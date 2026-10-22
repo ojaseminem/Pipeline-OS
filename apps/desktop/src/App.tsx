@@ -274,6 +274,11 @@ function AppShell() {
     return () => { window.clearTimeout(full); window.removeEventListener("focus", onFocus); };
   }, [loadHealth]);
 
+  // The browser demo can preview first-run setup with ?demo=true&onboarding=1.
+  useEffect(() => {
+    if (isDemoMode() && new URLSearchParams(window.location.search).get("onboarding") === "1") setOnboarding(true);
+  }, []);
+
   useEffect(() => {
     if (!isNativeRuntime()) return;
     desktopApi.appVersion().then(setAppVersion).catch(() => undefined);

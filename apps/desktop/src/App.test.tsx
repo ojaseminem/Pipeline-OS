@@ -159,7 +159,7 @@ describe("dashboard", () => {
     await userEvent.click(nav("Projects"));
     expect(await screen.findByText("Found on this computer")).toBeInTheDocument();
     expect(screen.getByText("Skyline")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Add all 3" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add 3 projects" }));
     await waitFor(() => expect(screen.queryByText("Found on this computer")).not.toBeInTheDocument());
   });
 
