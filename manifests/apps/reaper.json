@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"reaper","name":"REAPER","category":"utility","platforms":["windows","macos","linux"],"executables":["reaper.exe","REAPER","reaper"],"knownPaths":["C:/Program Files/REAPER (x64)/reaper.exe","/Applications/REAPER.app"],"fileTypes":[".rpp"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

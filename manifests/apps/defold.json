@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"defold","name":"Defold","category":"game-engine","platforms":["windows","macos","linux"],"executables":["Defold.exe","Defold"],"knownPaths":["C:/Program Files/Defold/Defold.exe","/Applications/Defold.app"],"fileTypes":["game.project"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

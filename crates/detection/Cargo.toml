@@ -9,11 +9,13 @@ rust-version.workspace = true
 [dependencies]
 async-trait.workspace = true
 glob = "0.3"
+plist = "1"
 semver.workspace = true
 serde_json.workspace = true
 vantadeck-domain = { path = "../domain" }
 walkdir.workspace = true
 
 [dev-dependencies]
+plist = "1"
 tempfile.workspace = true
 tokio.workspace = true

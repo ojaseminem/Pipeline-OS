@@ -22,10 +22,11 @@ use vantadeck_vcs::{
     VcsOperationResult, VcsStatus,
 };
 
-/// Categories that represent launchable creative applications. Version-control
-/// tooling is detected for project workflows but is never launched directly.
+/// Categories that represent launchable applications. Command-line
+/// version-control tooling (git, git-lfs, p4) is detected for project
+/// workflows but is never launched directly.
 fn is_launchable_category(category: &str) -> bool {
-    matches!(category, "game-engine" | "dcc" | "art" | "code")
+    matches!(category, "game-engine" | "dcc" | "art" | "code" | "utility")
 }
 
 fn category_str(category: &AppCategory) -> &'static str {
@@ -944,9 +945,12 @@ async fn list_drives() -> Result<Vec<String>, String> {
         }
         Ok(drives)
     }
+    // macOS/Linux have no drive letters: scans use the standard install and
+    // project locations instead. Walking "/" would crawl the whole disk and,
+    // on macOS, trip the "access data from other apps" privacy prompt.
     #[cfg(not(windows))]
     {
-        Ok(vec!["/".to_string()])
+        Ok(Vec::new())
     }
 }
 
@@ -2255,6 +2259,8 @@ pub fn run() {
             studio::issue_update,
             studio::issue_delete,
             studio::issues_everywhere,
+            studio::discover_projects,
+            studio::dismiss_discovered,
             studio::tracker_get,
             studio::tracker_save,
             studio::tracker_sync,
@@ -2266,6 +2272,9 @@ pub fn run() {
             studio::asset_set_meta,
             studio::open_terminal,
             studio::cli_info,
+            studio::ai_clients,
+            studio::ai_configure,
+            studio::ai_unconfigure,
             app_version
         ])
         .run(tauri::generate_context!())

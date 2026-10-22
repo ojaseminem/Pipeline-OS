@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"fork","name":"Fork","category":"utility","platforms":["windows","macos"],"executables":["Fork.exe"],"knownPaths":["C:/Users/{user}/AppData/Local/Fork/Fork.exe","/Applications/Fork.app"],"macBundleIds":["com.DanPristupov.Fork"],"fileTypes":[],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

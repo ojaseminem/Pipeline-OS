@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"spine","name":"Spine","category":"art","platforms":["windows","macos","linux"],"executables":["Spine.exe","Spine","spine"],"knownPaths":["C:/Program Files/Spine/Spine.exe","/Applications/Spine.app","/home/{user}/Spine/Spine.sh"],"fileTypes":[".spine"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

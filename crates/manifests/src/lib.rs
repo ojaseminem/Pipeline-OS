@@ -14,6 +14,9 @@ pub struct AppManifest {
     pub executables: Vec<String>,
     #[serde(default)]
     pub known_paths: Vec<String>,
+    /// macOS bundle identifier prefixes used to match `.app` bundles exactly.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mac_bundle_ids: Vec<String>,
     #[serde(default)]
     pub file_types: Vec<String>,
     #[serde(default)]

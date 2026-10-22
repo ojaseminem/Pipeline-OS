@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"fmod-studio","name":"FMOD Studio","category":"utility","platforms":["windows","macos"],"executables":["FMOD Studio.exe"],"knownPaths":["C:/Program Files/FMOD SoundSystem/FMOD Studio */FMOD Studio.exe","/Applications/FMOD Studio*.app"],"fileTypes":[".fspro"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

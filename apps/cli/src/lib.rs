@@ -98,6 +98,28 @@ pub enum Command {
     },
     /// Serve Pipeline OS to AI agents over the Model Context Protocol (stdio).
     Mcp,
+    /// Find AI apps (Claude, Codex, Cursor, VS Code, ...) and connect them to Pipeline OS.
+    Ai {
+        #[command(subcommand)]
+        command: AiCommand,
+    },
+    /// Projects on this computer that aren't in Pipeline OS yet.
+    Discover,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AiCommand {
+    /// Which AI apps and agent CLIs are installed and connected.
+    Status,
+    /// Connect AI apps to the Pipeline OS MCP server.
+    Setup {
+        /// Client ids (claude-desktop, claude-code, cursor, windsurf, vscode,
+        /// codex, gemini-cli). Default: every installed client.
+        #[arg(long = "client")]
+        clients: Vec<String>,
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -418,6 +440,29 @@ pub async fn execute(
             )
         }
         Command::Tasks { command } => execute_tasks(command, service, json).await,
+        Command::Ai { command } => execute_ai(command),
+        Command::Discover => {
+            const COMMAND: &str = "discover";
+            let known: Vec<PathBuf> = service
+                .registered_projects()
+                .await
+                .map_err(app(COMMAND))?
+                .into_iter()
+                .map(|project| project.root)
+                .collect();
+            let found = tokio::task::spawn_blocking(move || {
+                vantadeck_studio::discovery::discover(
+                    &vantadeck_studio::discovery::DiscoverySources::system(),
+                    &known,
+                )
+            })
+            .await
+            .map_err(|e| CliExecutionError::Usage {
+                command: COMMAND,
+                message: e.to_string(),
+            })?;
+            success(COMMAND, found)
+        }
         Command::Issues { command } => execute_issues(command, service).await,
         Command::Assets { command } => execute_assets(command),
         Command::Scan {
@@ -801,6 +846,63 @@ pub async fn run_resolved_task(
     })
     .await
     .map_err(|e| StudioError::Invalid(format!("task thread failed: {e}")))?
+}
+
+fn execute_ai(command: AiCommand) -> Result<CliEnvelope<serde_json::Value>, CliExecutionError> {
+    use vantadeck_studio::ai_clients::{self, ClientLocations, ServerCommand};
+    let locations = ClientLocations::system().ok_or(CliExecutionError::Usage {
+        command: "ai",
+        message: "couldn't find the home folder".into(),
+    })?;
+    match command {
+        AiCommand::Status => success(
+            "ai.status",
+            serde_json::json!({
+                "clients": ai_clients::detect_clients(&locations),
+                "agentClis": ai_clients::installed_agent_clis(&locations),
+            }),
+        ),
+        AiCommand::Setup { clients, yes } => {
+            const COMMAND: &str = "ai.setup";
+            require_confirmation(COMMAND, yes)?;
+            let exe = std::env::current_exe().map_err(|source| CliExecutionError::Io {
+                command: COMMAND,
+                source,
+            })?;
+            let mut args = vec!["mcp".to_owned()];
+            if DATA_DIR
+                .get()
+                .is_some_and(|dir| dir.to_string_lossy().ends_with(".dev"))
+            {
+                args.insert(0, "--channel=dev".to_owned());
+            }
+            let server = ServerCommand {
+                command: exe.display().to_string(),
+                args,
+            };
+            let targets: Vec<String> = if clients.is_empty() {
+                ai_clients::detect_clients(&locations)
+                    .into_iter()
+                    .filter(|client| client.installed)
+                    .map(|client| client.id)
+                    .collect()
+            } else {
+                clients
+            };
+            let results: Vec<_> = targets
+                .into_iter()
+                .map(
+                    |id| match ai_clients::configure_client(&locations, &id, &server) {
+                        Ok(()) => serde_json::json!({ "id": id, "ok": true }),
+                        Err(error) => {
+                            serde_json::json!({ "id": id, "ok": false, "error": error.to_string() })
+                        }
+                    },
+                )
+                .collect();
+            success(COMMAND, results)
+        }
+    }
 }
 
 async fn execute_issues(

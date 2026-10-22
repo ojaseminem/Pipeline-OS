@@ -547,6 +547,109 @@ pub async fn selfhost_forgejo(
     })
 }
 
+// ---------------------------------------------------------------- discovery
+
+const DISCOVERY_CACHE: &str = "discovered-projects.json";
+const DISCOVERY_DISMISSED: &str = "discovered-dismissed.json";
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Discovery {
+    projects: Vec<vantadeck_studio::discovery::DiscoveredProject>,
+    /// RFC 3339 time of the last full discovery pass, if any.
+    scanned_at: Option<String>,
+}
+
+fn data_file(studio: &StudioState, name: &str) -> Option<PathBuf> {
+    studio
+        .data_dir
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|dir| dir.join(name))
+}
+
+fn read_json<T: serde::de::DeserializeOwned + Default>(path: Option<PathBuf>) -> T {
+    path.and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn normalized(path: &str) -> String {
+    path.replace('\\', "/")
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
+}
+
+/// Projects on this computer that aren't in Pipeline OS yet: from Unity Hub,
+/// Unreal's recent projects, Godot's project list, and a shallow pass over
+/// common project folders. Returns the cached result unless `refresh`.
+#[tauri::command]
+pub async fn discover_projects(
+    refresh: bool,
+    state: State<'_, DesktopState>,
+    studio: State<'_, StudioState>,
+) -> Result<Discovery, String> {
+    let registered: Vec<PathBuf> = state
+        .service
+        .registered_projects()
+        .await
+        .map_err(err)?
+        .into_iter()
+        .map(|project| project.root)
+        .collect();
+    let cache_path = data_file(&studio, DISCOVERY_CACHE);
+    let mut discovery: Discovery = if refresh {
+        let known = registered.clone();
+        let projects = tauri::async_runtime::spawn_blocking(move || {
+            vantadeck_studio::discovery::discover(
+                &vantadeck_studio::discovery::DiscoverySources::system(),
+                &known,
+            )
+        })
+        .await
+        .map_err(err)?;
+        let fresh = Discovery {
+            projects,
+            scanned_at: Some(now()),
+        };
+        if let (Some(path), Ok(json)) = (cache_path, serde_json::to_string(&fresh)) {
+            let _ = std::fs::write(path, json);
+        }
+        fresh
+    } else {
+        read_json(cache_path)
+    };
+    let dismissed: Vec<String> = read_json(data_file(&studio, DISCOVERY_DISMISSED));
+    let registered: Vec<String> = registered
+        .iter()
+        .map(|p| normalized(&p.display().to_string()))
+        .collect();
+    discovery.projects.retain(|project| {
+        let key = normalized(&project.path);
+        !registered.contains(&key) && !dismissed.contains(&key) && Path::new(&project.path).is_dir()
+    });
+    Ok(discovery)
+}
+
+/// Hides a discovered project from future suggestions.
+#[tauri::command]
+pub async fn dismiss_discovered(
+    path: String,
+    studio: State<'_, StudioState>,
+) -> Result<(), String> {
+    let file = data_file(&studio, DISCOVERY_DISMISSED);
+    let mut dismissed: Vec<String> = read_json(file.clone());
+    let key = normalized(&path);
+    if !dismissed.contains(&key) {
+        dismissed.push(key);
+    }
+    if let Some(file) = file {
+        std::fs::write(file, serde_json::to_string(&dismissed).map_err(err)?).map_err(err)?;
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------- AI brief
 
 #[derive(Serialize)]
@@ -755,8 +858,7 @@ pub struct CliInfo {
     mcp_args: Vec<String>,
 }
 
-#[tauri::command]
-pub async fn cli_info(app: AppHandle) -> CliInfo {
+fn cli_info_for(app: &AppHandle) -> CliInfo {
     let name = if cfg!(windows) {
         "vantadeck.exe"
     } else {
@@ -780,6 +882,86 @@ pub async fn cli_info(app: AppHandle) -> CliInfo {
         channel,
         mcp_args,
     }
+}
+
+#[tauri::command]
+pub async fn cli_info(app: AppHandle) -> CliInfo {
+    cli_info_for(&app)
+}
+
+// ------------------------------------------------- AI clients (MCP setup)
+
+use vantadeck_studio::ai_clients::{self, AiClientStatus, ClientLocations, ServerCommand};
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSetupState {
+    clients: Vec<AiClientStatus>,
+    /// Agent CLIs found on this machine (claude, codex, gemini, aider).
+    agent_clis: Vec<String>,
+    /// Whether the bundled CLI exists, so clients can be connected.
+    can_configure: bool,
+}
+
+fn locations() -> Result<ClientLocations, String> {
+    ClientLocations::system().ok_or_else(|| "Couldn't find your home folder.".to_owned())
+}
+
+#[tauri::command]
+pub async fn ai_clients(app: AppHandle) -> Result<AiSetupState, String> {
+    let locations = locations()?;
+    Ok(AiSetupState {
+        clients: ai_clients::detect_clients(&locations),
+        agent_clis: ai_clients::installed_agent_clis(&locations),
+        can_configure: cli_info_for(&app).cli_path.is_some(),
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiConfigureResult {
+    id: String,
+    ok: bool,
+    error: Option<String>,
+}
+
+/// Connects the given AI clients to the bundled Pipeline OS MCP server.
+#[tauri::command]
+pub async fn ai_configure(
+    app: AppHandle,
+    ids: Vec<String>,
+) -> Result<Vec<AiConfigureResult>, String> {
+    let info = cli_info_for(&app);
+    let command = info
+        .cli_path
+        .ok_or("The vantadeck CLI isn't installed next to the app (development build?).")?;
+    let server = ServerCommand {
+        command,
+        args: info.mcp_args,
+    };
+    let locations = locations()?;
+    Ok(ids
+        .into_iter()
+        .map(
+            |id| match ai_clients::configure_client(&locations, &id, &server) {
+                Ok(()) => AiConfigureResult {
+                    id,
+                    ok: true,
+                    error: None,
+                },
+                Err(error) => AiConfigureResult {
+                    id,
+                    ok: false,
+                    error: Some(error.to_string()),
+                },
+            },
+        )
+        .collect())
+}
+
+#[tauri::command]
+pub async fn ai_unconfigure(id: String) -> Result<(), String> {
+    ai_clients::unconfigure_client(&locations()?, &id).map_err(err)
 }
 
 #[cfg(test)]

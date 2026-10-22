@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"texturepacker","name":"TexturePacker","category":"art","platforms":["windows","macos","linux"],"executables":["TexturePackerGUI.exe","TexturePacker"],"knownPaths":["C:/Program Files/CodeAndWeb/TexturePacker/bin/TexturePackerGUI.exe","/Applications/TexturePacker.app"],"fileTypes":[".tps"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

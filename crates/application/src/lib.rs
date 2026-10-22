@@ -319,7 +319,8 @@ impl ApplicationService {
                         &manifest.name,
                         manifest.executables.iter().map(String::as_str).collect(),
                     )
-                    .with_known_paths(manifest.known_paths.clone()),
+                    .with_known_paths(manifest.known_paths.clone())
+                    .with_mac_bundle_ids(manifest.mac_bundle_ids.clone()),
                     manifest.category,
                     None,
                 )
@@ -1705,6 +1706,10 @@ fn system_detection_engine(roots: &[PathBuf]) -> DetectionEngine {
     #[cfg(target_os = "macos")]
     if include_system_sources {
         sources.push(Box::new(MacAppBundleDetectionSource::system()));
+        // Command-line tools (git, git-lfs, p4) from PATH and Homebrew.
+        sources.push(Box::new(
+            vantadeck_detection::ExecutablePathDetectionSource::system(),
+        ));
     }
     #[cfg(target_os = "linux")]
     if include_system_sources {

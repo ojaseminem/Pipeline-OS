@@ -6,8 +6,10 @@
 //! Everything here is project-local and plain-text under `.pipelineos/`, so it
 //! travels with the repository and diffs cleanly in code review.
 
+pub mod ai_clients;
 pub mod assets;
 pub mod context;
+pub mod discovery;
 pub mod issues;
 pub mod tasks;
 pub mod trackers;

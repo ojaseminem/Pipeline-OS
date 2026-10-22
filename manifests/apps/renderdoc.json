@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"renderdoc","name":"RenderDoc","category":"utility","platforms":["windows","linux"],"executables":["qrenderdoc.exe","qrenderdoc"],"knownPaths":["C:/Program Files/RenderDoc/qrenderdoc.exe","/usr/bin/qrenderdoc"],"fileTypes":[".rdc"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"marmoset-toolbag","name":"Marmoset Toolbag","category":"dcc","platforms":["windows","macos"],"executables":["toolbag.exe"],"knownPaths":["C:/Program Files/Marmoset/Toolbag */toolbag.exe","/Applications/Marmoset Toolbag*.app"],"fileTypes":[".tbscene"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"adobe-animate","name":"Adobe Animate","category":"art","platforms":["windows","macos"],"executables":["Animate.exe"],"knownPaths":["C:/Program Files/Adobe/Adobe Animate*/Animate.exe","/Applications/Adobe Animate*/Adobe Animate*.app"],"macBundleIds":["com.adobe.Animate"],"fileTypes":[".fla"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

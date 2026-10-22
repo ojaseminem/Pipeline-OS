@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"cursor","name":"Cursor","category":"code","platforms":["windows","macos","linux"],"executables":["Cursor.exe","cursor"],"knownPaths":["C:/Users/{user}/AppData/Local/Programs/cursor/Cursor.exe","/Applications/Cursor.app"],"fileTypes":[],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

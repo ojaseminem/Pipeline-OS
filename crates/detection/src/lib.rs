@@ -13,7 +13,7 @@ pub use unix_sources::{
     AppImageDetectionSource, DesktopEntry, DesktopEntryDetectionSource,
     ExecutablePathDetectionSource, FlatpakDetectionSource, FlatpakMetadata,
     MacAppBundleDetectionSource, MacBundleMetadata, SnapDetectionSource, parse_desktop_entry,
-    parse_flatpak_metadata, parse_info_plist,
+    parse_flatpak_metadata, parse_info_plist, read_info_plist,
 };
 
 pub use windows_sources::{
@@ -32,6 +32,9 @@ pub struct ScanRequest {
     /// Glob patterns of well-known install locations from the app manifest. May
     /// contain `*` wildcards and a `{user}` placeholder.
     pub known_paths: Vec<String>,
+    /// macOS bundle identifier prefixes (e.g. `com.unity3d.UnityEditor`).
+    /// When present, macOS bundles are matched by identifier only.
+    pub mac_bundle_ids: Vec<String>,
 }
 
 impl ScanRequest {
@@ -45,11 +48,17 @@ impl ScanRequest {
             display_name: display_name.into(),
             executables: executables.into_iter().map(Into::into).collect(),
             known_paths: Vec::new(),
+            mac_bundle_ids: Vec::new(),
         }
     }
 
     pub fn with_known_paths(mut self, known_paths: Vec<impl Into<String>>) -> Self {
         self.known_paths = known_paths.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn with_mac_bundle_ids(mut self, ids: Vec<impl Into<String>>) -> Self {
+        self.mac_bundle_ids = ids.into_iter().map(Into::into).collect();
         self
     }
 }
@@ -90,6 +99,20 @@ impl DetectionSource for KnownPathDetectionSource {
                 continue;
             };
             for entry in entries.flatten() {
+                // A known path may name a macOS bundle (".../Unity.app"):
+                // resolve it to the executable inside.
+                let entry = if entry.is_dir()
+                    && entry.extension().and_then(|e| e.to_str()) == Some("app")
+                {
+                    let metadata =
+                        unix_sources::read_info_plist(&entry.join("Contents/Info.plist"));
+                    match unix_sources::bundle_executable(&entry, metadata.as_ref(), request) {
+                        Some(executable) => executable,
+                        None => continue,
+                    }
+                } else {
+                    entry
+                };
                 if entry.is_file() {
                     found.push(AppInstallation {
                         version: infer_version(&entry).unwrap_or_else(|| Version::new(0, 0, 0)),
