@@ -21,10 +21,10 @@ async fn scans_catalog_with_manual_override_and_persists_results() {
     let installs = tempfile::tempdir().expect("install root");
     let detected = installs.path().join("Blender 4.2.3");
     fs::create_dir_all(&detected).expect("detected directory");
-    fs::write(detected.join("blender.exe"), b"fixture").expect("detected executable");
+    write_fixture(detected.join("blender.exe"));
     let portable = installs.path().join("Portable/blender.exe");
     fs::create_dir_all(portable.parent().expect("portable parent")).expect("portable directory");
-    fs::write(&portable, b"fixture").expect("portable executable");
+    write_fixture(&portable);
 
     let storage = Storage::connect("sqlite::memory:").await.expect("storage");
     let service = ApplicationService::new(storage, GitProvider::new("git"));
@@ -187,7 +187,7 @@ async fn searches_and_pins_registered_projects() {
 async fn resolves_a_project_launch_profile_from_local_installations() {
     let root = tempfile::tempdir().expect("project root");
     let executable = root.path().join("blender.exe");
-    std::fs::write(&executable, b"fixture").expect("executable");
+    write_fixture(&executable);
     let storage = Storage::connect("sqlite::memory:").await.expect("storage");
     let service = ApplicationService::new(storage, GitProvider::new("git"));
     service
@@ -314,4 +314,15 @@ async fn rejects_vcs_mutation_without_shared_service_confirmation() {
         error,
         vantadeck_application::ApplicationError::ConfirmationRequired(_)
     ));
+}
+
+/// Writes a fixture file that the OS considers executable.
+fn write_fixture(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    std::fs::write(path, b"fixture").expect("fixture");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
 }

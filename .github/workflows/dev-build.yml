@@ -1,0 +1,193 @@
+name: Dev build
+
+# The dev channel: every push to the `dev` branch builds "PipelineOS Dev", a
+# separately-identified app that installs side by side with the production
+# app, keeps its own data, and updates from its own feed. Windows and macOS
+# (Apple Silicon + Intel) installers are published to the rolling
+# `dev-latest` GitHub *pre-release*, which the production updater (it reads
+# `releases/latest`) never sees. Production releases come only from
+# release.yml on an annotated `vX.Y.Z` tag.
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    name: Compute dev version
+    # Manual runs can pick any branch; only `dev` may publish to the dev feed.
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - id: version
+        # Next patch of the workspace version with a numeric pre-release, e.g.
+        # 0.4.12 -> 0.4.13-57: above the current release, below the next one,
+        # and valid for NSIS, DMG, and the updater's semver comparison.
+        run: |
+          set -euo pipefail
+          base="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+          IFS=. read -r major minor patch <<< "${base}"
+          echo "version=${major}.${minor}.$((patch + 1))-${GITHUB_RUN_NUMBER}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Dev installer (${{ matrix.label }})
+    needs: version
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            artifact: pipelineos-dev-windows-x64
+          - label: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+            arch: aarch64
+            artifact: pipelineos-dev-macos-aarch64
+          - label: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+            arch: x64
+            artifact: pipelineos-dev-macos-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: 1.96.0
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Pin the dev version
+        shell: bash
+        run: |
+          printf '{ "version": "%s" }\n' "${{ needs.version.outputs.version }}" > apps/desktop/src-tauri/tauri.version.conf.json
+      - run: npm ci
+      - name: Stage the vantadeck CLI sidecar
+        env:
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
+        run: node scripts/prepare-sidecar.mjs
+      - name: Build dev installer
+        shell: bash
+        env:
+          VITE_PIPELINEOS_CHANNEL: dev
+          VITE_PIPELINEOS_COMMIT: ${{ github.sha }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          configs=(--config src-tauri/tauri.dev.conf.json --config src-tauri/tauri.version.conf.json --config src-tauri/tauri.sidecar.conf.json)
+          # Updater artifacts need the signing key; without it (e.g. forks) the
+          # installer still builds, it just can't self-update.
+          if [[ -n "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
+            configs+=(--config src-tauri/tauri.updater.conf.json)
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY unavailable; dev build will not self-update."
+          fi
+          npm run tauri --workspace @vantadeck/desktop -- build --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}" "${configs[@]}"
+      - name: Collect installer and updater files
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="target/${{ matrix.target }}/release/bundle"
+          mkdir out
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp "${bundle}"/nsis/*-setup.exe* out/
+          else
+            cp "${bundle}"/dmg/*.dmg out/
+            # Both Macs' updater tarballs are named "<Product>.app.tar.gz";
+            # add version + arch so they can share one release and the feed can
+            # tell them apart.
+            for file in "${bundle}"/macos/*.app.tar.gz*; do
+              [[ -e "${file}" ]] || continue
+              name="$(basename "${file}")"
+              cp "${file}" "out/${name/.app.tar.gz/_${{ needs.version.outputs.version }}_${{ matrix.arch }}.app.tar.gz}"
+            done
+          fi
+          ls -la out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish rolling dev-latest pre-release
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: pipelineos-dev-*
+          path: artifacts
+      - name: Assemble assets and updater feed
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          # GitHub renames spaces to dots in asset names; do it ourselves so
+          # names in the feed and on the release always match.
+          while IFS= read -r -d '' file; do
+            name="$(basename "${file}")"
+            cp "${file}" "release-assets/${name// /.}"
+          done < <(find artifacts -type f \( -name '*-setup.exe' -o -name '*.dmg' \) -print0)
+          test -n "$(ls release-assets)" || { echo "no dev installers produced" >&2; exit 1; }
+          if find artifacts -name '*.sig' | grep -q .; then
+            node scripts/generate-latest-json.mjs artifacts release-assets dev-latest "${VERSION}"
+            cat release-assets/latest.json
+          fi
+          (cd release-assets && sha256sum * > SHA256SUMS.txt)
+          ls -la release-assets
+      - name: Replace the rolling pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release delete dev-latest --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes || true
+          notes="Rolling **dev channel** build ${VERSION} from \`${GITHUB_REF_NAME}\` @ ${GITHUB_SHA::7}.
+
+          Installs as **PipelineOS Dev** next to the production app, with its own data and its own update feed. Not for production use.
+
+          **Windows:** run \`PipelineOS.Dev_${VERSION}_x64-setup.exe\`. It isn't code-signed yet, so SmartScreen asks you to confirm: *More info → Run anyway*.
+
+          **macOS:** use \`…_aarch64.dmg\` on Apple Silicon (M1 and later) or \`…_x64.dmg\` on Intel Macs. Drag the app to Applications. It isn't notarized yet, so the first time: open it, then go to *System Settings → Privacy & Security* and click **Open Anyway** (or run \`xattr -dr com.apple.quarantine \"/Applications/PipelineOS Dev.app\"\`)."
+          gh release create dev-latest release-assets/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "PipelineOS Dev ${VERSION}" \
+            --notes "${notes}" \
+            --prerelease \
+            --latest=false

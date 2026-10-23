@@ -401,11 +401,8 @@ fn sleeping_executable() -> PathBuf {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         let path = directory.join("sleep.sh");
-        std::fs::write(&path, "#!/bin/sh\nsleep 5\n").expect("script");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-            .expect("permissions");
+        write_script(&path, "#!/bin/sh\nsleep 5\n");
         path
     }
 }
@@ -424,6 +421,22 @@ fn failing_executable() -> PathBuf {
     )
 }
 
+/// Writes an executable script without this process ever holding it open for
+/// writing: a test child spawned meanwhile could inherit that handle, and
+/// Linux then refuses to run the script ("Text file busy").
+#[cfg(unix)]
+fn write_script(path: &Path, body: &str) {
+    let staging = path.with_extension("txt");
+    std::fs::write(&staging, body).expect("script");
+    let status = std::process::Command::new("install")
+        .args(["-m", "755"])
+        .arg(&staging)
+        .arg(path)
+        .status()
+        .expect("install");
+    assert!(status.success(), "install {}", path.display());
+}
+
 fn fake_executable(unix_body: &str, windows_body: &str) -> PathBuf {
     #[cfg(windows)]
     let _ = unix_body;
@@ -438,11 +451,8 @@ fn fake_executable(unix_body: &str, windows_body: &str) -> PathBuf {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         let path = directory.join("fake.sh");
-        std::fs::write(&path, format!("#!/bin/sh\n{unix_body}")).expect("script");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-            .expect("permissions");
+        write_script(&path, &format!("#!/bin/sh\n{unix_body}"));
         path
     }
 }
@@ -476,15 +486,11 @@ fn argument_logging_executable() -> (PathBuf, PathBuf) {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         let executable = directory.join("args.sh");
-        std::fs::write(
+        write_script(
             &executable,
-            format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n", log.display()),
-        )
-        .expect("script");
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
-            .expect("permissions");
+            &format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n", log.display()),
+        );
         (executable, log)
     }
 }

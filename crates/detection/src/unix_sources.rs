@@ -45,17 +45,103 @@ impl MacAppBundleDetectionSource {
         Self { roots, max_depth }
     }
 
+    /// Standard macOS install locations. Deliberately *not* the home folder or
+    /// `~/Library`: walking other apps' containers triggers macOS's "would
+    /// like to access data from other apps" privacy prompt.
     #[cfg(target_os = "macos")]
     pub fn system() -> Self {
         let mut roots = vec![
             PathBuf::from("/Applications"),
-            PathBuf::from("/System/Applications"),
+            // Epic Games Launcher installs engines here (UE_5.x/Engine/...).
+            PathBuf::from("/Users/Shared/Epic Games"),
         ];
         if let Some(home) = home_directory() {
             roots.push(home.join("Applications"));
         }
-        Self::new(roots, 3)
+        // Deep enough for /Applications/Unity/Hub/Editor/<v>/Unity.app and
+        // /Users/Shared/Epic Games/UE_5.4/Engine/Binaries/Mac/UnrealEditor.app.
+        Self::new(roots, 6)
     }
+}
+
+/// Reads a bundle's Info.plist in either XML or binary format.
+pub fn read_info_plist(path: &Path) -> Option<MacBundleMetadata> {
+    let value = plist::Value::from_file(path).ok()?;
+    let dict = value.as_dictionary()?;
+    let string = |key: &str| {
+        dict.get(key)
+            .and_then(plist::Value::as_string)
+            .map(str::to_owned)
+            .filter(|value| !value.is_empty())
+    };
+    Some(MacBundleMetadata {
+        name: string("CFBundleDisplayName").or_else(|| string("CFBundleName")),
+        identifier: string("CFBundleIdentifier"),
+        executable: string("CFBundleExecutable")?,
+        version: string("CFBundleShortVersionString")
+            .or_else(|| string("CFBundleVersion"))
+            .and_then(|version| parse_loose_version(&version))
+            .unwrap_or_else(unknown_version),
+    })
+}
+
+fn bundle_matches(
+    bundle: &Path,
+    metadata: Option<&MacBundleMetadata>,
+    request: &ScanRequest,
+) -> bool {
+    // Bundle identifiers are exact: prefer them whenever the manifest has
+    // them (so "Unity Hub.app" is never mistaken for the Unity editor).
+    if !request.mac_bundle_ids.is_empty() {
+        return metadata
+            .and_then(|metadata| metadata.identifier.as_deref())
+            .is_some_and(|identifier| {
+                request.mac_bundle_ids.iter().any(|prefix| {
+                    identifier
+                        .to_ascii_lowercase()
+                        .starts_with(&prefix.to_ascii_lowercase())
+                })
+            });
+    }
+    let bundle_name = bundle.file_stem().and_then(OsStr::to_str).unwrap_or("");
+    let display = metadata.and_then(|metadata| metadata.name.as_deref());
+    [Some(bundle_name), display]
+        .into_iter()
+        .flatten()
+        .any(|name| {
+            request_name_matches(name, request)
+                || request.executables.iter().any(|executable| {
+                    let stem = executable.trim_end_matches(".exe");
+                    !stem.is_empty() && name.eq_ignore_ascii_case(stem)
+                })
+        })
+}
+
+pub(crate) fn bundle_executable(
+    bundle: &Path,
+    metadata: Option<&MacBundleMetadata>,
+    request: &ScanRequest,
+) -> Option<PathBuf> {
+    let macos = bundle.join("Contents/MacOS");
+    let declared = metadata.map(|metadata| macos.join(&metadata.executable));
+    let candidates = request
+        .executables
+        .iter()
+        .map(|name| macos.join(name.trim_end_matches(".exe")));
+    declared
+        .into_iter()
+        .chain(candidates)
+        .find(|path| path.is_file())
+        .or_else(|| {
+            // A bundle with exactly one binary is unambiguous.
+            let mut files = fs::read_dir(&macos)
+                .ok()?
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_file());
+            let only = files.next()?;
+            files.next().is_none().then_some(only)
+        })
 }
 
 #[async_trait]
@@ -66,46 +152,43 @@ impl DetectionSource for MacAppBundleDetectionSource {
             if !root.is_dir() {
                 continue;
             }
-            for entry in WalkDir::new(root)
+            let mut walker = WalkDir::new(root)
                 .max_depth(self.max_depth)
                 .follow_links(false)
-                .into_iter()
-                .filter_map(Result::ok)
-                .filter(|entry| entry.file_type().is_dir() && has_extension(entry.path(), "app"))
-            {
-                let bundle = entry.path();
-                let plist_path = bundle.join("Contents/Info.plist");
-                let metadata = fs::read_to_string(&plist_path)
-                    .ok()
-                    .and_then(|input| parse_info_plist(&input));
-                let bundle_name = bundle.file_stem().and_then(OsStr::to_str);
-                if !metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.name.as_deref())
-                    .or(bundle_name)
-                    .is_some_and(|name| request_name_matches(name, request))
-                {
+                .into_iter();
+            while let Some(entry) = walker.next() {
+                let Ok(entry) = entry else { continue };
+                if !entry.file_type().is_dir() {
                     continue;
                 }
-                let declared = metadata
-                    .as_ref()
-                    .map(|metadata| metadata.executable.as_str());
-                let executable_name = declared
-                    .filter(|name| {
-                        request
-                            .executables
-                            .iter()
-                            .any(|candidate| candidate == name)
-                    })
-                    .or_else(|| request.executables.first().map(String::as_str));
-                let Some(executable) = executable_name
-                    .map(|name| bundle.join("Contents/MacOS").join(name))
-                    .filter(|path| path.is_file())
-                else {
+                let name = entry.file_name().to_string_lossy();
+                // Never descend into bundles or hidden/system folders.
+                if name.starts_with('.') && entry.depth() > 0 {
+                    walker.skip_current_dir();
+                    continue;
+                }
+                if !has_extension(entry.path(), "app") {
+                    continue;
+                }
+                walker.skip_current_dir();
+                let bundle = entry.path();
+                let plist_path = bundle.join("Contents/Info.plist");
+                let metadata = read_info_plist(&plist_path).or_else(|| {
+                    fs::read_to_string(&plist_path)
+                        .ok()
+                        .and_then(|input| parse_info_plist(&input))
+                });
+                if !bundle_matches(bundle, metadata.as_ref(), request) {
+                    continue;
+                }
+                let Some(executable) = bundle_executable(bundle, metadata.as_ref(), request) else {
                     continue;
                 };
+                // Prefer a version from the bundle; fall back to the install
+                // path (e.g. .../Editor/2022.3.18f1/Unity.app).
                 let version = metadata
                     .map(|metadata| metadata.version)
+                    .filter(|version| *version != unknown_version())
                     .or_else(|| infer_version(bundle))
                     .unwrap_or_else(unknown_version);
                 found.push(installation(
@@ -193,7 +276,8 @@ impl ExecutablePathDetectionSource {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn system() -> Self {
         let mut paths = executable_search_paths();
-        for common in ["/usr/local/bin", "/usr/bin", "/bin"] {
+        // Apps launched from Finder get a minimal PATH; include Homebrew.
+        for common in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
             paths.push(common.into());
         }
         paths.sort();
@@ -205,22 +289,32 @@ impl ExecutablePathDetectionSource {
 #[async_trait]
 impl DetectionSource for ExecutablePathDetectionSource {
     async fn scan(&self, request: &ScanRequest) -> io::Result<Vec<AppInstallation>> {
-        let mut found = Vec::new();
-        for directory in &self.search_paths {
-            for executable_name in &request.executables {
-                let executable = directory.join(executable_name);
-                if executable.is_file() {
-                    found.push(installation(
-                        infer_version(&executable).unwrap_or_else(unknown_version),
-                        executable,
-                        "executable-path",
-                        directory.display().to_string(),
-                        85,
-                    ));
+        // `--version` probes block for up to a few seconds each; keep them off
+        // the async workers.
+        let search_paths = self.search_paths.clone();
+        let executables = request.executables.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut found = Vec::new();
+            for directory in &search_paths {
+                for executable_name in &executables {
+                    let executable = directory.join(executable_name);
+                    if crate::is_executable_file(&executable) {
+                        found.push(installation(
+                            cli_version(&executable)
+                                .or_else(|| infer_version(&executable))
+                                .unwrap_or_else(unknown_version),
+                            executable,
+                            "executable-path",
+                            directory.display().to_string(),
+                            85,
+                        ));
+                    }
                 }
             }
-        }
-        Ok(found)
+            found
+        })
+        .await
+        .map_err(io::Error::other)
     }
 }
 
@@ -606,6 +700,70 @@ fn unescape_xml(value: &str) -> String {
         .replace("&apos;", "'")
 }
 
+/// Command-line tools whose `--version` is quick, side-effect free and
+/// reports the real version (paths like /opt/homebrew/bin/git carry none).
+const VERSION_PROBED_TOOLS: &[&str] = &["git", "git-lfs", "p4", "svn", "hg", "gh"];
+
+/// Asks a known CLI tool for its version, with a short timeout.
+pub(crate) fn cli_version(executable: &Path) -> Option<Version> {
+    let stem = executable.file_stem()?.to_str()?.to_ascii_lowercase();
+    if !VERSION_PROBED_TOOLS.contains(&stem.as_str()) {
+        return None;
+    }
+    // On macOS /usr/bin/git and friends are xcode-select shims: running one
+    // without the Command Line Tools opens the "install developer tools" dialog.
+    if cfg!(target_os = "macos") && executable.starts_with("/usr/bin") {
+        return None;
+    }
+    let mut command = std::process::Command::new(executable);
+    command
+        .arg(if stem == "p4" { "-V" } else { "--version" })
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let mut child = command.spawn().ok()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let mut output = String::new();
+    std::io::Read::read_to_string(&mut child.stdout.take()?, &mut output).ok()?;
+    parse_cli_version(&stem, &output)
+}
+
+/// Reads the version out of a tool's `--version` (or `p4 -V`) output.
+fn parse_cli_version(stem: &str, output: &str) -> Option<Version> {
+    if stem == "p4" {
+        // "Rev. P4/NTX64/2024.1/2605063 (2024/04/10)." after a banner.
+        return output
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("Rev. "))
+            .and_then(|rev| rev.split('/').nth(2))
+            .and_then(parse_loose_version);
+    }
+    // "git version 2.47.1", "git-lfs/3.6.1 (GitHub; darwin arm64; go 1.23)".
+    let first = output.lines().find(|line| !line.trim().is_empty())?;
+    let after_name = first
+        .split_once(|c: char| c == '/' || c.is_whitespace())
+        .map_or(first, |(_, rest)| rest);
+    parse_loose_version(after_name)
+}
+
 fn parse_loose_version(input: &str) -> Option<Version> {
     for candidate in input.split(|character: char| !character.is_ascii_digit() && character != '.')
     {
@@ -625,9 +783,38 @@ fn parse_loose_version(input: &str) -> Option<Version> {
     None
 }
 
+/// Vendor names that prefix product names in manifests but not in bundle or
+/// shortcut names ("SideFX Houdini" installs "Houdini FX 20.5.app").
+const VENDOR_PREFIXES: &[&str] = &[
+    "Adobe",
+    "Autodesk",
+    "Maxon",
+    "SideFX",
+    "Foundry",
+    "JetBrains",
+    "Blackmagic",
+    "Audiokinetic",
+    "Marmoset",
+    "Esoteric",
+    "Toon",
+    "Epic",
+    "Perforce",
+];
+
 fn request_name_matches(value: &str, request: &ScanRequest) -> bool {
     contains_ignore_ascii_case(value, &request.display_name)
         || contains_ignore_ascii_case(value, &request.app_id)
+        || request
+            .display_name
+            .split_once(' ')
+            .filter(|(vendor, _)| {
+                VENDOR_PREFIXES
+                    .iter()
+                    .any(|v| v.eq_ignore_ascii_case(vendor))
+            })
+            .is_some_and(|(_, product)| {
+                product.len() >= 4 && contains_ignore_ascii_case(value, product)
+            })
 }
 
 fn contains_ignore_ascii_case(value: &str, needle: &str) -> bool {
@@ -695,5 +882,27 @@ fn installation(
             detail,
             confidence,
         }],
+    }
+}
+
+#[cfg(test)]
+mod cli_version_tests {
+    use super::parse_cli_version;
+
+    #[test]
+    fn reads_versions_from_tool_output() {
+        let git = parse_cli_version("git", "git version 2.47.1\n").expect("git");
+        assert_eq!(git.to_string(), "2.47.1");
+        let lfs = parse_cli_version("git-lfs", "git-lfs/3.6.1 (GitHub; darwin arm64; go 1.23)")
+            .expect("lfs");
+        assert_eq!(lfs.to_string(), "3.6.1");
+        let p4 = parse_cli_version(
+            "p4",
+            "Perforce - The Fast Software Configuration Management System.\n\
+             Copyright 1995-2024 Perforce Software.  All rights reserved.\n\
+             Rev. P4/NTX64/2024.1/2605063 (2024/04/10).\n",
+        )
+        .expect("p4");
+        assert_eq!(p4.to_string(), "2024.1.0");
     }
 }

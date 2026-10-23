@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"unity-hub","name":"Unity Hub","category":"utility","platforms":["windows","macos","linux"],"executables":["Unity Hub.exe","unityhub"],"knownPaths":["C:/Program Files/Unity Hub/Unity Hub.exe","/Applications/Unity Hub.app"],"macBundleIds":["com.unity3d.unityhub"],"fileTypes":[],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

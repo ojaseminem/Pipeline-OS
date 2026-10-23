@@ -1,3 +1,10 @@
+mod engine_watch;
+mod env_path;
+mod files;
+mod scm;
+mod studio;
+mod updates;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,10 +27,14 @@ use vantadeck_vcs::{
     VcsOperationResult, VcsStatus,
 };
 
-/// Categories that represent launchable creative applications. Version-control
-/// tooling is detected for project workflows but is never launched directly.
+/// Categories that represent launchable applications. Command-line
+/// version-control tooling (git, git-lfs, p4) is detected for project
+/// workflows but is never launched directly.
 fn is_launchable_category(category: &str) -> bool {
-    matches!(category, "game-engine" | "dcc" | "art" | "code")
+    matches!(
+        category,
+        "game-engine" | "dcc" | "art" | "media" | "productivity" | "code" | "utility"
+    )
 }
 
 fn category_str(category: &AppCategory) -> &'static str {
@@ -33,6 +44,8 @@ fn category_str(category: &AppCategory) -> &'static str {
         AppCategory::Art => "art",
         AppCategory::Code => "code",
         AppCategory::VersionControl => "version-control",
+        AppCategory::Media => "media",
+        AppCategory::Productivity => "productivity",
         AppCategory::Utility => "utility",
     }
 }
@@ -942,9 +955,12 @@ async fn list_drives() -> Result<Vec<String>, String> {
         }
         Ok(drives)
     }
+    // macOS/Linux have no drive letters: scans use the standard install and
+    // project locations instead. Walking "/" would crawl the whole disk and,
+    // on macOS, trip the "access data from other apps" privacy prompt.
     #[cfg(not(windows))]
     {
-        Ok(vec!["/".to_string()])
+        Ok(Vec::new())
     }
 }
 
@@ -1013,12 +1029,48 @@ async fn set_manual_override(
     executable: String,
     state: State<'_, DesktopState>,
 ) -> Result<(), String> {
-    let version = version.parse().map_err(|e: semver::Error| e.to_string())?;
+    // A macOS .app bundle (or any executable) resolves to the real binary;
+    // an empty version uses the one the bundle or tool reports.
+    let (executable, detected) = vantadeck_detection::resolve_launch_target(Path::new(&executable))
+        .ok_or_else(|| {
+            if cfg!(target_os = "macos") {
+                "Pick the application (the .app in Applications) or an executable file.".to_owned()
+            } else {
+                "That file isn't an executable this system can run.".to_owned()
+            }
+        })?;
+    let version = if version.trim().is_empty() {
+        detected.ok_or("Couldn't read this app's version. Enter it, for example 4.2.3.")?
+    } else {
+        let trimmed = version.trim();
+        parse_typed_version(trimmed)
+            .map_err(|e| format!("“{trimmed}” isn't a version like 4.2.3 ({e})."))?
+    };
     state
         .service
-        .set_manual_override(&app_id, version, Path::new(&executable))
+        .set_manual_override(&app_id, version, &executable)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Parses a version someone typed: pads "2024" / "4.3" to three parts and
+/// turns Unity's "2022.3.18f1" into "2022.3.18+f1" so semver accepts it.
+fn parse_typed_version(typed: &str) -> Result<semver::Version, semver::Error> {
+    let padded = match typed.split('.').count() {
+        1 => format!("{typed}.0.0"),
+        2 => format!("{typed}.0"),
+        _ => typed.to_owned(),
+    };
+    let normalized = match padded.rsplit_once('.') {
+        Some((head, last)) => match last.find(|c: char| !c.is_ascii_digit()) {
+            Some(i) if i > 0 && !last[i..].starts_with(['-', '+']) => {
+                format!("{head}.{}+{}", &last[..i], &last[i..])
+            }
+            _ => padded,
+        },
+        None => padded,
+    };
+    normalized.parse()
 }
 
 fn launch_is_allowed(installations: &[AppInstallation], executable: &Path) -> bool {
@@ -1505,6 +1557,9 @@ struct UpdateInfo {
     current_version: String,
     version: String,
     notes: Option<String>,
+    /// Why the check couldn't complete (offline, feed unreachable), if so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 /// Checks the configured release feed for a newer signed build. Returns update
@@ -1517,6 +1572,7 @@ async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
         version: current_version.clone(),
         current_version: current_version.clone(),
         notes: None,
+        error: None,
     };
     // No published release feed yet (or it's unreachable) is a normal state, not
     // an error — treat it as "you're on the latest version" rather than surfacing
@@ -1530,8 +1586,13 @@ async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
             current_version,
             version: update.version.clone(),
             notes: update.body.clone(),
+            error: None,
         }),
-        Ok(None) | Err(_) => Ok(up_to_date),
+        Ok(None) => Ok(up_to_date),
+        Err(error) => Ok(UpdateInfo {
+            error: Some(error.to_string()),
+            ..up_to_date
+        }),
     }
 }
 
@@ -1810,13 +1871,13 @@ async fn launch_app_file(
         .unwrap_or_else(|| PathBuf::from(&root));
     let arguments = app_file_arguments(&app_id, Path::new(&root), &file_path);
     let executable_display = exe.display().to_string();
-    let child = LaunchSpec::new(exe, arguments, working_directory)
-        .map_err(|e| e.to_string())?
+    let spec = LaunchSpec::new(exe, arguments, working_directory).map_err(|e| e.to_string())?;
+    let child = spec
         .command()
         .spawn()
         .map_err(|e| format!("Could not start the application: {e}"))?;
     Ok(LaunchResult {
-        process_id: child.id(),
+        process_id: child.id().filter(|_| spec.spawns_app_directly()),
         executable: executable_display,
     })
 }
@@ -2111,10 +2172,9 @@ async fn open_url(url: String) -> Result<(), String> {
 /// bundled catalog), with the same architecture safety as catalog launches.
 #[tauri::command(rename_all = "camelCase")]
 async fn launch_executable(executable: String) -> Result<(), String> {
-    let exe = PathBuf::from(&executable);
-    if !exe.is_file() {
-        return Err("Executable not found.".into());
-    }
+    // Custom apps may point at a macOS .app bundle; launch its real binary.
+    let (exe, _) = vantadeck_detection::resolve_launch_target(Path::new(&executable))
+        .ok_or("Executable not found, or it isn't an app this system can run.")?;
     vantadeck_launcher::ensure_runnable(&exe).map_err(|e| e.to_string())?;
     let working_directory = exe
         .parent()
@@ -2131,6 +2191,7 @@ async fn launch_executable(executable: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     suppress_windows_error_dialogs();
+    env_path::fix_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -2152,10 +2213,25 @@ pub fn run() {
                 scan_cancel: Arc::new(AtomicBool::new(false)),
                 project_scan_cancel: Arc::new(AtomicBool::new(false)),
             });
+            app.manage(studio::StudioState::load(&data_dir));
+            app.manage(engine_watch::EngineWatchState::default());
+            app.manage(updates::UpdateManager::default());
+            engine_watch::spawn(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             dashboard_snapshot,
+            engine_watch::engine_activity,
+            files::save_text_file,
+            studio::mcp_tools,
+            updates::update_state,
+            updates::update_download,
+            updates::update_cancel,
+            updates::update_install,
+            updates::update_installer_url,
+            engine_watch::clear_engine_activity,
+            engine_watch::project_active_time,
+            engine_watch::active_time_all,
             list_projects,
             import_project,
             remove_project,
@@ -2237,6 +2313,78 @@ pub fn run() {
             git_stash_pop,
             git_stash_drop,
             git_stash_list,
+            studio::tasks_list,
+            studio::tasks_templates,
+            studio::tasks_presets,
+            studio::tasks_install_unity_script,
+            studio::tasks_save,
+            studio::tasks_trust,
+            studio::task_plan,
+            studio::task_run,
+            studio::task_cancel,
+            studio::task_runs,
+            studio::task_run_log,
+            studio::task_clear_history,
+            studio::issues_list,
+            studio::issue_create,
+            studio::issue_update,
+            studio::issue_delete,
+            studio::issues_everywhere,
+            studio::discover_projects,
+            studio::dismiss_discovered,
+            studio::tracker_get,
+            studio::tracker_save,
+            studio::tracker_sync,
+            studio::selfhost_forgejo,
+            studio::project_brief,
+            studio::toml_conflicts_auto_merge,
+            studio::toml_conflict_resolve,
+            studio::asset_layouts,
+            studio::asset_apply_layout,
+            studio::assets_index,
+            studio::asset_set_meta,
+            studio::open_terminal,
+            studio::cli_info,
+            studio::ai_clients,
+            studio::ai_configure,
+            studio::ai_unconfigure,
+            scm::scm_checks,
+            scm::scm_fix,
+            scm::scm_can_delete_remote_branch,
+            scm::scm_delete_branch,
+            scm::scm_rename_branch,
+            scm::scm_tags,
+            scm::scm_create_tag,
+            scm::scm_push_tag,
+            scm::scm_cherry_pick,
+            scm::scm_revert,
+            scm::scm_pending_operation,
+            scm::scm_abort_operation,
+            scm::scm_amend_message,
+            scm::scm_undo_last_commit,
+            scm::scm_blame,
+            scm::scm_file_history,
+            scm::scm_stash_show,
+            scm::scm_merge_tools,
+            scm::scm_launch_merge_tool,
+            scm::scm_open_diff_tool,
+            scm::scm_mark_resolved,
+            scm::scm_github_status,
+            scm::scm_github_set_token,
+            scm::scm_github_clear_token,
+            scm::scm_prs,
+            scm::scm_pr,
+            scm::scm_pr_for_branch,
+            scm::scm_pr_create,
+            scm::scm_pr_update,
+            scm::scm_pr_request_reviewers,
+            scm::scm_pr_comment,
+            scm::scm_pr_merge,
+            scm::scm_pr_close,
+            scm::scm_checks_for_branch,
+            scm::scm_rerun_failed,
+            scm::scm_auto_retry_checks,
+            scm::scm_failed_job_logs,
             app_version
         ])
         .run(tauri::generate_context!())
@@ -2247,6 +2395,21 @@ pub fn run() {
 mod tests {
     use super::*;
     use vantadeck_domain::AppState;
+
+    #[test]
+    fn typed_versions_accept_unity_and_short_forms() {
+        assert_eq!(
+            parse_typed_version("2022.3.18f1").unwrap().to_string(),
+            "2022.3.18+f1"
+        );
+        assert_eq!(parse_typed_version("4.3").unwrap().to_string(), "4.3.0");
+        assert_eq!(parse_typed_version("2025").unwrap().to_string(), "2025.0.0");
+        assert_eq!(
+            parse_typed_version("4.3.0-stable").unwrap().to_string(),
+            "4.3.0-stable"
+        );
+        assert!(parse_typed_version("not a version").is_err());
+    }
 
     #[test]
     fn launch_requires_an_exact_detected_executable() {

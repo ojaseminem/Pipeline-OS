@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"xcode","name":"Xcode","category":"code","platforms":["macos"],"executables":["Xcode"],"knownPaths":["/Applications/Xcode*.app"],"macBundleIds":["com.apple.dt.Xcode"],"fileTypes":[".xcodeproj",".xcworkspace"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

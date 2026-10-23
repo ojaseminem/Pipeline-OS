@@ -1,0 +1,74 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit reviews every pull request into main, dev, and release branches.
+language: en-US
+early_access: false
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  auto_review:
+    enabled: true
+    # Review once when a PR opens; comment "@coderabbitai review" to ask again.
+    # Re-reviewing every push floods inboxes on a busy release PR.
+    auto_incremental_review: false
+    drafts: false
+    base_branches:
+      - main
+      - dev
+      - "release/.*"
+  path_filters:
+    - "!**/Cargo.lock"
+    - "!**/package-lock.json"
+    - "!target/**"
+    - "!**/dist/**"
+    - "!**/gen/**"
+  path_instructions:
+    - path: "crates/**/*.rs"
+      instructions: |
+        Cross-platform desktop code (Windows, macOS, Linux). Flag anything that
+        only works on one OS without a cfg guard, blocking I/O on async paths,
+        shelling out with user-controlled strings, path handling that breaks on
+        Windows (backslashes, \\?\ prefixes, drive letters), unbounded
+        directory walks, and panics on user data. Tasks run argv-only; never
+        through a shell.
+    - path: "apps/desktop/src-tauri/**/*.rs"
+      instructions: |
+        Tauri commands are an IPC boundary: validate inputs, require explicit
+        confirmation flags for destructive git operations, never leak tokens
+        (they live in the OS keychain), and keep long work off the main thread.
+    - path: "apps/desktop/src/**/*.{ts,tsx}"
+      instructions: |
+        React 19 + TanStack Query + Tailwind v4 (shadcn/radix). Check
+        accessibility (labels, roles, keyboard use), theme tokens instead of
+        hard-coded colors, layouts that hold at small window sizes, and that
+        the browser demo (demo-studio.ts) keeps working.
+    - path: "manifests/apps/*.json"
+      instructions: |
+        App manifests must validate against schemas/app-manifest.schema.json;
+        prefer bundle ids and real install paths per OS.
+    - path: ".github/workflows/*.yml"
+      instructions: |
+        Pin third-party actions by SHA, keep least-privilege permissions, and
+        never expose signing secrets to pull requests from forks.
+  tools:
+    clippy:
+      enabled: true
+    eslint:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    gitleaks:
+      enabled: true
+chat:
+  auto_reply: true
+knowledge_base:
+  learnings:
+    scope: auto

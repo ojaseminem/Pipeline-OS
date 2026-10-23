@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"gamemaker","name":"GameMaker","category":"game-engine","platforms":["windows","macos"],"executables":["GameMaker.exe"],"knownPaths":["C:/Program Files/GameMaker/GameMaker.exe","/Applications/GameMaker.app"],"fileTypes":[".yyp"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

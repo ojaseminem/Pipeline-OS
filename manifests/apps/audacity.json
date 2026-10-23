@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"audacity","name":"Audacity","category":"utility","platforms":["windows","macos","linux"],"executables":["Audacity.exe","audacity"],"knownPaths":["C:/Program Files/Audacity/Audacity.exe","/Applications/Audacity.app","/usr/bin/audacity"],"fileTypes":[".aup3"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

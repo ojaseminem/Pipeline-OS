@@ -1,4 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { ActiveTimeCard } from "./active-time";
+import { usePrefs } from "../lib/prefs";
+import { scmApi } from "../bridge";
+import { PrecommitChecks } from "./scm/precommit";
+import { MergeToolItems, PipelineFilesMerge } from "./scm/conflicts";
+import { PullRequests } from "./scm/pull-requests";
+import { BranchChecks } from "./scm/branch-checks";
+import { BranchesAndTags } from "./scm/branches-tags";
+import { GithubConnect } from "./scm/github-connect";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowLeft, Archive, Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Cloud, Download, ExternalLink, FileCode2, Filter, FolderOpen, GitBranch, GitBranchPlus,
@@ -15,6 +24,13 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { toast } from "sonner";
 import { Copy, ImageIcon, Link2, Tag, X } from "lucide-react";
 import { HealthPanel } from "./health-panel";
+import { confirmAction } from "../lib/confirm";
+import { ProjectPipeline } from "./project-pipeline";
+import { ProjectBoard } from "./project-board";
+import { ProjectAssets } from "./project-assets";
+import { ProjectAi } from "./project-ai";
+import { studioApi } from "../bridge";
+import { Bot, CircleCheckBig, Pin, GitPullRequest, KanbanSquare, SquareTerminal, Tags, Undo2, Workflow } from "lucide-react";
 import { browsePath, desktopApi, isNativeRuntime, openExternal, type BranchInfo, type ConflictResolution, type HealthIssue } from "../bridge";
 import { formatLastOpened } from "../lib/format";
 import { PROJECT_CATEGORIES } from "../lib/categories";
@@ -78,7 +94,7 @@ function AppFiles({ projectPath, appId, appName, executable, native, run }: { pr
   );
 }
 
-export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHealthChanged }: { project: { path: string; name: string }; onBack: () => void; onRenamed?: (name: string) => void; onOpenInEngine?: (target: { path: string; name: string }) => void; onHealthChanged?: () => void }) {
+export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenInEngine, onHealthChanged, onPinChanged }: { project: { path: string; name: string }; initialTab?: string; onBack: () => void; onRenamed?: (name: string) => void; onOpenInEngine?: (target: { path: string; name: string }) => void; onHealthChanged?: () => void; onPinChanged?: () => void }) {
   const native = isNativeRuntime();
   const queryClient = useQueryClient();
   const cfg = useQuery({ queryKey: ["project-config", project.path], queryFn: () => desktopApi.projectConfig(project.path), enabled: native, retry: false });
@@ -99,9 +115,37 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   const [remoteUrl, setRemoteUrl] = useState("");
   const [settingUp, setSettingUp] = useState(false);
   const [sourceView, setSourceView] = useState<"changes" | "history">("changes");
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState(initialTab ?? "overview");
+  useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab, project.path]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [marked, setMarked] = useState<Set<string>>(new Set());
+  const registered = useQuery({ queryKey: ["projects"], queryFn: () => desktopApi.listProjects(), enabled: native });
+  const isPinned = Boolean(registered.data?.find((entry) => entry.path === project.path)?.pinned);
+  async function togglePin() {
+    await run(isPinned ? "Unpinning" : "Pinning", () => desktopApi.pinProject(project.path, !isPinned));
+    await queryClient.invalidateQueries({ queryKey: ["projects"] });
+    onPinChanged?.();
+  }
+  const [prefs] = usePrefs();
+  const [blockingFindings, setBlockingFindings] = useState(0);
+  const [commitAnyway, setCommitAnyway] = useState(false);
+  const [scmSection, setScmSection] = useState<"changes" | "prs" | "checks" | "branches">("changes");
+  const changesRef = useRef<HTMLDivElement>(null);
+  // A file selection clears with Escape, or a click outside the changes list
+  // (menus and dialogs opened from it don't count).
+  useEffect(() => {
+    if (!marked.size) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setMarked(new Set()); };
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || changesRef.current?.contains(target)) return;
+      if (target.closest("[data-keep-selection], [data-radix-popper-content-wrapper], [role=dialog], [role=alertdialog], [role=menu]")) return;
+      setMarked(new Set());
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onDown); };
+  }, [marked.size]);
   const anchorRef = useRef<number | null>(null);
   const [diffPath, setDiffPath] = useState<string | null>(null);
   const commits = useQuery({ queryKey: ["git-log", project.path], queryFn: () => desktopApi.gitLog(project.path, 30), enabled: native && sourceView === "history", retry: false });
@@ -257,7 +301,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
     const message = remote
       ? `Initialize Git here, make an initial commit, add ${remote} as origin, and push? If sign-in is required it opens in your browser.`
       : "Initialize a local Git repository here and make an initial commit?";
-    if (!window.confirm(message)) return;
+    if (!(await confirmAction({ title: remote ? "Set up Git and publish?" : "Set up Git?", description: message, confirmLabel: remote ? "Set up and push" : "Set up Git" }))) return;
     setSettingUp(true);
     try {
       await desktopApi.gitInitRepo(project.path, remote, true);
@@ -327,12 +371,12 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
     setDiffPath(null);
     setHistorySelection({ hash, path });
   }
-  function discardMarked() {
+  async function discardMarked() {
     const paths = [...marked];
     if (!paths.length) return;
     const untracked = (git.data?.changedFiles ?? []).filter((file) => marked.has(file.path) && file.status === "untracked").length;
     const note = untracked ? ` ${untracked} untracked file(s) will be deleted from disk.` : "";
-    if (!window.confirm(`Discard local changes to ${paths.length} file(s)?${note} This can't be undone.`)) return;
+    if (!(await confirmAction({ title: `Discard changes to ${paths.length} file(s)?`, description: `They're reverted to the last commit.${note} This can't be undone.`, confirmLabel: "Discard changes", destructive: true }))) return;
     void run("Discarding changes", async () => {
       for (const path of paths) await desktopApi.gitDiscard(project.path, path, true);
       setMarked(new Set());
@@ -348,25 +392,32 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
       return next;
     });
   }
-  function commitSelected() {
+  async function undoLastCommit() {
+    if (!(await confirmAction({ title: "Undo the last commit?", description: "Its changes go back to your working copy, staged and ready to commit again. Only possible before it's pushed.", confirmLabel: "Undo commit" }))) return;
+    await run("Undoing the last commit", () => scmApi.undoLastCommit(project.path));
+    void refreshGit();
+  }
+
+  async function commitSelected() {
+    setCommitAnyway(false);
     if (!commit.trim() || selected.size === 0) return;
-    if (window.confirm(`Commit ${selected.size} file(s) in ${project.name}?`)) {
+    if (await confirmAction({ title: `Commit ${selected.size} file(s)?`, description: `"${commit.trim()}" in ${project.name}.`, confirmLabel: "Commit" })) {
       void run("Committing", async () => { await desktopApi.gitCommitPaths(project.path, commit, [...selected], true); setCommit(""); setDiffPath(null); await refreshGit(); });
     }
   }
-  function discardFile(file: { path: string; status: string }) {
+  async function discardFile(file: { path: string; status: string }) {
     const message = file.status === "untracked"
       ? `Delete the untracked file "${file.path}"? It will be removed from disk — this can't be undone.`
       : `Discard all local changes to "${file.path}"? It will be reverted to the last commit — this can't be undone.`;
-    if (!window.confirm(message)) return;
+    if (!(await confirmAction({ title: file.status === "untracked" ? "Delete this file?" : "Discard these changes?", description: message, confirmLabel: file.status === "untracked" ? "Delete file" : "Discard changes", destructive: true }))) return;
     void run("Discarding changes", async () => { await desktopApi.gitDiscard(project.path, file.path, true); if (diffPath === file.path) setDiffPath(null); await refreshGit(); });
   }
-  function discardAllChanges() {
+  async function discardAllChanges() {
     const files = git.data?.changedFiles ?? [];
     if (!files.length) return;
     const untracked = files.filter((file) => file.status === "untracked").length;
     const note = untracked ? ` ${untracked} untracked file(s) will be deleted from disk.` : "";
-    if (!window.confirm(`Discard all local changes (${files.length} file(s))?${note} This can't be undone.`)) return;
+    if (!(await confirmAction({ title: `Discard all ${files.length} change(s)?`, description: `Every changed file is reverted to the last commit.${note} This can't be undone.`, confirmLabel: "Discard all", destructive: true }))) return;
     void run("Discarding all changes", async () => {
       for (const file of files) await desktopApi.gitDiscard(project.path, file.path, true);
       setMarked(new Set());
@@ -387,12 +438,12 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
       await refreshGit();
     });
   }
-  function restoreStash(stashRef: string) {
-    if (!window.confirm(`Restore "${stashRef}"? It will be applied to your working tree and removed from the stash list.`)) return;
+  async function restoreStash(stashRef: string) {
+    if (!(await confirmAction({ title: `Restore "${stashRef}"?`, description: "It's applied to your working tree and removed from the stash list.", confirmLabel: "Restore" }))) return;
     void run("Restoring stash", async () => { await desktopApi.gitStashPop(project.path, true, stashRef); await refreshGit(); });
   }
-  function dropStash(stashRef: string) {
-    if (!window.confirm(`Delete stash "${stashRef}"? This can't be undone.`)) return;
+  async function dropStash(stashRef: string) {
+    if (!(await confirmAction({ title: `Delete stash "${stashRef}"?`, description: "The stashed changes are gone for good. This can't be undone.", confirmLabel: "Delete stash", destructive: true }))) return;
     void run("Deleting stash", async () => { await desktopApi.gitStashDrop(project.path, stashRef, true); await refreshGit(); });
   }
   function parseStashEntry(raw: string): { ref: string; message: string } {
@@ -434,7 +485,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   async function publishBranch() {
     const branch = git.data?.branch;
     if (!branch) return;
-    if (!window.confirm(`Publish "${branch}" to the remote? This creates the branch on origin and starts tracking it — from now on it behaves like any other branch here.`)) return;
+    if (!(await confirmAction({ title: `Publish "${branch}"?`, description: "Creates the branch on origin and starts tracking it. From then on it syncs like any other branch.", confirmLabel: "Publish branch" }))) return;
     setGitStage("publishing");
     try {
       await desktopApi.gitPublishBranch(project.path, branch, true);
@@ -563,7 +614,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
     } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
   }
   async function abortMerge() {
-    if (!window.confirm("Abort the merge and restore the pre-merge state? Any conflicts you've already resolved will be discarded.")) return;
+    if (!(await confirmAction({ title: "Abort the merge?", description: "Restores the pre-merge state. Conflicts you've already resolved are discarded.", confirmLabel: "Abort merge", destructive: true }))) return;
     try {
       await desktopApi.gitAbortMerge(project.path, true);
       toast.success("Merge aborted.");
@@ -642,14 +693,14 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
   function addApp(appId: string) {
     void run("Adding app", async () => { await desktopApi.addLinkedApp(project.path, appId); await queryClient.invalidateQueries({ queryKey: ["project-config", project.path] }); await queryClient.invalidateQueries({ queryKey: ["detect-apps", project.path] }); });
   }
-  function removeApp(appId: string) {
-    if (!window.confirm("Unlink this app from the project? Its files won't be affected.")) return;
+  async function removeApp(appId: string) {
+    if (!(await confirmAction({ title: "Unlink this app?", description: "It's removed from the project's apps. Its files aren't affected.", confirmLabel: "Unlink" }))) return;
     void run("Unlinking app", async () => { await desktopApi.removeLinkedApp(project.path, appId); await queryClient.invalidateQueries({ queryKey: ["project-config", project.path] }); await queryClient.invalidateQueries({ queryKey: ["detect-apps", project.path] }); });
   }
 
   return (
-    <section className="space-y-5">
-      <div className="flex items-center gap-3">
+    <section className="pos-enter space-y-5">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" aria-label="Back" onClick={onBack}><ArrowLeft size={18} /></Button>
         <div className="group relative h-14 w-24 shrink-0 overflow-hidden rounded-lg border border-border bg-secondary">
           {thumbUrl ? <img src={thumbUrl} alt={`${project.name} thumbnail`} className="h-full w-full object-cover" /> : <span className="flex h-full w-full items-center justify-center text-primary"><Box size={24} /></span>}
@@ -672,20 +723,26 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
           <p className="truncate text-sm text-muted-foreground">{project.path}</p>
         </div>
         <Badge variant="secondary" className="capitalize">{engine.replaceAll("-", " ")}</Badge>
+        <Button variant="outline" size="icon" aria-pressed={isPinned} aria-label={isPinned ? "Unpin from Home" : "Pin to Home"} title={isPinned ? "Unpin from Home" : "Pin to Home"} disabled={!native} className={isPinned ? "text-primary" : undefined} onClick={() => void togglePin()}><Pin size={15} className={isPinned ? "fill-current" : undefined} /></Button>
+        <Button variant="outline" size="icon" aria-label="Open a terminal here" title="Open a terminal here" disabled={!native} onClick={() => void run("Opening terminal", () => studioApi.openTerminal(project.path))}><SquareTerminal size={15} /></Button>
         <Button variant="outline" onClick={() => native ? void run("Opening folder", () => desktopApi.openPath(project.path)) : undefined}><FolderOpen size={15} /> Open folder</Button>
         <Button disabled={!native || !canOpenInEngine} title={canOpenInEngine ? undefined : "This project isn't connected to an engine."} onClick={() => onOpenInEngine?.({ path: project.path, name })}><Rocket size={15} /> Open in {engineName ?? "Engine"}</Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="no-scrollbar max-w-full justify-start overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="source">Source Control</TabsTrigger>
-          <TabsTrigger value="notes">Notes &amp; To-dos</TabsTrigger>
+          <TabsTrigger value="pipeline"><Workflow size={14} /> Pipeline</TabsTrigger>
+          <TabsTrigger value="board"><KanbanSquare size={14} /> Board</TabsTrigger>
+          <TabsTrigger value="assets"><ImageIcon size={14} /> Assets</TabsTrigger>
+          <TabsTrigger value="ai"><Bot size={14} /> AI</TabsTrigger>
+          <TabsTrigger value="notes">Notes</TabsTrigger>
           <TabsTrigger value="files">Recent Files</TabsTrigger>
-          <TabsTrigger value="references">References</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
+          <ActiveTimeCard projectPath={project.path} />
           <Card><CardContent className="space-y-3 p-5">
             <h2 className="text-base font-semibold">Launch</h2>
             {profiles.length ? <div className="flex flex-wrap gap-2">{profiles.map((profile) => <Button key={profile.id} variant="outline" size="sm" onClick={() => void run(`Launching ${profile.name}`, () => desktopApi.launchProjectProfile(project.path, profile.id))}><Play size={14} /> {profile.name}</Button>)}</div>
@@ -786,7 +843,20 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
               )}
             </CardContent></Card>
           ) : (
-            <ResizablePanelGroup direction="horizontal" className="min-h-[320px] gap-4" style={{ height: "calc(100vh - 230px)" }}>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div role="tablist" aria-label="Source control sections" className="inline-flex rounded-lg border border-border bg-secondary/40 p-0.5">
+                  {([["changes", "Changes", GitCommitHorizontal], ["prs", "Pull requests", GitPullRequest], ["checks", "Checks", CircleCheckBig], ["branches", "Branches & tags", Tags]] as const).map(([id, label, Icon]) => (
+                    <button key={id} role="tab" aria-selected={scmSection === id} onClick={() => setScmSection(id)} className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-sm ${scmSection === id ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground"}`}><Icon size={14} /> {label}</button>
+                  ))}
+                </div>
+                {scmSection !== "changes" ? <div className="ml-auto min-w-0"><GithubConnect root={project.path} compact /></div> : null}
+              </div>
+              {scmSection === "prs" ? <PullRequests root={project.path} branch={git.data?.branch} published={Boolean(git.data?.hasUpstream)} /> : null}
+              {scmSection === "checks" ? <Card><CardContent className="p-4"><BranchChecks root={project.path} /></CardContent></Card> : null}
+              {scmSection === "branches" ? <BranchesAndTags root={project.path} current={git.data?.branch} /> : null}
+              {scmSection === "changes" ? (
+            <ResizablePanelGroup direction="horizontal" className="min-h-[320px] gap-4" style={{ height: "calc(100vh - 280px)" }}>
               <ResizablePanel defaultSize={62} minSize={30} className="flex min-w-0 flex-col">
               <Card className="flex h-full flex-col overflow-hidden"><CardContent className="flex min-h-0 flex-1 flex-col p-0">
                 <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -855,6 +925,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                                 {codeEditors.map(({ app, executable }) => (
                                   <DropdownMenuItem key={app.id} onClick={() => void run(`Opening in ${app.name}`, () => desktopApi.launchAppFile(app.id, executable, `${project.path}/${path}`, project.path))}>{app.name}</DropdownMenuItem>
                                 ))}
+                                <MergeToolItems root={project.path} path={path} onResolved={() => void refreshGit()} />
                               </DropdownMenuContent>
                             </DropdownMenu>
                             <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs" disabled={!native} onClick={() => void resolveConflict(path, "ours")}>Use mine</Button>
@@ -864,6 +935,7 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                         ))}
                       </ul>
                     ) : <p className="text-xs text-muted-foreground">All conflicts resolved — complete the merge to finish.</p>}
+                    <PipelineFilesMerge root={project.path} conflicted={mergeStatus.data.conflictedFiles} onDone={() => void refreshGit()} />
                   </div>
                 ) : null}
                 <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2">
@@ -899,11 +971,12 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                       ) : null}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="More change actions" disabled={!native || gitBusy || !git.data?.changedFiles.length}><MoreHorizontal size={14} /></Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="More change actions" disabled={!native || gitBusy}><MoreHorizontal size={14} /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={stashAllChanges}><Archive size={14} /> Stash all changes</DropdownMenuItem>
-                          <DropdownMenuItem variant="destructive" onClick={discardAllChanges}><Trash2 size={14} /> Discard all changes…</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => void undoLastCommit()}><Undo2 size={14} /> Undo last commit</DropdownMenuItem>
+                          <DropdownMenuItem disabled={!git.data?.changedFiles.length} variant="destructive" onClick={discardAllChanges}><Trash2 size={14} /> Discard all changes…</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -915,11 +988,11 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                       <Filter size={13} className="shrink-0 text-muted-foreground" />
                       <Input aria-label="Filter changed files" placeholder="Filter" value={changesFilter} onChange={(e) => setChangesFilter(e.target.value)} className="h-7 border-none bg-transparent px-1 text-sm shadow-none focus-visible:ring-0" />
                     </div>
-                    {marked.size > 0 ? <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1.5 text-sm">
+                    {marked.size > 0 ? <div data-keep-selection className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1.5 text-sm">
                       <span className="text-muted-foreground">{marked.size} selected</span>
-                      <span className="flex items-center gap-1"><Button variant="ghost" size="sm" className="h-7" onClick={() => setMarked(new Set())}>Clear</Button><Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={!native} onClick={discardMarked}><Trash2 size={14} /> Discard selected</Button></span>
+                      <span className="flex items-center gap-1"><Button variant="ghost" size="sm" className="h-7" onClick={() => setMarked(new Set())} title="Clear selection (Esc)">Clear selection</Button><Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={!native} onClick={discardMarked}><Trash2 size={14} /> Discard selected</Button></span>
                     </div> : null}
-                    <div className="flex-1 overflow-y-auto">
+                    <div ref={changesRef} className="flex-1 overflow-y-auto" onClick={(event) => { if (event.target === event.currentTarget) setMarked(new Set()); }}>
                       {(() => {
                         const filtered = (git.data?.changedFiles ?? [])
                           .map((file, index) => ({ file, index }))
@@ -953,8 +1026,10 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
                       })()}
                     </div>
                     <div className="space-y-2 border-t border-border p-3">
+                      {native && prefs.precommitChecks ? <PrecommitChecks root={project.path} paths={[...selected]} statusKey={(git.data?.changedFiles ?? []).map((file) => `${file.status}:${file.path}`).join("|")} onBlockingChange={setBlockingFindings} /> : null}
                       <Input aria-label="Commit message" placeholder="Summary of changes" value={commit} onChange={(e) => setCommit(e.target.value)} />
-                      <Button className="w-full" disabled={!native || !commit.trim() || selected.size === 0} onClick={commitSelected}><GitCommitHorizontal size={15} /> Commit {selected.size} to {git.data?.branch ?? "branch"}</Button>
+                      {blockingFindings > 0 && prefs.precommitChecks ? <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={commitAnyway} onChange={(event) => setCommitAnyway(event.target.checked)} /> Commit anyway, ignoring the problems above</label> : null}
+                      <Button className="w-full" disabled={!native || !commit.trim() || selected.size === 0 || (prefs.precommitChecks && blockingFindings > 0 && !commitAnyway)} onClick={commitSelected}><GitCommitHorizontal size={15} /> Commit {selected.size} to {git.data?.branch ?? "branch"}</Button>
                     </div>
                   </>
                 ) : (
@@ -996,8 +1071,21 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
               </CardContent></Card>
               </ResizablePanel>
             </ResizablePanelGroup>
+              ) : null}
+            </div>
           )}
         </TabsContent>
+
+        <TabsContent value="pipeline" className="pos-enter mt-4"><ProjectPipeline projectPath={project.path} /></TabsContent>
+        <TabsContent value="board" className="pos-enter mt-4"><ProjectBoard projectPath={project.path} /></TabsContent>
+        <TabsContent value="assets" className="pos-enter mt-4">
+          <ProjectAssets projectPath={project.path} onCreateIssue={(asset) => {
+            void studioApi.createIssue(project.path, { title: `Feedback: ${asset.name}`, kind: asset.kind === "image" || asset.kind === "source" ? "art" : "task", files: [asset.path], body: `Asset: \`${asset.path}\`` })
+              .then(async (issue) => { await queryClient.invalidateQueries({ queryKey: ["issues", project.path] }); toast.success(`Created #${issue.id}`, { action: { label: "Open board", onClick: () => setActiveTab("board") } }); })
+              .catch((error) => toast.error(error instanceof Error ? error.message : String(error)));
+          }} />
+        </TabsContent>
+        <TabsContent value="ai" className="pos-enter mt-4"><ProjectAi projectPath={project.path} projectName={name} /></TabsContent>
 
         <TabsContent value="notes" className="mt-4 grid gap-4 lg:grid-cols-2">
           <Card><CardContent className="space-y-2 p-5">
@@ -1034,27 +1122,11 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
               </div>
             )) : <p className="text-sm text-muted-foreground">No local tasks yet.</p>}</div>
           </CardContent></Card>
-        </TabsContent>
-
-        <TabsContent value="files" className="mt-4">
-          <Card><CardContent className="p-5">
-            <div className="mb-2 flex items-center justify-between"><h2 className="text-base font-semibold">Recently modified</h2><Button variant="ghost" size="sm" disabled={!native} onClick={() => void files.refetch()}><RefreshCw size={14} /> Refresh</Button></div>
-            {files.data?.length ? <div className="divide-y divide-border rounded-lg border border-border">{files.data.map((file) => (
-              <button key={file.path} onClick={() => void run("Opening file", () => desktopApi.openPath(file.path))} className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted/40">
-                <FileCode2 size={16} className="shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1"><strong className="block truncate font-normal">{file.name}</strong><small className="block truncate text-xs text-muted-foreground">{file.path}</small></span>
-                <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(file.modified)}</span>
-              </button>
-            ))}</div> : <p className="text-sm text-muted-foreground">{native ? "No recent files found." : "Recent files are available in the desktop app."}</p>}
-          </CardContent></Card>
-        </TabsContent>
-
-        <TabsContent value="references" className="mt-4">
-          <Card><CardContent className="space-y-3 p-5">
+          <Card className="lg:col-span-2"><CardContent className="space-y-3 p-5">
             <div><h2 className="text-base font-semibold">References</h2><p className="text-sm text-muted-foreground">Design docs, art bibles, tickets, or local files — one click to open.</p></div>
             <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (!refUrl.trim()) return; setWs({ ...ws, references: [...ws.references, { id: newId(), label: refLabel.trim() || refUrl.trim(), url: refUrl.trim() }] }); setRefLabel(""); setRefUrl(""); }}>
               <label className="flex flex-col gap-1 text-xs text-muted-foreground">Label<Input aria-label="Reference label" placeholder="e.g. Art bible" value={refLabel} onChange={(e) => setRefLabel(e.target.value)} className="w-48" /></label>
-              <label className="flex flex-1 flex-col gap-1 text-xs text-muted-foreground">Link or file path<Input aria-label="Reference URL or path" required placeholder="https://…  or  D:/Docs/spec.pdf" value={refUrl} onChange={(e) => setRefUrl(e.target.value)} className="min-w-56" /></label>
+              <label className="flex flex-1 flex-col gap-1 text-xs text-muted-foreground">Link or file path<Input aria-label="Reference URL or path" required placeholder="https://…  or a path to a file" value={refUrl} onChange={(e) => setRefUrl(e.target.value)} className="min-w-56" /></label>
               <Button type="submit"><Plus size={15} /> Add reference</Button>
             </form>
             <ul className="space-y-1.5">{ws.references.length ? ws.references.map((reference) => {
@@ -1075,6 +1147,20 @@ export function ProjectDetail({ project, onBack, onRenamed, onOpenInEngine, onHe
             }) : <li className="text-sm text-muted-foreground">No references yet. Add a link or a file path above.</li>}</ul>
           </CardContent></Card>
         </TabsContent>
+
+        <TabsContent value="files" className="mt-4">
+          <Card><CardContent className="p-5">
+            <div className="mb-2 flex items-center justify-between"><h2 className="text-base font-semibold">Recently modified</h2><Button variant="ghost" size="sm" disabled={!native} onClick={() => void files.refetch()}><RefreshCw size={14} /> Refresh</Button></div>
+            {files.data?.length ? <div className="divide-y divide-border rounded-lg border border-border">{files.data.map((file) => (
+              <button key={file.path} onClick={() => void run("Opening file", () => desktopApi.openPath(file.path))} className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted/40">
+                <FileCode2 size={16} className="shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1"><strong className="block truncate font-normal">{file.name}</strong><small className="block truncate text-xs text-muted-foreground">{file.path}</small></span>
+                <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(file.modified)}</span>
+              </button>
+            ))}</div> : <p className="text-sm text-muted-foreground">{native ? "No recent files found." : "Recent files are available in the desktop app."}</p>}
+          </CardContent></Card>
+        </TabsContent>
+
       </Tabs>
 
       <Dialog open={!!pendingSwitch} onOpenChange={(open) => { if (!open) setPendingSwitch(null); }}>

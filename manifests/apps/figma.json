@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"figma","name":"Figma","category":"art","platforms":["windows","macos"],"executables":["Figma.exe"],"knownPaths":["C:/Users/{user}/AppData/Local/Figma/Figma.exe","/Applications/Figma.app"],"macBundleIds":["com.figma.Desktop"],"fileTypes":[".fig"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

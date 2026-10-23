@@ -12,15 +12,18 @@ members = [
   "crates/projects",
   "crates/security",
   "crates/storage",
+  "crates/studio",
   "crates/vcs",
 ]
 
 [workspace.package]
-version = "0.4.12"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/ojaseminem/Vantadeck"
 rust-version = "1.96"
+# Internal crates of one application; never published to crates.io.
+publish = false
 
 [workspace.dependencies]
 anyhow = "1.0.98"

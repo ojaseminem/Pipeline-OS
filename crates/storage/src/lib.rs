@@ -74,9 +74,14 @@ impl Storage {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        // The desktop app, CLI, and MCP server can share one database file:
+        // WAL lets readers run beside a writer, and the busy timeout makes a
+        // brief write overlap wait instead of failing with "database is locked".
         let options = SqliteConnectOptions::new()
             .filename(path)
-            .create_if_missing(true);
+            .create_if_missing(true)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_secs(5));
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)

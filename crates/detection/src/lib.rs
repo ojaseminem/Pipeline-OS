@@ -13,7 +13,7 @@ pub use unix_sources::{
     AppImageDetectionSource, DesktopEntry, DesktopEntryDetectionSource,
     ExecutablePathDetectionSource, FlatpakDetectionSource, FlatpakMetadata,
     MacAppBundleDetectionSource, MacBundleMetadata, SnapDetectionSource, parse_desktop_entry,
-    parse_flatpak_metadata, parse_info_plist,
+    parse_flatpak_metadata, parse_info_plist, read_info_plist,
 };
 
 pub use windows_sources::{
@@ -32,6 +32,9 @@ pub struct ScanRequest {
     /// Glob patterns of well-known install locations from the app manifest. May
     /// contain `*` wildcards and a `{user}` placeholder.
     pub known_paths: Vec<String>,
+    /// macOS bundle identifier prefixes (e.g. `com.unity3d.UnityEditor`).
+    /// When present, macOS bundles are matched by identifier only.
+    pub mac_bundle_ids: Vec<String>,
 }
 
 impl ScanRequest {
@@ -45,11 +48,17 @@ impl ScanRequest {
             display_name: display_name.into(),
             executables: executables.into_iter().map(Into::into).collect(),
             known_paths: Vec::new(),
+            mac_bundle_ids: Vec::new(),
         }
     }
 
     pub fn with_known_paths(mut self, known_paths: Vec<impl Into<String>>) -> Self {
         self.known_paths = known_paths.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn with_mac_bundle_ids(mut self, ids: Vec<impl Into<String>>) -> Self {
+        self.mac_bundle_ids = ids.into_iter().map(Into::into).collect();
         self
     }
 }
@@ -90,6 +99,20 @@ impl DetectionSource for KnownPathDetectionSource {
                 continue;
             };
             for entry in entries.flatten() {
+                // A known path may name a macOS bundle (".../Unity.app"):
+                // resolve it to the executable inside.
+                let entry = if entry.is_dir()
+                    && entry.extension().and_then(|e| e.to_str()) == Some("app")
+                {
+                    let metadata =
+                        unix_sources::read_info_plist(&entry.join("Contents/Info.plist"));
+                    match unix_sources::bundle_executable(&entry, metadata.as_ref(), request) {
+                        Some(executable) => executable,
+                        None => continue,
+                    }
+                } else {
+                    entry
+                };
                 if entry.is_file() {
                     found.push(AppInstallation {
                         version: infer_version(&entry).unwrap_or_else(|| Version::new(0, 0, 0)),
@@ -193,6 +216,7 @@ impl DetectionSource for FilesystemDetectionSource {
                     .executables
                     .iter()
                     .any(|candidate| name.eq_ignore_ascii_case(candidate))
+                    || !is_executable_file(entry.path())
                 {
                     continue;
                 }
@@ -220,6 +244,12 @@ fn is_pruned_directory(entry: &walkdir::DirEntry) -> bool {
     if !entry.file_type().is_dir() {
         return false;
     }
+    // macOS app bundles are detected from their Info.plist by the bundle
+    // source; files inside other apps' bundles (a "gimp" palette folder in
+    // some editor's Resources) are never installations of their own.
+    if cfg!(target_os = "macos") && entry.depth() > 0 && has_app_extension(entry.path()) {
+        return true;
+    }
     const PRUNED: &[&str] = &[
         "Temp",
         "tmp",
@@ -234,6 +264,54 @@ fn is_pruned_directory(entry: &walkdir::DirEntry) -> bool {
     ];
     let name = entry.file_name().to_string_lossy();
     PRUNED.iter().any(|skip| name.eq_ignore_ascii_case(skip))
+}
+
+fn has_app_extension(path: &std::path::Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+}
+
+/// A regular file the OS can execute. On Unix that means an execute bit;
+/// Windows decides by extension, which the manifest's names already encode.
+pub fn is_executable_file(path: &std::path::Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        // Only what CreateProcess runs directly; scripts like .ps1 or .vbs
+        // need an interpreter and would fail to launch later.
+        path.extension().is_some_and(|extension| {
+            ["exe", "com", "bat", "cmd"]
+                .iter()
+                .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+        })
+    }
+}
+
+/// Turns what a user picked into something launchable: a macOS `.app` bundle
+/// resolves to its declared executable (with the bundle's version); an
+/// executable file is used as is, with a version from `--version` or its path.
+pub fn resolve_launch_target(path: &std::path::Path) -> Option<(PathBuf, Option<Version>)> {
+    if path.is_dir() && has_app_extension(path) {
+        let metadata = unix_sources::read_info_plist(&path.join("Contents/Info.plist"))?;
+        let executable = path.join("Contents/MacOS").join(&metadata.executable);
+        let version = (metadata.version != Version::new(0, 0, 0)).then_some(metadata.version);
+        return is_executable_file(&executable).then_some((executable, version));
+    }
+    if !is_executable_file(path) {
+        return None;
+    }
+    let version = unix_sources::cli_version(path).or_else(|| infer_version(path));
+    Some((path.to_path_buf(), version))
 }
 
 #[derive(Debug, Clone)]
@@ -284,6 +362,11 @@ impl DetectionEngine {
 }
 
 pub(crate) fn infer_version(path: &std::path::Path) -> Option<Version> {
+    // Inside a macOS bundle the Info.plist is authoritative ("Blender.app"
+    // carries no version in its path, so path parsing would give 0.0.0).
+    if let Some(version) = mac_bundle_version(path) {
+        return Some(version);
+    }
     path.ancestors()
         .filter_map(|ancestor| ancestor.file_name())
         .filter_map(|name| {
@@ -294,6 +377,109 @@ pub(crate) fn infer_version(path: &std::path::Path) -> Option<Version> {
                 .max()
         })
         .max()
+        .or_else(|| unreal_build_version(path))
+        .or_else(|| windows_product_version(path))
+}
+
+/// Unreal Engine installs carry `Engine/Build/Build.version` (JSON with
+/// MajorVersion/MinorVersion/PatchVersion), whatever their folder is called.
+fn unreal_build_version(executable: &std::path::Path) -> Option<Version> {
+    let engine = executable
+        .ancestors()
+        .find(|ancestor| ancestor.file_name().is_some_and(|name| name == "Engine"))?;
+    let raw = std::fs::read_to_string(engine.join("Build/Build.version")).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let part = |key: &str| json.get(key).and_then(serde_json::Value::as_u64);
+    Some(Version::new(
+        part("MajorVersion")?,
+        part("MinorVersion")?,
+        part("PatchVersion").unwrap_or(0),
+    ))
+}
+
+/// The ProductVersion (or FileVersion) string from a Windows executable's
+/// version resource. Resources sit near the end of the file, so only the
+/// tail is read.
+pub fn windows_product_version(executable: &std::path::Path) -> Option<Version> {
+    use std::io::{Read, Seek, SeekFrom};
+    if !executable
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+    {
+        return None;
+    }
+    let mut file = std::fs::File::open(executable).ok()?;
+    let length = file.metadata().ok()?.len();
+    let window = length.min(8 * 1024 * 1024);
+    file.seek(SeekFrom::Start(length - window)).ok()?;
+    let mut bytes = Vec::with_capacity(window as usize);
+    file.take(window).read_to_end(&mut bytes).ok()?;
+    ["ProductVersion", "FileVersion"]
+        .into_iter()
+        .find_map(|key| version_resource_value(&bytes, key))
+}
+
+/// Finds `key` (UTF-16LE, NUL-terminated) in a VS_VERSIONINFO block and
+/// parses the string value that follows it.
+fn version_resource_value(bytes: &[u8], key: &str) -> Option<Version> {
+    let needle: Vec<u8> = key
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let mut start = 0;
+    while let Some(offset) = bytes[start..]
+        .windows(needle.len())
+        .position(|window| window == needle)
+    {
+        let mut index = start + offset + needle.len();
+        // Values are 32-bit aligned; skip padding.
+        while index + 1 < bytes.len() && bytes[index] == 0 && bytes[index + 1] == 0 {
+            index += 2;
+        }
+        let mut units = Vec::new();
+        while index + 1 < bytes.len() && units.len() < 64 {
+            let unit = u16::from_le_bytes([bytes[index], bytes[index + 1]]);
+            if unit == 0 {
+                break;
+            }
+            units.push(unit);
+            index += 2;
+        }
+        let text = String::from_utf16_lossy(&units);
+        let cleaned: String = text.trim().replace(", ", ".").replace(',', ".");
+        if let Some(version) = cleaned
+            .split(|c: char| !c.is_ascii_digit() && c != '.')
+            .find(|candidate| candidate.contains('.'))
+            .and_then(|candidate| {
+                let parts: Vec<&str> = candidate.trim_matches('.').split('.').collect();
+                let number = |i: usize| parts.get(i).and_then(|p| p.parse::<u64>().ok());
+                Some(Version::new(
+                    number(0)?,
+                    number(1).unwrap_or(0),
+                    number(2).unwrap_or(0),
+                ))
+            })
+            .filter(|version| *version != Version::new(0, 0, 0))
+        {
+            return Some(version);
+        }
+        start += offset + needle.len();
+    }
+    None
+}
+
+/// Version from the Info.plist of the nearest enclosing `.app` bundle.
+fn mac_bundle_version(path: &std::path::Path) -> Option<Version> {
+    // Follow symlinks (Homebrew's /opt/homebrew/bin/code points into the app).
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let bundle = resolved.ancestors().find(|ancestor| {
+        ancestor
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+    })?;
+    let metadata = unix_sources::read_info_plist(&bundle.join("Contents/Info.plist"))?;
+    (metadata.version != Version::new(0, 0, 0)).then_some(metadata.version)
 }
 
 fn parse_version_candidate(candidate: &str) -> Option<Version> {
@@ -311,5 +497,42 @@ fn parse_version_candidate(candidate: &str) -> Option<Version> {
         1 => Version::parse(&format!("{candidate}.0")).ok(),
         2 => Version::parse(candidate).ok(),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn reads_a_version_resource_value() {
+        let mut bytes = b"MZ....".to_vec();
+        for unit in "ProductVersion".encode_utf16().chain([0, 0]) {
+            bytes.extend(unit.to_le_bytes());
+        }
+        for unit in "6000.0.23f1".encode_utf16().chain([0]) {
+            bytes.extend(unit.to_le_bytes());
+        }
+        assert_eq!(
+            version_resource_value(&bytes, "ProductVersion"),
+            Some(Version::new(6000, 0, 23))
+        );
+    }
+
+    #[test]
+    fn reads_unreal_build_version() {
+        let root = tempfile::tempdir().expect("root");
+        let engine = root.path().join("UE/Engine");
+        std::fs::create_dir_all(engine.join("Build")).expect("build");
+        std::fs::create_dir_all(engine.join("Binaries/Win64")).expect("bin");
+        std::fs::write(
+            engine.join("Build/Build.version"),
+            r#"{"MajorVersion":5,"MinorVersion":4,"PatchVersion":2}"#,
+        )
+        .expect("version");
+        assert_eq!(
+            unreal_build_version(&engine.join("Binaries/Win64/UnrealEditor.exe")),
+            Some(Version::new(5, 4, 2))
+        );
     }
 }

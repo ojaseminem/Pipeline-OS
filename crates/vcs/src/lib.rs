@@ -12,7 +12,15 @@ use tokio::process::Command;
 use vantadeck_domain::{HealthIssue, HealthSeverity};
 use walkdir::WalkDir;
 
+mod checks;
+mod history;
+mod mergetools;
+mod network;
 mod p4;
+pub use checks::*;
+pub use history::*;
+pub use mergetools::*;
+pub use network::*;
 pub use p4::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -105,12 +113,21 @@ pub enum VcsError {
     CommandFailed { command: String, stderr: String },
     #[error("commit message cannot be empty")]
     EmptyCommitMessage,
+    /// A safety rule blocked the operation (e.g. deleting the current
+    /// branch, amending a pushed commit). The message is user-facing.
+    #[error("{0}")]
+    Refused(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VcsOperationResult {
     pub stdout: String,
     pub stderr: String,
+    /// How many times the command ran: more than 1 when a network operation
+    /// was retried after a transient failure (DNS, timeout, dropped
+    /// connection, 5xx). Always at least 1 for a command that actually ran.
+    #[serde(default)]
+    pub attempts: u32,
 }
 
 /// Result of attempting a merge. Conflicts are a normal outcome, not a
@@ -176,13 +193,23 @@ pub trait VersionControlProvider: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct GitProvider {
     binary: PathBuf,
+    /// First delay before retrying a transient network failure; doubles on
+    /// each further retry (2s, 4s, 8s by default).
+    retry_backoff: std::time::Duration,
 }
 
 impl GitProvider {
     pub fn new(binary: impl Into<PathBuf>) -> Self {
         Self {
             binary: binary.into(),
+            retry_backoff: DEFAULT_RETRY_BACKOFF,
         }
+    }
+
+    /// Overrides the initial network-retry backoff (tests use zero).
+    pub fn with_retry_backoff(mut self, backoff: std::time::Duration) -> Self {
+        self.retry_backoff = backoff;
+        self
     }
 
     pub async fn status(&self, root: &Path) -> Result<VcsStatus, VcsError> {
@@ -236,7 +263,7 @@ impl GitProvider {
     /// refs (and `last_fetched_at`) so the UI can show accurate ahead/behind
     /// counts before the user decides to pull or push.
     pub async fn fetch(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
-        self.operation_allow_prompt(root, &["fetch"]).await
+        self.network_operation(root, &["fetch"]).await
     }
 
     /// Pulls with a real merge (not fast-forward-only): fast-forwards when
@@ -245,9 +272,21 @@ impl GitProvider {
     /// `MergeOutcome::Conflicts`, resolved through the same
     /// `resolve_conflict`/`abort_merge`/`continue_merge` flow.
     pub async fn pull(&self, root: &Path) -> Result<MergeOutcome, VcsError> {
-        let output = self
-            .run_raw_inner(root, &["pull", "--no-edit"], true)
-            .await?;
+        let mut attempt = 1;
+        let output = loop {
+            let output = self
+                .run_raw_inner(root, &["pull", "--no-edit"], true)
+                .await?;
+            if output.status.success()
+                || attempt >= MAX_NETWORK_ATTEMPTS
+                || self.has_merge_in_progress(root).await
+                || !is_transient_network_error(&String::from_utf8_lossy(&output.stderr))
+            {
+                break output;
+            }
+            tokio::time::sleep(self.backoff_for(attempt)).await;
+            attempt += 1;
+        };
         if output.status.success() {
             return Ok(MergeOutcome::Merged {
                 message: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
@@ -272,7 +311,7 @@ impl GitProvider {
         root: &Path,
         branch: &str,
     ) -> Result<VcsOperationResult, VcsError> {
-        self.operation_allow_prompt(root, &["push", "-u", "origin", branch])
+        self.network_operation(root, &["push", "-u", "origin", branch])
             .await
     }
 
@@ -289,12 +328,11 @@ impl GitProvider {
     }
 
     pub async fn sync(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
-        self.operation_allow_prompt(root, &["pull", "--ff-only"])
-            .await
+        self.network_operation(root, &["pull", "--ff-only"]).await
     }
 
     pub async fn push(&self, root: &Path) -> Result<VcsOperationResult, VcsError> {
-        self.operation_allow_prompt(root, &["push"]).await
+        self.network_operation(root, &["push"]).await
     }
 
     pub async fn switch_branch(
@@ -520,37 +558,43 @@ impl GitProvider {
 
     /// Recent commit history.
     pub async fn log(&self, root: &Path, limit: u32) -> Result<Vec<GitCommit>, VcsError> {
-        // Unit separator (\x1f) between fields, record separator (\x1e) between commits.
-        let format = "--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1e";
         let output = self
             .run(
                 root,
-                &["log", &format!("-n{limit}"), "--date=short", format],
+                &["log", &format!("-n{limit}"), "--date=short", LOG_FORMAT],
             )
             .await?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        Ok(text
-            .split('\u{1e}')
-            .filter_map(|record| {
-                let record = record.trim_start_matches('\n');
-                if record.trim().is_empty() {
-                    return None;
-                }
-                let fields: Vec<&str> = record.split('\u{1f}').collect();
-                if fields.len() < 5 {
-                    return None;
-                }
-                Some(GitCommit {
-                    hash: fields[0].to_owned(),
-                    short_hash: fields[1].to_owned(),
-                    author: fields[2].to_owned(),
-                    date: fields[3].to_owned(),
-                    subject: fields[4].to_owned(),
-                })
-            })
-            .collect())
+        Ok(parse_log_records(&String::from_utf8_lossy(&output.stdout)))
     }
+}
 
+/// `git log` field/record format shared by `log` and `file_history`: unit
+/// separator (\x1f) between fields, record separator (\x1e) between commits.
+pub(crate) const LOG_FORMAT: &str = "--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1e";
+
+pub(crate) fn parse_log_records(text: &str) -> Vec<GitCommit> {
+    text.split('\u{1e}')
+        .filter_map(|record| {
+            let record = record.trim_start_matches('\n');
+            if record.trim().is_empty() {
+                return None;
+            }
+            let fields: Vec<&str> = record.split('\u{1f}').collect();
+            if fields.len() < 5 {
+                return None;
+            }
+            Some(GitCommit {
+                hash: fields[0].to_owned(),
+                short_hash: fields[1].to_owned(),
+                author: fields[2].to_owned(),
+                date: fields[3].to_owned(),
+                subject: fields[4].to_owned(),
+            })
+        })
+        .collect()
+}
+
+impl GitProvider {
     /// Diff for a single path (working tree vs HEAD; falls back for untracked).
     pub async fn diff(&self, root: &Path, path: &str) -> Result<String, VcsError> {
         let output = self.run_raw(root, &["diff", "HEAD", "--", path]).await?;
@@ -641,6 +685,7 @@ impl GitProvider {
             .map(|output| VcsOperationResult {
                 stdout: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
                 stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+                attempts: 1,
             })
         } else {
             let target = root.join(path);
@@ -648,6 +693,7 @@ impl GitProvider {
             Ok(VcsOperationResult {
                 stdout: format!("Deleted untracked {path}"),
                 stderr: String::new(),
+                attempts: 1,
             })
         }
     }
@@ -765,6 +811,7 @@ impl GitProvider {
         Ok(VcsOperationResult {
             stdout: "Repository initialized".into(),
             stderr: String::new(),
+            attempts: 1,
         })
     }
 
@@ -895,9 +942,10 @@ impl GitProvider {
             return Ok(VcsOperationResult {
                 stdout: "Git LFS is set up; no large files need tracking right now.".into(),
                 stderr: String::new(),
+                attempts: 1,
             });
         }
-        let mut patterns: Vec<String> = probe
+        let patterns: Vec<String> = probe
             .large_untracked_files
             .iter()
             .map(
@@ -907,9 +955,30 @@ impl GitProvider {
                 },
             )
             .collect();
+        self.lfs_track_patterns(root, patterns).await
+    }
+
+    /// Enables LFS for this repo (`git lfs install --local`), tracks each
+    /// pattern (`git lfs track`), and stages the resulting `.gitattributes`.
+    /// Shared by the health fix and the pre-commit "track with LFS" fix.
+    pub async fn lfs_track_patterns(
+        &self,
+        root: &Path,
+        mut patterns: Vec<String>,
+    ) -> Result<VcsOperationResult, VcsError> {
+        patterns.retain(|pattern| !pattern.trim().is_empty());
+        if patterns.iter().any(|pattern| pattern.starts_with('-')) {
+            return Err(VcsError::Refused(
+                "LFS patterns can't start with '-'".into(),
+            ));
+        }
         patterns.sort();
         patterns.dedup();
-        let mut track_args: Vec<&str> = vec!["lfs", "track"];
+        if patterns.is_empty() {
+            return Err(VcsError::Refused("no LFS patterns to track".into()));
+        }
+        self.run(root, &["lfs", "install", "--local"]).await?;
+        let mut track_args: Vec<&str> = vec!["lfs", "track", "--"];
         track_args.extend(patterns.iter().map(String::as_str));
         self.run(root, &track_args).await?;
         self.run(root, &["add", ".gitattributes"]).await?;
@@ -920,6 +989,7 @@ impl GitProvider {
                 patterns.join(", ")
             ),
             stderr: String::new(),
+            attempts: 1,
         })
     }
 
@@ -954,18 +1024,6 @@ impl GitProvider {
         self.operation_inner(root, arguments, false).await
     }
 
-    /// Like `operation`, but permits Git Credential Manager to show its own
-    /// sign-in UI (a real window, not a blocking terminal prompt) if the
-    /// remote needs fresh auth. Reserved for explicit, user-initiated network
-    /// operations (fetch/pull/push/publish) — see `run_inner` for why.
-    async fn operation_allow_prompt(
-        &self,
-        root: &Path,
-        arguments: &[&str],
-    ) -> Result<VcsOperationResult, VcsError> {
-        self.operation_inner(root, arguments, true).await
-    }
-
     async fn operation_inner(
         &self,
         root: &Path,
@@ -978,7 +1036,46 @@ impl GitProvider {
         Ok(VcsOperationResult {
             stdout: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            attempts: 1,
         })
+    }
+
+    /// A user-initiated network operation (fetch/pull/push/publish): allows
+    /// the credential manager's sign-in UI and retries transient network
+    /// failures with exponential backoff. Authentication failures and
+    /// rejected pushes are never retried — retrying can't fix them.
+    async fn network_operation(
+        &self,
+        root: &Path,
+        arguments: &[&str],
+    ) -> Result<VcsOperationResult, VcsError> {
+        let mut attempt = 1;
+        loop {
+            match self.operation_inner(root, arguments, true).await {
+                Ok(mut result) => {
+                    result.attempts = attempt;
+                    return Ok(result);
+                }
+                Err(VcsError::CommandFailed { ref stderr, .. })
+                    if attempt < MAX_NETWORK_ATTEMPTS && is_transient_network_error(stderr) =>
+                {
+                    tokio::time::sleep(self.backoff_for(attempt)).await;
+                    attempt += 1;
+                }
+                Err(VcsError::CommandFailed { command, stderr }) if attempt > 1 => {
+                    return Err(VcsError::CommandFailed {
+                        command,
+                        stderr: format!("{stderr}\n(gave up after {attempt} attempts)"),
+                    });
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    /// Delay before retry number `attempt` (1-based): backoff, 2x, 4x…
+    fn backoff_for(&self, attempt: u32) -> std::time::Duration {
+        self.retry_backoff * 2u32.saturating_pow(attempt.saturating_sub(1))
     }
 
     async fn run(&self, root: &Path, arguments: &[&str]) -> Result<Output, VcsError> {

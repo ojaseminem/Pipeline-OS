@@ -29,8 +29,8 @@ fn resolves_preferred_version_and_portable_placeholders() {
     std::fs::create_dir(&work).expect("working directory");
     let preferred = root.path().join("Unity-2022.exe");
     let latest = root.path().join("Unity-6.exe");
-    std::fs::write(&preferred, b"fixture").expect("preferred executable");
-    std::fs::write(&latest, b"fixture").expect("latest executable");
+    write_fixture(&preferred);
+    write_fixture(&latest);
     let profile = LaunchProfile {
         id: "editor".into(),
         name: "Editor".into(),
@@ -60,7 +60,7 @@ fn resolves_preferred_version_and_portable_placeholders() {
 fn uses_explicit_fallback_when_preferred_version_is_missing() {
     let root = tempfile::tempdir().expect("project");
     let executable = root.path().join("Unity-2021.exe");
-    std::fs::write(&executable, b"fixture").expect("executable");
+    write_fixture(&executable);
     let profile = LaunchProfile {
         id: "editor".into(),
         name: "Editor".into(),
@@ -138,4 +138,15 @@ fn native_amd64_is_runnable() {
     let path = write_fake_pe(0x8664);
     assert!(vantadeck_launcher::ensure_runnable(&path).is_ok());
     let _ = std::fs::remove_file(&path);
+}
+
+/// Writes a fixture file that the OS considers executable.
+fn write_fixture(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    std::fs::write(path, b"fixture").expect("fixture");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
 }

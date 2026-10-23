@@ -200,11 +200,103 @@ impl LaunchSpec {
         })
     }
 
+    /// Whether the spawned child is the app itself. A macOS bundle launches
+    /// through `/usr/bin/open`, whose PID says nothing about the app.
+    pub fn spawns_app_directly(&self) -> bool {
+        !(cfg!(target_os = "macos") && mac_app_bundle(&self.executable).is_some())
+    }
+
     pub fn command(&self) -> tokio::process::Command {
+        if cfg!(target_os = "macos")
+            && let Some(bundle) = mac_app_bundle(&self.executable)
+        {
+            let mut command = tokio::process::Command::new("/usr/bin/open");
+            command
+                .args(mac_open_arguments(&bundle, &self.arguments))
+                .current_dir(&self.working_directory);
+            return command;
+        }
         let mut command = tokio::process::Command::new(&self.executable);
         command
             .args(&self.arguments)
             .current_dir(&self.working_directory);
         command
+    }
+}
+
+/// The `.app` bundle an executable lives in (`X.app/Contents/MacOS/x`).
+pub fn mac_app_bundle(executable: &std::path::Path) -> Option<std::path::PathBuf> {
+    let macos = executable.parent()?;
+    let contents = macos.parent()?;
+    let bundle = contents.parent()?;
+    (macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && bundle
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("app")))
+    .then(|| bundle.to_path_buf())
+}
+
+/// macOS apps are started through LaunchServices (`open`), like Finder does:
+/// documents open in the running instance, while launches with command-line
+/// arguments (an engine opening a project) start a fresh instance.
+pub fn mac_open_arguments(
+    bundle: &std::path::Path,
+    arguments: &[String],
+) -> Vec<std::ffi::OsString> {
+    let mut open: Vec<std::ffi::OsString> = Vec::new();
+    let documents_only = !arguments.is_empty()
+        && arguments
+            .iter()
+            .all(|argument| !argument.starts_with('-') && std::path::Path::new(argument).exists());
+    if !arguments.is_empty() && !documents_only {
+        open.push("-n".into());
+    }
+    open.push("-a".into());
+    open.push(bundle.as_os_str().to_owned());
+    if documents_only {
+        open.extend(arguments.iter().map(Into::into));
+    } else if !arguments.is_empty() {
+        open.push("--args".into());
+        open.extend(arguments.iter().map(Into::into));
+    }
+    open
+}
+
+#[cfg(test)]
+mod mac_open_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn finds_the_enclosing_bundle() {
+        assert_eq!(
+            mac_app_bundle(Path::new(
+                "/Applications/Blender.app/Contents/MacOS/Blender"
+            )),
+            Some(Path::new("/Applications/Blender.app").to_path_buf())
+        );
+        assert_eq!(mac_app_bundle(Path::new("/opt/homebrew/bin/git")), None);
+    }
+
+    #[test]
+    fn engine_arguments_start_a_new_instance() {
+        let args = mac_open_arguments(
+            Path::new("/A/Unity.app"),
+            &["-projectPath".into(), "/p".into()],
+        );
+        let args: Vec<_> = args
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            ["-n", "-a", "/A/Unity.app", "--args", "-projectPath", "/p"]
+        );
+        let plain: Vec<_> = mac_open_arguments(Path::new("/A/X.app"), &[])
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(plain, ["-a", "/A/X.app"]);
     }
 }

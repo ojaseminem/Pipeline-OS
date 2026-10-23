@@ -224,11 +224,30 @@ pub enum ApplicationError {
     Launch(#[from] LaunchError),
     #[error("explicit confirmation is required for {0}")]
     ConfirmationRequired(&'static str),
+    #[error("{0}")]
+    Studio(#[from] vantadeck_studio::StudioError),
+}
+
+/// An open issue together with the project it belongs to, for cross-project
+/// views ("My work") and agents.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectIssue {
+    pub project_name: String,
+    pub project_path: String,
+    #[serde(flatten)]
+    pub issue: vantadeck_studio::issues::Issue,
 }
 
 impl ApplicationService {
     pub fn new(storage: Storage, git: GitProvider) -> Self {
         Self { storage, git }
+    }
+
+    /// The Git provider, for source-control features that don't need
+    /// storage or activity recording (checks, blame, merge tools…).
+    pub fn git(&self) -> &GitProvider {
+        &self.git
     }
 
     pub async fn set_manual_override(
@@ -306,7 +325,8 @@ impl ApplicationService {
                         &manifest.name,
                         manifest.executables.iter().map(String::as_str).collect(),
                     )
-                    .with_known_paths(manifest.known_paths.clone()),
+                    .with_known_paths(manifest.known_paths.clone())
+                    .with_mac_bundle_ids(manifest.mac_bundle_ids.clone()),
                     manifest.category,
                     None,
                 )
@@ -340,7 +360,11 @@ impl ApplicationService {
                     combined.push(installation);
                 }
             }
-            combined.retain(|installation| installation.executable.is_file());
+            // Not-executable leftovers (e.g. a data file that shared an app's
+            // name, detected by an older scan) fall off too.
+            combined.retain(|installation| {
+                vantadeck_detection::is_executable_file(&installation.executable)
+            });
             self.storage
                 .replace_detected_installations(&application.id, &combined)
                 .await?;
@@ -741,7 +765,7 @@ impl ApplicationService {
             )
             .await?;
         Ok(LaunchResult {
-            process_id: child.id(),
+            process_id: child.id().filter(|_| spec.spawns_app_directly()),
             executable,
         })
     }
@@ -795,7 +819,7 @@ impl ApplicationService {
             )
             .await?;
         Ok(LaunchResult {
-            process_id: child.id(),
+            process_id: child.id().filter(|_| spec.spawns_app_directly()),
             executable,
         })
     }
@@ -1163,6 +1187,149 @@ impl ApplicationService {
     /// Full project health, including Git and Git-LFS checks. Runs Git
     /// subprocesses, so it is intended for explicit, user-initiated checks.
     /// The result is cached so other views can show it without re-running.
+    /// The executable to substitute for `${engine}` in a project's tasks: the
+    /// preferred version when it is installed, else the newest installed one.
+    pub async fn project_engine_executable(
+        &self,
+        root: &Path,
+    ) -> Result<Option<PathBuf>, ApplicationError> {
+        let Some(choice) = self.engine_options(root, None).await? else {
+            return Ok(None);
+        };
+        let pick = choice
+            .preferred
+            .as_deref()
+            .and_then(|preferred| choice.options.iter().find(|o| o.version == preferred))
+            .or_else(|| {
+                choice
+                    .options
+                    .iter()
+                    .max_by_key(|o| o.version.parse::<Version>().ok())
+            });
+        Ok(pick.map(|option| PathBuf::from(&option.executable)))
+    }
+
+    /// Resolves a project task (variables expanded) without running it.
+    pub async fn resolve_project_task(
+        &self,
+        root: &Path,
+        task_id: &str,
+    ) -> Result<
+        (
+            vantadeck_studio::tasks::TaskDefinition,
+            vantadeck_studio::tasks::ResolvedTask,
+        ),
+        ApplicationError,
+    > {
+        use vantadeck_studio::tasks::{TaskVariables, load_tasks, resolve_task};
+        let config = load_project(root)?;
+        let task = load_tasks(root)?
+            .into_iter()
+            .find(|task| task.id == task_id)
+            .ok_or_else(|| vantadeck_studio::StudioError::NotFound {
+                kind: "task",
+                id: task_id.to_owned(),
+            })?;
+        // `${engine}` and `${engineDir}` both need the engine executable.
+        let uses_engine = |value: &str| value.contains("${engine");
+        let engine = if uses_engine(&task.program)
+            || task.args.iter().any(|arg| uses_engine(arg))
+            || task.cwd.as_deref().is_some_and(uses_engine)
+            || task.env.values().any(|value| uses_engine(value))
+        {
+            self.project_engine_executable(root).await?
+        } else {
+            None
+        };
+        let vars = TaskVariables::for_project(root, &config.name, engine.as_deref());
+        let resolved = resolve_task(root, &task, &vars)?;
+        Ok((task, resolved))
+    }
+
+    /// AI/onboarding brief for a project: identity, engine, layout, tasks,
+    /// open issues, cached health, and the team's shared notes.
+    pub async fn project_brief(&self, root: &Path) -> Result<String, ApplicationError> {
+        let config = load_project(root)?;
+        let engine_id = project_engine_id(&config);
+        let engine_version = engine_id.as_ref().and_then(|id| {
+            config
+                .linked_apps
+                .iter()
+                .find(|app| &app.app_id == id)
+                .and_then(|app| app.preferred_version.clone())
+        });
+        let health = self
+            .cached_project_health(root)
+            .await
+            .map(|(issues, _)| {
+                issues
+                    .into_iter()
+                    .map(|issue| format!("{}: {}", issue.title, issue.detail))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let notes = vantadeck_projects::read_project_workspace(root)
+            .ok()
+            .flatten()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .and_then(|value| {
+                value
+                    .get("notes")
+                    .and_then(|n| n.as_str())
+                    .map(str::to_owned)
+            });
+        let input = vantadeck_studio::context::BriefInput {
+            name: config.name.clone(),
+            project_type: config.project_type.clone(),
+            engine: engine_id,
+            engine_version,
+            linked_apps: config
+                .linked_apps
+                .iter()
+                .map(|a| a.app_id.clone())
+                .collect(),
+            branch: self.vcs_current_branch(root).await,
+            vcs: config.version_control.as_ref().map(|v| v.provider.clone()),
+            health,
+            notes,
+        };
+        // Walks the tree and runs git; keep it off the async workers.
+        let root = root.to_path_buf();
+        let brief = tokio::task::spawn_blocking(move || {
+            vantadeck_studio::context::project_brief(&root, &input)
+        })
+        .await
+        .map_err(io::Error::other)??;
+        Ok(brief)
+    }
+
+    /// Open (not done) issues across every registered project.
+    pub async fn open_issues_everywhere(&self) -> Result<Vec<ProjectIssue>, ApplicationError> {
+        let mut all = Vec::new();
+        for project in self.registered_projects().await? {
+            let Ok((issues, _)) = vantadeck_studio::issues::list_issues(&project.root) else {
+                continue;
+            };
+            all.extend(
+                issues
+                    .into_iter()
+                    .filter(|issue| issue.status != vantadeck_studio::issues::IssueStatus::Done)
+                    .map(|issue| ProjectIssue {
+                        project_name: project.name.clone(),
+                        project_path: project.root.display().to_string(),
+                        issue,
+                    }),
+            );
+        }
+        all.sort_by(|a, b| {
+            b.issue
+                .priority
+                .cmp(&a.issue.priority)
+                .then_with(|| b.issue.updated_at.cmp(&a.issue.updated_at))
+        });
+        Ok(all)
+    }
+
     pub async fn project_health(&self, root: &Path) -> Vec<HealthIssue> {
         let issues = self.project_health_inner(root, true).await;
         if let Ok(json) = serde_json::to_string(&issues) {
@@ -1565,6 +1732,10 @@ fn system_detection_engine(roots: &[PathBuf]) -> DetectionEngine {
     #[cfg(target_os = "macos")]
     if include_system_sources {
         sources.push(Box::new(MacAppBundleDetectionSource::system()));
+        // Command-line tools (git, git-lfs, p4) from PATH and Homebrew.
+        sources.push(Box::new(
+            vantadeck_detection::ExecutablePathDetectionSource::system(),
+        ));
     }
     #[cfg(target_os = "linux")]
     if include_system_sources {
@@ -1617,6 +1788,16 @@ fn platform_detection_roots() -> Vec<PathBuf> {
         "Epic Games",
         "Steam/steamapps/common",
         "Program Files/Epic Games",
+        "Autodesk",
+        "Program Files/Autodesk",
+        "Adobe",
+        "Program Files/Adobe",
+        "Side Effects Software",
+        "Program Files/Side Effects Software",
+        "Blender Foundation",
+        "Program Files/Blender Foundation",
+        "JetBrains",
+        "Maxon",
         "Unity",
         "Unity/Hub/Editor",
         "Program Files/Unity/Hub/Editor",

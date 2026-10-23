@@ -141,10 +141,17 @@ impl DetectionSource for RegistryDetectionSource {
             let Some(executable) = executable.filter(|path| path.is_file()) else {
                 continue;
             };
+            // Year-versioned products (Maya 2025) report an internal version
+            // in the registry ("25.3"); the install path names the product.
+            let registry_version =
+                parse_loose_version(record.display_version.as_deref().unwrap_or(""));
+            let path_version = infer_version(&executable);
+            let version = match (registry_version, path_version) {
+                (Some(registry), Some(path)) if path.major >= 1990 && registry.major < 1990 => path,
+                (registry, path) => registry.or(path).unwrap_or_else(UNKNOWN_VERSION),
+            };
             found.push(installation(
-                parse_loose_version(record.display_version.as_deref().unwrap_or(""))
-                    .or_else(|| infer_version(&executable))
-                    .unwrap_or_else(UNKNOWN_VERSION),
+                version,
                 executable,
                 "windows-uninstall-registry",
                 record.key,
@@ -172,12 +179,37 @@ fn registry_executable(record: &UninstallRegistryRecord, request: &ScanRequest) 
             return Some(path);
         }
     }
-    record.install_location.as_ref().and_then(|location| {
-        request
-            .executables
-            .iter()
-            .map(|name| location.join(name))
-            .find(|path| path.is_file())
+    record
+        .install_location
+        .as_ref()
+        .and_then(|location| executable_under(location, request))
+}
+
+/// The app's executable inside its install folder: at the top, in `bin/`, or
+/// a little deeper (Maya keeps `maya.exe` in `bin`, others in `x64/` etc.).
+fn executable_under(location: &Path, request: &ScanRequest) -> Option<PathBuf> {
+    let direct = ["", "bin", "Bin", "x64", "bin/x64"]
+        .into_iter()
+        .find_map(|sub| {
+            request
+                .executables
+                .iter()
+                .map(|name| location.join(sub).join(name))
+                .find(|path| path.is_file())
+        });
+    direct.or_else(|| {
+        WalkDir::new(location)
+            .max_depth(3)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_file())
+            .find(|entry| {
+                request
+                    .executables
+                    .iter()
+                    .any(|name| file_name_eq(entry.path(), name))
+            })
+            .map(|entry| entry.into_path())
     })
 }
 

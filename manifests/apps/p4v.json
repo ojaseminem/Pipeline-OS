@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"p4v","name":"Perforce P4V","category":"utility","platforms":["windows","macos","linux"],"executables":["p4v.exe","p4v"],"knownPaths":["C:/Program Files/Perforce/p4v.exe","/Applications/p4v.app","/opt/p4v/bin/p4v"],"fileTypes":[],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}

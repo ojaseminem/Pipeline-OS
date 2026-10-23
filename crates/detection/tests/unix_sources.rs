@@ -1,10 +1,11 @@
 use std::{fs, path::Path};
 
+#[cfg(unix)]
+use vantadeck_detection::{AppImageDetectionSource, ExecutablePathDetectionSource};
 use vantadeck_detection::{
-    AppImageDetectionSource, DesktopEntryDetectionSource, DetectionSource,
-    ExecutablePathDetectionSource, FlatpakDetectionSource, MacAppBundleDetectionSource,
-    ScanRequest, SnapDetectionSource, parse_desktop_entry, parse_flatpak_metadata,
-    parse_info_plist,
+    DesktopEntryDetectionSource, DetectionSource, FlatpakDetectionSource,
+    MacAppBundleDetectionSource, ScanRequest, SnapDetectionSource, parse_desktop_entry,
+    parse_flatpak_metadata, parse_info_plist,
 };
 
 #[test]
@@ -68,7 +69,7 @@ async fn mac_bundle_source_finds_bundle_executable() {
         include_str!("fixtures/Info.plist"),
     )
     .expect("plist");
-    fs::write(&executable, b"fixture").expect("bundle executable");
+    write_fixture(&executable);
 
     let source = MacAppBundleDetectionSource::new(vec![root.path().to_path_buf()], 3);
     let results = scan(source, "blender", "Blender", "Blender").await;
@@ -84,7 +85,7 @@ async fn mac_bundle_source_falls_back_to_common_bundle_layout() {
     let bundle = root.path().join("Blender 4.1.2.app");
     let executable = bundle.join("Contents/MacOS/Blender");
     fs::create_dir_all(executable.parent().expect("parent")).expect("bundle directories");
-    fs::write(&executable, b"fixture").expect("bundle executable");
+    write_fixture(&executable);
 
     let source = MacAppBundleDetectionSource::new(vec![root.path().to_path_buf()], 3);
     let results = scan(source, "blender", "Blender", "Blender").await;
@@ -98,7 +99,7 @@ async fn desktop_and_snap_sources_resolve_direct_exec_targets() {
     let root = tempfile::tempdir().expect("fixture root");
     let executable = root.path().join("bin/blender");
     fs::create_dir_all(executable.parent().expect("parent")).expect("bin");
-    fs::write(&executable, b"fixture").expect("executable");
+    write_fixture(&executable);
     let desktop_root = root.path().join("applications");
     fs::create_dir_all(&desktop_root).expect("desktop root");
     fs::write(
@@ -146,7 +147,7 @@ async fn flatpak_source_uses_deployed_application_command() {
         include_str!("fixtures/flatpak-metadata.ini"),
     )
     .expect("metadata");
-    fs::write(&executable, b"fixture").expect("command");
+    write_fixture(&executable);
 
     let source = FlatpakDetectionSource::new(vec![root.path().join("app")], vec![]);
     let results = scan(source, "org.blender.Blender", "Blender", "blender").await;
@@ -160,7 +161,7 @@ async fn flatpak_source_reads_exported_desktop_evidence() {
     let root = tempfile::tempdir().expect("fixture root");
     let launcher = root.path().join("bin/flatpak");
     fs::create_dir_all(launcher.parent().expect("parent")).expect("bin");
-    fs::write(&launcher, b"fixture").expect("flatpak launcher");
+    write_fixture(&launcher);
     let exports = root.path().join("exports/share/applications");
     fs::create_dir_all(&exports).expect("exports");
     fs::write(
@@ -180,6 +181,9 @@ async fn flatpak_source_reads_exported_desktop_evidence() {
     assert_eq!(results[0].evidence[0].source, "flatpak-export");
 }
 
+// Extension-less executables and AppImages are unix-only; on Windows only
+// .exe/.com/.bat/.cmd count as runnable.
+#[cfg(unix)]
 #[tokio::test]
 async fn path_and_appimage_sources_find_portable_executables() {
     let root = tempfile::tempdir().expect("fixture root");
@@ -189,8 +193,8 @@ async fn path_and_appimage_sources_find_portable_executables() {
     fs::create_dir_all(&applications).expect("applications");
     let executable = bin.join("blender");
     let appimage = applications.join("Blender-4.2.3-x86_64.AppImage");
-    fs::write(&executable, b"fixture").expect("path executable");
-    fs::write(&appimage, b"fixture").expect("AppImage");
+    write_fixture(&executable);
+    write_fixture(&appimage);
 
     let path_source = ExecutablePathDetectionSource::new(vec![bin]);
     let appimage_source = AppImageDetectionSource::new(vec![applications], 2);
@@ -238,4 +242,131 @@ async fn scan(
 
 fn slash(path: &Path) -> String {
     path.display().to_string().replace('\\', "/")
+}
+
+/// Writes a fake `.app` bundle with a *binary* Info.plist, like most real
+/// macOS apps ship.
+fn fake_bundle(
+    parent: &Path,
+    bundle: &str,
+    identifier: &str,
+    executable: &str,
+    version: &str,
+) -> std::path::PathBuf {
+    let contents = parent.join(bundle).join("Contents");
+    let binary = contents.join("MacOS").join(executable);
+    fs::create_dir_all(binary.parent().expect("parent")).expect("bundle dirs");
+    write_fixture(&binary);
+    let mut dict = plist::Dictionary::new();
+    dict.insert("CFBundleIdentifier".into(), identifier.into());
+    dict.insert("CFBundleExecutable".into(), executable.into());
+    dict.insert(
+        "CFBundleName".into(),
+        bundle.trim_end_matches(".app").into(),
+    );
+    dict.insert("CFBundleShortVersionString".into(), version.into());
+    plist::Value::Dictionary(dict)
+        .to_file_binary(contents.join("Info.plist"))
+        .expect("binary plist");
+    binary
+}
+
+#[tokio::test]
+async fn mac_bundles_match_by_identifier_deeply_and_skip_unity_hub() {
+    let root = tempfile::tempdir().expect("root");
+    let editor = fake_bundle(
+        &root.path().join("Unity/Hub/Editor/2022.3.18f1"),
+        "Unity.app",
+        "com.unity3d.UnityEditor5.x",
+        "Unity",
+        "Unity version 2022.3.18f1",
+    );
+    fake_bundle(
+        root.path(),
+        "Unity Hub.app",
+        "com.unity3d.unityhub",
+        "Unity Hub",
+        "3.9.1",
+    );
+    let source = MacAppBundleDetectionSource::new(vec![root.path().to_path_buf()], 6);
+    let request = ScanRequest::new("unity", "Unity", vec!["Unity.exe", "Unity"])
+        .with_mac_bundle_ids(vec!["com.unity3d.UnityEditor"]);
+    let results = source.scan(&request).await.expect("scan");
+    assert_eq!(results.len(), 1, "only the editor, not Unity Hub");
+    assert_eq!(results[0].executable, editor);
+    assert_eq!(results[0].version.major, 2022);
+}
+
+#[tokio::test]
+async fn mac_bundles_use_the_declared_executable_not_the_windows_name() {
+    let root = tempfile::tempdir().expect("root");
+    let binary = fake_bundle(
+        &root.path().join("Adobe Photoshop 2025"),
+        "Adobe Photoshop 2025.app",
+        "com.adobe.Photoshop",
+        "Adobe Photoshop 2025",
+        "26.0.0",
+    );
+    let source = MacAppBundleDetectionSource::new(vec![root.path().to_path_buf()], 6);
+    let request = ScanRequest::new("photoshop", "Adobe Photoshop", vec!["Photoshop.exe"])
+        .with_mac_bundle_ids(vec!["com.adobe.Photoshop"]);
+    let results = source.scan(&request).await.expect("scan");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].executable, binary);
+    assert_eq!(results[0].version.to_string(), "26.0.0");
+}
+
+#[tokio::test]
+async fn mac_bundles_match_product_names_without_the_vendor() {
+    let root = tempfile::tempdir().expect("root");
+    fake_bundle(
+        &root.path().join("Houdini/Houdini20.5.410"),
+        "Houdini FX 20.5.410.app",
+        "com.sidefx.houdinifx",
+        "houdinifx",
+        "20.5.410",
+    );
+    fake_bundle(
+        root.path(),
+        "Calculator.app",
+        "com.apple.calculator",
+        "Calculator",
+        "11.0",
+    );
+    let source = MacAppBundleDetectionSource::new(vec![root.path().to_path_buf()], 6);
+    let results = scan(source, "houdini", "SideFX Houdini", "houdinifx.exe").await;
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].version.to_string(), "20.5.410");
+}
+
+#[tokio::test]
+async fn known_paths_resolve_app_bundles_to_their_executable() {
+    let root = tempfile::tempdir().expect("root");
+    let binary = fake_bundle(
+        root.path(),
+        "Spine.app",
+        "com.esotericsoftware.spine",
+        "Spine",
+        "4.2.0",
+    );
+    let pattern = format!("{}/Spine.app", slash(root.path()));
+    let source = vantadeck_detection::KnownPathDetectionSource::new("known-path", 90);
+    let request =
+        ScanRequest::new("spine", "Spine", vec!["Spine.exe"]).with_known_paths(vec![pattern]);
+    let results = source.scan(&request).await.expect("scan");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].executable, binary);
+    // The version comes from Info.plist, not the (versionless) path.
+    assert_eq!(results[0].version.to_string(), "4.2.0");
+}
+
+/// Writes a fixture file that the OS considers executable.
+fn write_fixture(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    std::fs::write(path, b"fixture").expect("fixture");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
 }

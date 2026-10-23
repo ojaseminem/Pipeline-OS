@@ -14,6 +14,9 @@ pub struct AppManifest {
     pub executables: Vec<String>,
     #[serde(default)]
     pub known_paths: Vec<String>,
+    /// macOS bundle identifier prefixes used to match `.app` bundles exactly.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mac_bundle_ids: Vec<String>,
     #[serde(default)]
     pub file_types: Vec<String>,
     #[serde(default)]
@@ -107,6 +110,10 @@ impl AppManifest {
         }
         if self.executables.is_empty() {
             return Err(ManifestError::EmptyField("executables"));
+        }
+        // Bundle ids match by prefix, so a blank one would match every app.
+        if self.mac_bundle_ids.iter().any(|id| id.trim().len() < 3) {
+            return Err(ManifestError::EmptyField("macBundleIds"));
         }
         for argument in self
             .launch_templates

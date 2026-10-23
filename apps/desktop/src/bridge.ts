@@ -10,7 +10,9 @@ export type AppInstallation = { version: string; executable: string; state: stri
 export type ManagedApp = { id: string; name: string; category: string; launchable: boolean; installations: AppInstallation[] };
 export type RegisteredProject = { name: string; path: string; pinned: boolean; tags: string[]; category: string };
 export type ActivityRecord = { id: number; kind: string; message: string; createdAt: string };
-export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null };
+export type UpdateInfo = { available: boolean; currentVersion: string; version: string; notes?: string | null; error?: string | null };
+export type UpdatePhase = "idle" | "downloading" | "ready" | "installing" | "restarting" | "failed" | "cancelled";
+export type UpdateState = { phase: UpdatePhase; version: string | null; downloaded: number; total: number | null; error: string | null; installerUrl: string | null; blocker: string | null };
 export type PathInfo = { exists: boolean; isDir: boolean; isFile: boolean };
 export type LaunchProfile = { id: string; name: string; app_id: string; arguments: string[]; working_directory?: string | null; preferred_version?: string | null; fallback_version?: string | null };
 export type LinkedApp = { app_id: string; preferred_version?: string | null; project_file?: string | null; folder?: string | null };
@@ -52,10 +54,26 @@ export async function browsePath(opts: { directory?: boolean; title?: string }):
   return typeof result === "string" ? result : null;
 }
 
+/** Saves text to a file the user picks (native), or downloads it (browser). */
+export async function saveTextFile(opts: { defaultName: string; contents: string; filterName: string; extensions: string[] }): Promise<string | null> {
+  if (isNativeRuntime()) {
+    return invokeDesktop<string | null>("save_text_file", { defaultName: opts.defaultName, filterName: opts.filterName, extensions: opts.extensions, contents: opts.contents });
+  }
+  const url = URL.createObjectURL(new Blob([opts.contents], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = opts.defaultName;
+  link.click();
+  URL.revokeObjectURL(url);
+  return opts.defaultName;
+}
+
 export const APP_CATEGORY_LABELS: Record<string, string> = {
   "game-engine": "Game Engines",
   dcc: "DCC & Animation",
   art: "Art & Texturing",
+  media: "Video & Audio",
+  productivity: "Docs & Design",
   code: "Code & IDEs",
   "version-control": "Version Control",
   utility: "Utilities",
@@ -116,9 +134,14 @@ const emptySnapshot: DashboardSnapshot = { networkEnabled: false, continueProjec
 export function isNativeRuntime() { return Boolean(window.__TAURI_INTERNALS__); }
 export function isDemoMode() { return new URLSearchParams(window.location.search).get("demo") === "true"; }
 
+// One shared import of the Tauri core module: every IPC call awaits the same
+// promise instead of starting its own dynamic import.
+let coreModule: Promise<typeof import("@tauri-apps/api/core")> | null = null;
+
 export async function invokeDesktop<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isNativeRuntime()) throw new Error("This operation requires the PipelineOS desktop runtime.");
-  const { invoke } = await import("@tauri-apps/api/core");
+  coreModule ??= import("@tauri-apps/api/core");
+  const { invoke } = await coreModule;
   return invoke<T>(command, args);
 }
 
@@ -167,6 +190,11 @@ export const desktopApi = {
   appIcon: (executable: string) => invokeDesktop<string | null>("app_icon", { executable }),
   checkForUpdate: () => invokeDesktop<UpdateInfo>("check_for_update"),
   installUpdate: () => invokeDesktop<void>("install_update"),
+  updateState: () => invokeDesktop<UpdateState>("update_state"),
+  updateDownload: () => invokeDesktop<UpdateState>("update_download"),
+  updateCancel: () => invokeDesktop<void>("update_cancel"),
+  updateInstall: () => invokeDesktop<void>("update_install"),
+  updateInstallerUrl: () => invokeDesktop<string | null>("update_installer_url"),
   pathInfo: (path: string) => invokeDesktop<PathInfo>("path_info", { path }),
   projectConfig: (root: string) => invokeDesktop<ProjectConfig>("project_config", { root }),
   repairProjectConfig: (root: string, confirmed: boolean) => invokeDesktop<ProjectConfig>("repair_project_config", { root, confirmed }),
@@ -222,3 +250,241 @@ export async function openExternal(url: string): Promise<void> {
   }
   window.open(url, "_blank", "noopener");
 }
+
+// ---------------------------------------------------------------------------
+// Studio workflows: pipeline tasks, issue board, AI brief, asset library.
+// In the browser demo these run against an in-memory fixture (demo-studio.ts)
+// so every screen is explorable without the desktop runtime.
+
+export type TaskKind = "build" | "test" | "render" | "export" | "cook" | "script";
+export type TaskDefinition = { id: string; name: string; kind: TaskKind; description?: string | null; program: string; args: string[]; cwd?: string | null; env?: Record<string, string> };
+export type TaskPreset = { definition: TaskDefinition; engine: string | null; group: string; recommended: boolean };
+export type ProjectTasks = { tasks: TaskDefinition[]; fingerprint: string | null; trusted: boolean };
+export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type TaskRun = {
+  id: string; projectPath: string; projectName: string; taskId: string; taskName: string; kind: TaskKind; commandLine: string;
+  status: RunStatus; progress: number | null; lastLine: string | null; startedAt: string; finishedAt: string | null; exitCode: number | null; durationMs: number | null;
+};
+export type TaskLineBatch = { runId: string; lines: Array<{ stream: "stdout" | "stderr"; text: string }> };
+
+export type IssueStatus = "backlog" | "todo" | "in-progress" | "review" | "done";
+export type IssuePriority = "none" | "low" | "medium" | "high" | "urgent";
+export type IssueKind = "task" | "bug" | "feature" | "art" | "design";
+export type Issue = {
+  id: string; title: string; status: IssueStatus; priority: IssuePriority; kind: IssueKind; assignee?: string | null; labels?: string[]; files?: string[];
+  createdAt: string; updatedAt: string; external?: { system: string; key: string; url?: string | null } | null; body: string;
+};
+export type NewIssue = { title: string; status?: IssueStatus; priority?: IssuePriority; kind?: IssueKind; assignee?: string | null; labels?: string[]; files?: string[]; body?: string };
+export type ProjectIssue = Issue & { projectName: string; projectPath: string };
+
+export type AssetKind = "image" | "source" | "model" | "scene" | "cache" | "animation" | "video" | "audio" | "document";
+export type ReviewStatus = "none" | "wip" | "review" | "approved" | "rejected";
+export type AssetMeta = { status: ReviewStatus; note?: string | null; owner?: string | null };
+export type AssetEntry = { path: string; name: string; folder: string; kind: AssetKind; size: number; modified: number; meta: AssetMeta };
+export type AssetIndex = { assets: AssetEntry[]; truncated: boolean };
+export type FolderLayout = { id: string; name: string; description: string; folders: string[] };
+export type LayoutResult = { created: string[]; existing: string[] };
+export type TrackerKind = "github" | "gitea" | "jira" | "linear" | "plane" | "clickup";
+export type TrackerConfig = { kind: TrackerKind; baseUrl?: string | null; project: string; query?: string | null };
+export type TrackerState = { config: TrackerConfig | null; hasToken: boolean };
+export type SyncSummary = { created: number; updated: number; unchanged: number };
+export type SelfHostResult = { composePath: string; dockerAvailable: boolean; started: boolean; url: string };
+export type CliInfo = { cliPath: string | null; channel: "stable" | "dev"; mcpArgs: string[] };
+export type AgentId = "claude" | "codex" | "gemini" | "aider";
+export type ProjectEngine = "unity" | "unreal" | "godot" | "pipeline-os" | "gamemaker" | "defold" | "blender" | "houdini" | "maya" | "spine" | "xcode" | "android-studio" | "visual-studio";
+export type DiscoveredProject = { path: string; name: string; engine: ProjectEngine; engineVersion: string | null; source: string; modified: number };
+export type Discovery = { projects: DiscoveredProject[]; scannedAt: string | null };
+export type McpToolInfo = { name: string; title: string; description: string; readOnly: boolean };
+export type AiClientStatus = { id: string; name: string; installed: boolean; configured: boolean; configPath: string; problem: string | null };
+export type AiSetupState = { clients: AiClientStatus[]; agentClis: string[]; canConfigure: boolean };
+export type AiConfigureResult = { id: string; ok: boolean; error: string | null };
+export type EngineKind = "unreal" | "unity";
+export type ActiveTimeSummary = { todayMinutes: number; weekMinutes: number; totalMinutes: number; lastActive: string | null; days: Array<{ date: string; minutes: number }> };
+export type ProjectActiveTime = { path: string; minutes: number; totalMinutes: number; lastActive: string | null };
+export type EngineActivityKind = "lighting" | "shaders" | "cook" | "compile" | "build" | "import";
+export type EngineActivity = {
+  id: string; engine: EngineKind; projectPath: string | null; projectName: string | null;
+  kind: EngineActivityKind; status: "running" | "succeeded" | "failed"; progress: number | null;
+  detail: string; startedAt: string; updatedAt: string; finishedAt: string | null;
+};
+
+async function studioCall<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+  if (isNativeRuntime()) return invokeDesktop<T>(command, args);
+  if (isDemoMode()) {
+    const { demoStudio } = await import("./demo-studio");
+    return demoStudio(command, args) as Promise<T>;
+  }
+  throw new Error("This operation requires the PipelineOS desktop runtime.");
+}
+
+/** True when studio features have a backend (native app or browser demo). */
+export function studioAvailable(): boolean {
+  return isNativeRuntime() || isDemoMode();
+}
+
+export const studioApi = {
+  tasks: (path: string) => studioCall<ProjectTasks>("tasks_list", { path }),
+  templates: () => studioCall<TaskDefinition[]>("tasks_templates"),
+  presets: (path: string) => studioCall<TaskPreset[]>("tasks_presets", { path }),
+  installUnityBuildScript: (path: string) => studioCall<string>("tasks_install_unity_script", { path }),
+  saveTasks: (path: string, tasks: TaskDefinition[]) => studioCall<void>("tasks_save", { path, tasks }),
+  trustTasks: (path: string, fingerprint: string) => studioCall<void>("tasks_trust", { path, fingerprint }),
+  planTask: (path: string, taskId: string) => studioCall<string>("task_plan", { path, taskId }),
+  runTask: (path: string, taskId: string) => studioCall<TaskRun>("task_run", { path, taskId }),
+  cancelRun: (runId: string) => studioCall<void>("task_cancel", { runId }),
+  runs: (path?: string) => studioCall<TaskRun[]>("task_runs", { path: path ?? null }),
+  runLog: (runId: string) => studioCall<string[]>("task_run_log", { runId }),
+  clearRunHistory: () => studioCall<void>("task_clear_history"),
+  issues: (path: string) => studioCall<{ issues: Issue[]; problems: string[] }>("issues_list", { path }),
+  createIssue: (path: string, issue: NewIssue) => studioCall<Issue>("issue_create", { path, issue }),
+  updateIssue: (path: string, issue: Issue) => studioCall<Issue>("issue_update", { path, issue }),
+  deleteIssue: (path: string, id: string) => studioCall<void>("issue_delete", { path, id }),
+  issuesEverywhere: () => studioCall<ProjectIssue[]>("issues_everywhere"),
+  tracker: (path: string) => studioCall<TrackerState>("tracker_get", { path }),
+  saveTracker: (path: string, config: TrackerConfig | null, token?: string) => studioCall<void>("tracker_save", { path, config, token: token ?? null }),
+  syncTracker: (path: string) => studioCall<SyncSummary>("tracker_sync", { path }),
+  selfHostForgejo: (dir: string, port: number | null, start: boolean) => studioCall<SelfHostResult>("selfhost_forgejo", { dir, port, start }),
+  brief: (path: string, write = false) => studioCall<{ markdown: string; writtenTo: string | null }>("project_brief", { path, write }),
+  layouts: () => studioCall<FolderLayout[]>("asset_layouts"),
+  applyLayout: (path: string, layout: string) => studioCall<LayoutResult>("asset_apply_layout", { path, layout }),
+  assets: (path: string, limit?: number) => studioCall<AssetIndex>("assets_index", { path, limit: limit ?? null }),
+  setAssetMeta: (path: string, asset: string, meta: AssetMeta) => studioCall<void>("asset_set_meta", { path, asset, meta }),
+  openTerminal: (path: string, agent?: AgentId) => studioCall<void>("open_terminal", { path, agent: agent ?? null }),
+  cliInfo: () => studioCall<CliInfo>("cli_info"),
+  discoverProjects: (refresh: boolean) => studioCall<Discovery>("discover_projects", { refresh }),
+  dismissDiscovered: (path: string) => studioCall<void>("dismiss_discovered", { path }),
+  aiClients: () => studioCall<AiSetupState>("ai_clients"),
+  mcpTools: () => studioCall<McpToolInfo[]>("mcp_tools"),
+  aiConfigure: (ids: string[]) => studioCall<AiConfigureResult[]>("ai_configure", { ids }),
+  aiUnconfigure: (id: string) => studioCall<void>("ai_unconfigure", { id }),
+  engineActivity: () => studioCall<EngineActivity[]>("engine_activity"),
+  activeTime: (path: string) => studioCall<ActiveTimeSummary>("project_active_time", { path }),
+  activeTimeAll: () => studioCall<ProjectActiveTime[]>("active_time_all"),
+  clearEngineActivity: () => studioCall<void>("clear_engine_activity"),
+};
+
+type Unlisten = () => void;
+
+/** Subscribes to task run updates and batched output lines. */
+export async function onTaskEvents(onRun: (run: TaskRun) => void, onLines: (batch: TaskLineBatch) => void): Promise<Unlisten> {
+  if (isNativeRuntime()) {
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      const offRun = await listen<TaskRun>("task://run", (event) => onRun(event.payload));
+      const offLines = await listen<TaskLineBatch>("task://lines", (event) => onLines(event.payload));
+      return () => { offRun(); offLines(); };
+    } catch {
+      // Live updates are an enhancement; the UI still works by polling runs.
+      return () => undefined;
+    }
+  }
+  if (isDemoMode()) {
+    const { demoTaskEvents } = await import("./demo-studio");
+    return demoTaskEvents(onRun, onLines);
+  }
+  return () => undefined;
+}
+
+/** Subscribes to engine activity (lighting builds, cooks, player builds…)
+ *  parsed from Unity and Unreal editor logs. */
+export async function onEngineActivity(handler: (activity: EngineActivity) => void): Promise<Unlisten> {
+  if (isNativeRuntime()) {
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      return await listen<EngineActivity>("engine://activity", (event) => handler(event.payload));
+    } catch {
+      return () => undefined;
+    }
+  }
+  if (isDemoMode()) {
+    const { demoEngineEvents } = await import("./demo-studio");
+    return demoEngineEvents(handler);
+  }
+  return () => undefined;
+}
+
+export async function onUpdateState(handler: (state: UpdateState) => void): Promise<Unlisten> {
+  if (!isNativeRuntime()) return () => undefined;
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    return await listen<UpdateState>("update://state", (event) => handler(event.payload));
+  } catch {
+    return () => undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Source control: pre-commit checks, safe branch/tag operations, GitHub pull
+// requests and checks, external merge tools, and Pipeline OS TOML auto-merge.
+
+export type OpResult = { stdout: string; stderr: string; attempts: number };
+export type FixKind =
+  | { kind: "trackWithLfs"; patterns: string[]; paths: string[] }
+  | { kind: "addGitignore"; entries: string[] }
+  | { kind: "untrackPaths"; paths: string[]; gitignore: string[] };
+export type CheckFinding = { id: string; severity: "error" | "warning" | "info"; title: string; detail: string; paths: string[]; locations: string[]; fix: FixKind | null };
+export type DeleteDecision = { allowed: boolean; reason: string };
+export type GitTag = { name: string; target: string; annotated: boolean; date: string; subject: string };
+export type MergeTool = { id: string; name: string; kind: string; path: string; supportsMerge: boolean; supportsDiff: boolean; unityOnly: boolean };
+export type GithubRepo = { host: string; owner: string; repo: string; apiBase: string; htmlUrl: string };
+export type GithubViewer = { login: string; name: string | null; avatarUrl: string | null };
+export type GithubRepoInfo = {
+  fullName: string; defaultBranch: string; private: boolean; visibility: string; htmlUrl: string; archived: boolean;
+  permissions: { admin: boolean; maintain: boolean; push: boolean; triage: boolean; pull: boolean } | null;
+  allowMergeCommit: boolean; allowSquashMerge: boolean; allowRebaseMerge: boolean; deleteBranchOnMerge: boolean;
+};
+export type GithubStatus = { remoteUrl: string | null; repo: GithubRepo | null; tokenSource: "keychain" | "env" | "ghCli" | "none"; viewer: GithubViewer | null; repoInfo: GithubRepoInfo | null; error: string | null };
+export type CheckRollup = "success" | "failure" | "pending" | "neutral";
+export type PullRequest = {
+  number: number; title: string; body: string | null; url: string; state: "open" | "closed" | "merged"; draft: boolean;
+  author: string; authorAvatar: string | null; head: string; base: string; headSha: string; headRepo: string | null;
+  createdAt: string; updatedAt: string; reviewDecision: "approved" | "changes_requested" | "review_required" | null;
+  mergeable: boolean | null; mergeableState: string | null; checks: CheckRollup | null; requestedReviewers: string[];
+  additions: number; deletions: number; changedFiles: number;
+};
+export type CheckItem = { name: string; kind: "checkRun" | "status"; status: "queued" | "in_progress" | "completed"; conclusion: string | null; url: string | null; startedAt: string | null; completedAt: string | null; app: string | null; description: string | null; runId: number | null; jobId: number | null };
+export type BranchChecks = { gitRef: string; sha: string; rollup: CheckRollup; total: number; passed: number; failed: number; pending: number; items: CheckItem[] };
+export type AutoRetryResult = { retried: Array<{ runId: number; name: string; attempt: number; url: string }>; skipped: Array<{ runId: number; name: string; reason: string }> };
+export type FailedJobLog = { jobId: number; name: string; url: string; conclusion: string | null; failedStep: string | null; logTail: string; truncated: boolean };
+export type TomlConflict = { keyPath: string; ours: string | null; theirs: string | null; base: string | null };
+export type TomlMergeReport = { path: string; autoResolved: boolean; conflicts: TomlConflict[]; error?: string | null };
+export type MergeLaunch = { toolId: string; pid: number; base: string | null; ours: string | null; theirs: string | null; result: string };
+
+export const scmApi = {
+  checks: (root: string, paths?: string[]) => invokeDesktop<CheckFinding[]>("scm_checks", { root, paths: paths ?? null }),
+  fix: (root: string, fix: FixKind) => invokeDesktop<OpResult>("scm_fix", { root, fix, confirmed: true }),
+  canDeleteRemote: (root: string, branch: string) => invokeDesktop<DeleteDecision>("scm_can_delete_remote_branch", { root, branch }),
+  deleteBranch: (root: string, name: string, remote: boolean, force: boolean) => invokeDesktop<OpResult>("scm_delete_branch", { root, name, remote, force, confirmed: true }),
+  renameBranch: (root: string, oldName: string, newName: string) => invokeDesktop<OpResult>("scm_rename_branch", { root, oldName, newName, confirmed: true }),
+  tags: (root: string) => invokeDesktop<GitTag[]>("scm_tags", { root }),
+  createTag: (root: string, name: string, message?: string, target?: string) => invokeDesktop<OpResult>("scm_create_tag", { root, name, message: message || null, target: target ?? null, confirmed: true }),
+  pushTag: (root: string, name: string) => invokeDesktop<OpResult>("scm_push_tag", { root, name, confirmed: true }),
+  cherryPick: (root: string, hash: string) => invokeDesktop<MergeOutcome>("scm_cherry_pick", { root, hash, confirmed: true }),
+  revert: (root: string, hash: string) => invokeDesktop<MergeOutcome>("scm_revert", { root, hash, confirmed: true }),
+  pendingOperation: (root: string) => invokeDesktop<"merge" | "cherryPick" | "revert" | "rebase" | null>("scm_pending_operation", { root }),
+  abortOperation: (root: string) => invokeDesktop<OpResult>("scm_abort_operation", { root, confirmed: true }),
+  amendMessage: (root: string, message: string) => invokeDesktop<OpResult>("scm_amend_message", { root, message, confirmed: true }),
+  undoLastCommit: (root: string) => invokeDesktop<OpResult>("scm_undo_last_commit", { root, confirmed: true }),
+  fileHistory: (root: string, path: string, limit?: number) => invokeDesktop<GitCommit[]>("scm_file_history", { root, path, limit: limit ?? null }),
+  mergeTools: (path?: string) => invokeDesktop<{ tools: MergeTool[]; recommended: string | null }>("scm_merge_tools", { path: path ?? null }),
+  launchMergeTool: (root: string, path: string, toolId: string) => invokeDesktop<MergeLaunch>("scm_launch_merge_tool", { root, path, toolId }),
+  openDiffTool: (root: string, path: string, toolId: string) => invokeDesktop<MergeLaunch>("scm_open_diff_tool", { root, path, toolId }),
+  markResolved: (root: string, path: string) => invokeDesktop<OpResult>("scm_mark_resolved", { root, path }),
+  githubStatus: (root: string) => invokeDesktop<GithubStatus>("scm_github_status", { root }),
+  githubSetToken: (host: string, token: string) => invokeDesktop<GithubViewer>("scm_github_set_token", { host, token }),
+  githubClearToken: (host: string) => invokeDesktop<string>("scm_github_clear_token", { host }),
+  prs: (root: string) => invokeDesktop<PullRequest[]>("scm_prs", { root }),
+  prForBranch: (root: string, branch?: string) => invokeDesktop<PullRequest | null>("scm_pr_for_branch", { root, branch: branch ?? null }),
+  createPr: (root: string, pr: { title: string; body?: string; base?: string; head?: string; draft?: boolean }) => invokeDesktop<PullRequest>("scm_pr_create", { root, title: pr.title, body: pr.body ?? null, base: pr.base ?? null, head: pr.head ?? null, draft: pr.draft ?? false }),
+  updatePr: (root: string, number: number, patch: { title?: string; body?: string; draft?: boolean }) => invokeDesktop<PullRequest>("scm_pr_update", { root, number, title: patch.title ?? null, body: patch.body ?? null, draft: patch.draft ?? null }),
+  requestReviewers: (root: string, number: number, reviewers: string[]) => invokeDesktop<PullRequest>("scm_pr_request_reviewers", { root, number, reviewers }),
+  commentPr: (root: string, number: number, body: string) => invokeDesktop<string>("scm_pr_comment", { root, number, body }),
+  mergePr: (root: string, number: number, method: "merge" | "squash" | "rebase") => invokeDesktop<{ merged: boolean; sha: string | null; message: string }>("scm_pr_merge", { root, number, method, commitTitle: null, commitMessage: null, confirmed: true }),
+  closePr: (root: string, number: number) => invokeDesktop<PullRequest>("scm_pr_close", { root, number, confirmed: true }),
+  checksForBranch: (root: string, branch?: string) => invokeDesktop<BranchChecks>("scm_checks_for_branch", { root, branch: branch ?? null }),
+  rerunFailed: (root: string, runId: number) => invokeDesktop<null>("scm_rerun_failed", { root, runId }),
+  autoRetryChecks: (root: string, branch?: string, maxAttempts?: number) => invokeDesktop<AutoRetryResult>("scm_auto_retry_checks", { root, branch: branch ?? null, maxAttempts: maxAttempts ?? null }),
+  failedJobLogs: (root: string, runId: number) => invokeDesktop<FailedJobLog[]>("scm_failed_job_logs", { root, runId }),
+  tomlAutoMerge: (path: string) => invokeDesktop<TomlMergeReport[]>("toml_conflicts_auto_merge", { path }),
+  tomlResolve: (path: string, file: string, choices: Record<string, "ours" | "theirs" | "base">) => invokeDesktop<void>("toml_conflict_resolve", { path, file, choices }),
+};

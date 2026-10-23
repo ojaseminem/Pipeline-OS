@@ -1,12 +1,12 @@
 name: Build
 
-# Continuous, unsigned native builds so every change produces downloadable
-# installers for testing. Signed, evidence-bearing releases are produced
-# separately by release.yml on a signed tag.
+# Continuous, unsigned production-flavored builds for main, release lines and
+# pull requests. Dev-channel installers for `dev` and agent branches come from
+# dev-build.yml; signed, evidence-bearing releases come from release.yml.
 
 on:
   push:
-    branches: [main, "release/**", "codex/**", "claude/**"]
+    branches: [main, "release/**"]
   pull_request:
   workflow_dispatch:
 
@@ -45,11 +45,13 @@ jobs:
           cache: npm
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libdbus-1-dev patchelf
       - run: npm ci
       - run: npm run build
+      - name: Stage the vantadeck CLI sidecar
+        run: node scripts/prepare-sidecar.mjs
       - name: Build native bundles
-        run: npm run tauri --workspace @vantadeck/desktop -- build ${{ matrix.args }}
+        run: npm run tauri --workspace @vantadeck/desktop -- build ${{ matrix.args }} --config src-tauri/tauri.sidecar.conf.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: vantadeck-${{ runner.os }}

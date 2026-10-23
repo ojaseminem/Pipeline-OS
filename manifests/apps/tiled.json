@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"tiled","name":"Tiled","category":"art","platforms":["windows","macos","linux"],"executables":["tiled.exe","tiled","Tiled"],"knownPaths":["C:/Program Files/Tiled/tiled.exe","/Applications/Tiled.app","/usr/bin/tiled"],"fileTypes":[".tmx",".tiled-project"],"launchTemplates":[{"id":"open","name":"Open","arguments":[]}]}
