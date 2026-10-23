@@ -1,10 +1,11 @@
 use std::{fs, path::Path};
 
+#[cfg(unix)]
+use vantadeck_detection::{AppImageDetectionSource, ExecutablePathDetectionSource};
 use vantadeck_detection::{
-    AppImageDetectionSource, DesktopEntryDetectionSource, DetectionSource,
-    ExecutablePathDetectionSource, FlatpakDetectionSource, MacAppBundleDetectionSource,
-    ScanRequest, SnapDetectionSource, parse_desktop_entry, parse_flatpak_metadata,
-    parse_info_plist,
+    DesktopEntryDetectionSource, DetectionSource, FlatpakDetectionSource,
+    MacAppBundleDetectionSource, ScanRequest, SnapDetectionSource, parse_desktop_entry,
+    parse_flatpak_metadata, parse_info_plist,
 };
 
 #[test]
