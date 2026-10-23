@@ -1577,7 +1577,13 @@ async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
     // No published release feed yet (or it's unreachable) is a normal state, not
     // an error — treat it as "you're on the latest version" rather than surfacing
     // a scary "could not fetch release JSON" message.
-    let Ok(updater) = app.updater() else {
+    // Bounded so an offline or captive network reports back quickly instead of
+    // leaving the check pending for the HTTP client's default timeout.
+    let Ok(updater) = app
+        .updater_builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    else {
         return Ok(up_to_date);
     };
     match updater.check().await {

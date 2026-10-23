@@ -1,7 +1,8 @@
 // Typed data layer over the Tauri IPC bridge. All reads go through TanStack
 // Query so caching, background refetch, and loading/error states are uniform.
 // See rfcs/0001-desktop-ui-architecture.md.
-import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { onlineManager, QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSyncExternalStore } from "react";
 import { desktopApi, isNativeRuntime, loadDashboard, type DashboardSnapshot } from "../bridge";
 
 export const queryKeys = {
@@ -14,9 +15,23 @@ export const queryKeys = {
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
-      queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000 },
+      // Queries and mutations are local IPC calls, not HTTP requests. TanStack's
+      // default networkMode ("online") pauses them whenever the OS reports no
+      // network, which froze every local screen (assets, planning…) offline.
+      // Calls that do reach the network fail fast in the backend instead.
+      queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000, networkMode: "always" },
+      mutations: { networkMode: "always" },
     },
   });
+}
+
+/** Whether the OS reports a network connection; drives the offline badge. */
+export function useOnline(): boolean {
+  return useSyncExternalStore(
+    (onChange) => onlineManager.subscribe(onChange),
+    () => onlineManager.isOnline(),
+    () => true,
+  );
 }
 
 export function useDashboard() {

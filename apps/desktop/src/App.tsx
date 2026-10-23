@@ -37,6 +37,7 @@ import {
   Workflow,
   Wrench,
   KanbanSquare,
+  WifiOff,
 } from "lucide-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -56,7 +57,7 @@ import { APP_CATEGORY_LABELS, browsePath, desktopApi, formatVersion, isDemoMode,
 import { formatLastOpened, timeAgo } from "./lib/format";
 import { categoryClass } from "./lib/categories";
 import { ProjectThumb } from "./components/thumbnail";
-import { createQueryClient, useApps, useInvalidate, useProjects, useTools } from "./lib/queries";
+import { createQueryClient, useApps, useInvalidate, useOnline, useProjects, useTools } from "./lib/queries";
 import { THEMES, type ThemePreference, useTheme } from "./theme";
 import { BrandGlyph, BrandLockup } from "./components/brand";
 import { Onboarding, type OnboardingPrefs } from "./components/onboarding";
@@ -184,6 +185,7 @@ function AppShell() {
   const [gitUrl, setGitUrl] = useState("");
   const [localTools, setLocalTools] = useState<ToolManifest[]>([]);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const online = useOnline();
   const [autoUpdate, setAutoUpdate] = useState(() => { try { return localStorage.getItem("vantadeck.autoUpdate") !== "false"; } catch { return true; } });
   const [appVersion, setAppVersion] = useState("0.5.0");
   const [autostart, setAutostart] = useState(false);
@@ -1134,6 +1136,7 @@ function AppShell() {
             <span className="ml-auto flex shrink-0 gap-1"><Kbd>{keyLabel("Ctrl")}</Kbd><Kbd>K</Kbd></span>
           </button>
           <div className="ml-auto flex items-center gap-2">
+            {online ? null : <span role="status" className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground" title="No network connection. Local projects, assets and planning keep working; GitHub, trackers, pushes and update checks wait until you're back online."><WifiOff size={13} aria-hidden /> Offline</span>}
             <UpdateIndicator update={update} releaseNotesUrl={CHANNEL === "dev" ? `${REPO_URL}/releases/tag/dev-latest` : `${REPO_URL}/releases/tag/v${update?.version ?? ""}`} />
             <Button size="sm" className="relative" onClick={() => setAddProjectOpen(true)} title={discovery.projects.length ? `Add project (Ctrl+N) · ${discovery.projects.length} found on this computer` : "Add project (Ctrl+N)"}>
               <FolderPlus size={15} /> Add project

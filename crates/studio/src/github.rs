@@ -220,6 +220,16 @@ fn gh_cli_token(host: &str) -> Option<String> {
     (!token.is_empty()).then_some(token)
 }
 
+/// Why a request never got a response, worded for the user. Connection and
+/// timeout failures are almost always "you're offline", so say that plainly.
+pub(crate) fn unreachable_message(service: &str, error: &reqwest::Error) -> String {
+    if error.is_connect() || error.is_timeout() {
+        format!("Couldn't reach {service}. Check your internet connection and try again. ({error})")
+    } else {
+        format!("couldn't reach {service}: {error}")
+    }
+}
+
 /// The token to use for `host` and where it came from: keychain, then
 /// environment, then the GitHub CLI. Blocking (keychain + `gh`).
 pub fn resolve_token(host: &str) -> Option<(String, TokenSource)> {
@@ -947,6 +957,7 @@ impl GitHubClient {
         let http = reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| StudioError::Invalid(format!("HTTP client: {e}")))?;
         Ok(Self {
@@ -1001,7 +1012,7 @@ impl GitHubClient {
         let response = request
             .send()
             .await
-            .map_err(|e| StudioError::Invalid(format!("couldn't reach GitHub: {e}")))?;
+            .map_err(|e| StudioError::Invalid(unreachable_message("GitHub", &e)))?;
         let status = response.status();
         let headers = response.headers().clone();
         let text = response.text().await.unwrap_or_default();
@@ -1092,7 +1103,7 @@ impl GitHubClient {
             .json(&json!({ "query": query, "variables": variables }))
             .send()
             .await
-            .map_err(|e| StudioError::Invalid(format!("couldn't reach GitHub: {e}")))?;
+            .map_err(|e| StudioError::Invalid(unreachable_message("GitHub", &e)))?;
         let status = response.status();
         let headers = response.headers().clone();
         let value: Value = response.json().await.unwrap_or(Value::Null);
@@ -1593,7 +1604,7 @@ impl GitHubClient {
             .build(Method::GET, &url)
             .send()
             .await
-            .map_err(|e| StudioError::Invalid(format!("couldn't reach GitHub: {e}")))?;
+            .map_err(|e| StudioError::Invalid(unreachable_message("GitHub", &e)))?;
         let status = response.status();
         let headers = response.headers().clone();
         let text = response.text().await.unwrap_or_default();

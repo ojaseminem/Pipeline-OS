@@ -538,6 +538,7 @@ fn client() -> Result<reqwest::Client, StudioError> {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(10))
         // Trackers send tokens in custom headers (Plane's X-API-Key) that
         // reqwest doesn't strip on redirect, so only follow redirects that
         // stay on the same origin over a secure transport.
@@ -560,7 +561,7 @@ async fn send(request: reqwest::RequestBuilder, what: &str) -> Result<Value, Stu
     let response = request
         .send()
         .await
-        .map_err(|e| StudioError::Invalid(format!("couldn't reach {what}: {e}")))?;
+        .map_err(|e| StudioError::Invalid(crate::github::unreachable_message(what, &e)))?;
     let status = response.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         return Err(StudioError::Invalid(format!(
