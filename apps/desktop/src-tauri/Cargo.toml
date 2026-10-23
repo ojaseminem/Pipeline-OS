@@ -16,7 +16,7 @@ tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
 serde.workspace = true
-tauri = { version = "=2.11.3", features = [] }
+tauri = { version = "=2.11.6", features = [] }
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
@@ -34,7 +34,7 @@ chrono.workspace = true
 uuid.workspace = true
 semver.workspace = true
 serde_json.workspace = true
-base64 = "0.22"
+base64 = "0.23"
 pelite = "0.10"
 
 [dev-dependencies]
