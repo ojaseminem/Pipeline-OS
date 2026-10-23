@@ -109,6 +109,20 @@ async fn runs_a_project_task_end_to_end() {
         }],
     )
     .expect("save tasks");
+    // --yes alone doesn't run commands nobody reviewed.
+    let cli = Cli::try_parse_from([
+        "vantadeck",
+        "--json",
+        "tasks",
+        "run",
+        path,
+        "hello",
+        "--yes",
+    ])
+    .expect("parse");
+    let refused = execute(cli, &service).await.expect_err("untrusted tasks");
+    assert!(refused.to_string().contains("trusted"), "{refused}");
+    run(&service, &["tasks", "trust", path, "--yes"]).await;
     let data = run(&service, &["tasks", "run", path, "hello", "--yes"]).await;
     assert_eq!(data["outcome"]["status"], "succeeded");
     assert!(

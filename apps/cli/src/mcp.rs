@@ -355,6 +355,13 @@ async fn call_tool(
                 .resolve_project_task(&path, task_id)
                 .await
                 .map_err(|e| err(&e))?;
+            // The file may have changed while it was being read.
+            if !crate::trust_store().is_some_and(|store| store.is_trusted(&path)) {
+                return Err(
+                    "This project's tasks changed while loading; review and trust them again."
+                        .into(),
+                );
+            }
             let command_line = resolved.display();
             let (outcome, log) = crate::run_resolved_task(resolved, false)
                 .await

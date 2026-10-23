@@ -814,6 +814,18 @@ async fn execute_tasks(
                 .resolve_project_task(&path, &id)
                 .await
                 .map_err(app(COMMAND))?;
+            // `--yes` confirms this run; it doesn't vouch for commands someone
+            // else committed. Checked after resolving, so a file swapped
+            // mid-resolve is caught too.
+            if !trust_store().is_some_and(|store| store.is_trusted(&path)) {
+                return Err(CliExecutionError::Usage {
+                    command: COMMAND,
+                    message: format!(
+                        "this project's tasks haven't been trusted on this machine; review them, then run `vantadeck tasks trust \"{}\" --yes`",
+                        path.display()
+                    ),
+                });
+            }
             let outcome = run_resolved_task(resolved, !json)
                 .await
                 .map_err(studio(COMMAND))?;
