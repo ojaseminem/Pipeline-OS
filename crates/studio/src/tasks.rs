@@ -127,7 +127,9 @@ fn validate_tasks(tasks: &[TaskDefinition]) -> Result<(), StudioError> {
             )));
         }
         if let Some(cwd) = &task.cwd
-            && (Path::new(cwd).is_absolute() || cwd.split(['/', '\\']).any(|part| part == ".."))
+            && (Path::new(cwd).is_absolute()
+                || Path::new(cwd).has_root()
+                || cwd.split(['/', '\\']).any(|part| part == ".."))
         {
             return Err(StudioError::Invalid(format!(
                 "task {:?}: cwd must stay inside the project",

@@ -174,9 +174,12 @@ fn ensure_safe_relative(path: &str) -> Result<(), VcsError> {
     let bad = path.trim().is_empty()
         || path.starts_with('-')
         || candidate.is_absolute()
-        || candidate
-            .components()
-            .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)));
+        || candidate.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::Prefix(_) | Component::RootDir
+            )
+        });
     if bad {
         return Err(VcsError::Refused(format!(
             "'{path}' isn't a path inside the repository"

@@ -321,6 +321,8 @@ pub fn load_asset_meta(root: &Path) -> Result<BTreeMap<String, AssetMeta>, Studi
 /// Sets (or, with the default value, clears) review metadata for one asset.
 pub fn set_asset_meta(root: &Path, asset_path: &str, meta: AssetMeta) -> Result<(), StudioError> {
     if asset_path.is_empty()
+        // has_root: on Windows "/x" and "\\x" aren't absolute but escape the project.
+        || Path::new(asset_path).has_root()
         || Path::new(asset_path).is_absolute()
         || asset_path.split(['/', '\\']).any(|part| part == "..")
     {

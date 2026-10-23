@@ -498,7 +498,7 @@ pub fn apply_toml_choices(
     choices: &BTreeMap<String, Side>,
 ) -> Result<(), StudioError> {
     let path = path.replace('\\', "/");
-    if !is_pipeline_toml(&path) || Path::new(&path).is_absolute() {
+    if !is_pipeline_toml(&path) || Path::new(&path).is_absolute() || Path::new(&path).has_root() {
         return Err(StudioError::Invalid(format!(
             "{path:?} is not a Pipeline OS TOML file in this project"
         )));
