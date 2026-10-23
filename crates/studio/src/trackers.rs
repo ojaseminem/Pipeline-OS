@@ -147,13 +147,11 @@ fn validate(config: &TrackerConfig) -> Result<(), StudioError> {
     }
     // Tokens ride on every request, so plain http is only for a server on
     // this machine (the self-hosted Forgejo below).
-    let loopback = ["http://localhost", "http://127.0.0.1", "http://[::1]"]
-        .iter()
-        .any(|prefix| {
-            base.strip_prefix(prefix)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with([':', '/']))
+    let secure = base.is_empty()
+        || reqwest::Url::parse(base).is_ok_and(|url| {
+            url.username().is_empty() && url.password().is_none() && secure_transport(&url)
         });
-    if !(base.is_empty() || base.starts_with("https://") || loopback) {
+    if !secure {
         return Err(StudioError::Invalid(
             "the server URL must start with https://".into(),
         ));
@@ -515,6 +513,23 @@ pub fn parse_clickup(response: &Value) -> Vec<RemoteIssue> {
 
 // ------------------------------------------------------------ network
 
+/// https anywhere, or plain http to this machine only (by parsed host, so
+/// `http://localhost@evil.example` doesn't count).
+fn secure_transport(url: &reqwest::Url) -> bool {
+    match url.scheme() {
+        "https" => true,
+        "http" => url.host_str().is_some_and(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .trim_start_matches('[')
+                    .trim_end_matches(']')
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        }),
+        _ => false,
+    }
+}
+
 fn client() -> Result<reqwest::Client, StudioError> {
     // Same TLS stack as the auto-updater: rustls with the ring provider.
     if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -523,6 +538,20 @@ fn client() -> Result<reqwest::Client, StudioError> {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(std::time::Duration::from_secs(30))
+        // Trackers send tokens in custom headers (Plane's X-API-Key) that
+        // reqwest doesn't strip on redirect, so only follow redirects that
+        // stay on the same origin over a secure transport.
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            let same_origin = attempt
+                .previous()
+                .last()
+                .is_some_and(|previous| previous.origin() == attempt.url().origin());
+            if attempt.previous().len() < 5 && same_origin && secure_transport(attempt.url()) {
+                attempt.follow()
+            } else {
+                attempt.stop()
+            }
+        }))
         .build()
         .map_err(|e| StudioError::Invalid(format!("HTTP client: {e}")))
 }
@@ -872,6 +901,23 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn plain_http_only_reaches_this_machine() {
+        let ok = |url: &str| {
+            reqwest::Url::parse(url).is_ok_and(|url| {
+                url.username().is_empty() && url.password().is_none() && secure_transport(&url)
+            })
+        };
+        assert!(ok("https://acme.atlassian.net"));
+        assert!(ok("http://localhost:3000"));
+        assert!(ok("http://127.0.0.1/"));
+        assert!(ok("http://[::1]:8080"));
+        assert!(!ok("http://example.com"));
+        assert!(!ok("http://localhost:3000@attacker.example"));
+        assert!(!ok("http://localhost.attacker.example"));
+        assert!(!ok("ftp://localhost"));
     }
 
     #[test]

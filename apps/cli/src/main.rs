@@ -60,7 +60,7 @@ async fn open_service(channel: &str) -> Result<ApplicationService, Box<dyn std::
     if let Some(dir) = database_path.parent() {
         set_data_dir(dir.to_path_buf());
         if channel != "dev" && env::var_os("VANTADECK_DATABASE_PATH").is_none() {
-            adopt_legacy_database(&database_path, dir);
+            adopt_legacy_database(&database_path, dir)?;
         }
     }
 
@@ -71,18 +71,25 @@ async fn open_service(channel: &str) -> Result<ApplicationService, Box<dyn std::
 /// 0.4.x CLIs kept their own database. When the shared one doesn't exist yet,
 /// start it from a copy of the old one so CLI-only registrations survive; the
 /// old file is left in place.
-fn adopt_legacy_database(database_path: &std::path::Path, dir: &std::path::Path) {
+/// A failed copy is an error: carrying on would create an empty shared
+/// database and the old registrations would never be adopted.
+fn adopt_legacy_database(
+    database_path: &std::path::Path,
+    dir: &std::path::Path,
+) -> std::io::Result<()> {
     if database_path.exists() {
-        return;
+        return Ok(());
     }
     let Some(legacy) = ProjectDirs::from("org", "Vantadeck", "Vantadeck")
         .map(|dirs| dirs.data_local_dir().join("vantadeck.db"))
     else {
-        return;
+        return Ok(());
     };
-    if legacy.is_file() && std::fs::create_dir_all(dir).is_ok() {
-        let _ = std::fs::copy(&legacy, database_path);
+    if legacy.is_file() {
+        std::fs::create_dir_all(dir)?;
+        std::fs::copy(&legacy, database_path)?;
     }
+    Ok(())
 }
 
 fn print_envelope(json: bool, envelope: &CliEnvelope<serde_json::Value>) {
