@@ -366,15 +366,23 @@ async fn cherry_pick_and_revert() {
 
 #[cfg(unix)]
 fn fake_git(dir: &Path, failures: u32, stderr: &str) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let script = dir.join("fake-git.sh");
     let counter = dir.join("count");
     let body = format!(
         "#!/bin/sh\nif [ \"$1\" = fetch ]; then\n  n=$(cat '{counter}' 2>/dev/null || echo 0)\n  n=$((n+1))\n  echo $n > '{counter}'\n  if [ $n -le {failures} ]; then echo \"{stderr}\" >&2; exit 128; fi\nfi\nexec git \"$@\"\n",
         counter = counter.display()
     );
-    fs::write(&script, body).unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    // Written by `install`, never held open here: a test child spawned
+    // meanwhile could inherit the handle and make the script "Text file busy".
+    let staging = dir.join("fake-git.txt");
+    fs::write(&staging, body).unwrap();
+    let status = std::process::Command::new("install")
+        .args(["-m", "755"])
+        .arg(&staging)
+        .arg(&script)
+        .status()
+        .unwrap();
+    assert!(status.success());
     script
 }
 
