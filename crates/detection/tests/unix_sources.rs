@@ -180,6 +180,9 @@ async fn flatpak_source_reads_exported_desktop_evidence() {
     assert_eq!(results[0].evidence[0].source, "flatpak-export");
 }
 
+// Extension-less executables and AppImages are unix-only; on Windows only
+// .exe/.com/.bat/.cmd count as runnable.
+#[cfg(unix)]
 #[tokio::test]
 async fn path_and_appimage_sources_find_portable_executables() {
     let root = tempfile::tempdir().expect("fixture root");
