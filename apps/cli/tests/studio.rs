@@ -12,6 +12,7 @@ async fn service() -> ApplicationService {
 
 /// Trust lives in one process-wide data folder (`set_data_dir` is set-once),
 /// so tests that trust tasks share it and take turns.
+#[cfg(unix)]
 async fn trust_data_dir() -> tokio::sync::MutexGuard<'static, ()> {
     static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
     static TURN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
