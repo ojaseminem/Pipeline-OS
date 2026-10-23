@@ -161,8 +161,9 @@ pub async fn tasks_install_unity_script(path: String) -> Result<String, String> 
         .map_err(err)
 }
 
-/// Saves the task list. Commands written in the app by this user are trusted
-/// immediately (they authored them).
+/// Saves the task list. Trust carries over only when the user already
+/// trusted the file (or this creates it): editing one task in an unreviewed
+/// file must not approve the commands someone else put there.
 #[tauri::command]
 pub async fn tasks_save(
     path: String,
@@ -170,7 +171,12 @@ pub async fn tasks_save(
     studio: State<'_, StudioState>,
 ) -> Result<(), String> {
     let root = root(&path);
+    let keep_trust = tasks::tasks_fingerprint(&root).is_none()
+        || studio.trusted.lock().unwrap().is_trusted(&root);
     tasks::save_tasks(&root, &tasks).map_err(err)?;
+    if !keep_trust {
+        return Ok(());
+    }
     if let Some(fingerprint) = tasks::tasks_fingerprint(&root) {
         studio
             .trusted

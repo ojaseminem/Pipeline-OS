@@ -87,7 +87,15 @@ fn adopt_legacy_database(
     };
     if legacy.is_file() {
         std::fs::create_dir_all(dir)?;
-        std::fs::copy(&legacy, database_path)?;
+        // Copy beside the target, then rename, so an interrupted copy never
+        // leaves a partial database that stops the next attempt.
+        let staging = database_path.with_extension("sqlite3.migrating");
+        let copied =
+            std::fs::copy(&legacy, &staging).and_then(|_| std::fs::rename(&staging, database_path));
+        if let Err(error) = copied {
+            let _ = std::fs::remove_file(&staging);
+            return Err(error);
+        }
     }
     Ok(())
 }
