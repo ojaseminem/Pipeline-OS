@@ -187,6 +187,11 @@ impl TrustStore {
                 "the tasks file changed while it was being reviewed; review it again".into(),
             ));
         }
+        // Merge into what's on disk now, so trust granted elsewhere (the app,
+        // another CLI) since this store was loaded isn't overwritten.
+        if let Some(path) = &self.path {
+            *self = Self::load(path.parent().unwrap_or(Path::new(".")));
+        }
         self.entries.insert(trust_key(root), fingerprint.to_owned());
         self.save()
     }

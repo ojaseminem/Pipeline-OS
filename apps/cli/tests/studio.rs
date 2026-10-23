@@ -10,6 +10,16 @@ async fn service() -> ApplicationService {
     ApplicationService::new(storage, GitProvider::new("git"))
 }
 
+/// Trust lives in one process-wide data folder (`set_data_dir` is set-once),
+/// so tests that trust tasks share it and take turns.
+async fn trust_data_dir() -> tokio::sync::MutexGuard<'static, ()> {
+    static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    static TURN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let dir = DIR.get_or_init(|| tempfile::tempdir().expect("data dir"));
+    vantadeck::set_data_dir(dir.path().to_path_buf());
+    TURN.lock().await
+}
+
 async fn run(service: &ApplicationService, args: &[&str]) -> Value {
     let mut argv = vec!["vantadeck", "--json"];
     argv.extend_from_slice(args);
@@ -91,6 +101,7 @@ async fn task_run_requires_yes_and_reports_missing_tasks() {
 #[cfg(unix)]
 #[tokio::test]
 async fn runs_a_project_task_end_to_end() {
+    let _data = trust_data_dir().await;
     let root = tempfile::tempdir().expect("root");
     let path = root.path().to_str().expect("utf8");
     let service = service().await;
@@ -246,8 +257,7 @@ async fn mcp_session_lists_tools_and_drives_issues() {
 #[cfg(unix)]
 #[tokio::test]
 async fn mcp_only_runs_trusted_tasks() {
-    let data = tempfile::tempdir().expect("data dir");
-    vantadeck::set_data_dir(data.path().to_path_buf());
+    let _data = trust_data_dir().await;
     let root = tempfile::tempdir().expect("root");
     let path = root.path().to_str().expect("utf8");
     let service = service().await;
