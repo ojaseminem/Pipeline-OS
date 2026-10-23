@@ -1,7 +1,7 @@
 use std::{env, path::PathBuf, process::ExitCode};
 
 use clap::Parser;
-use directories::BaseDirs;
+use directories::{BaseDirs, ProjectDirs};
 use vantadeck::{Cli, Command, execute, mcp, set_data_dir};
 use vantadeck_application::ApplicationService;
 use vantadeck_domain::CliEnvelope;
@@ -59,10 +59,30 @@ async fn open_service(channel: &str) -> Result<ApplicationService, Box<dyn std::
     };
     if let Some(dir) = database_path.parent() {
         set_data_dir(dir.to_path_buf());
+        if channel != "dev" && env::var_os("VANTADECK_DATABASE_PATH").is_none() {
+            adopt_legacy_database(&database_path, dir);
+        }
     }
 
     let storage = Storage::connect_path(&database_path).await?;
     Ok(ApplicationService::new(storage, GitProvider::new("git")))
+}
+
+/// 0.4.x CLIs kept their own database. When the shared one doesn't exist yet,
+/// start it from a copy of the old one so CLI-only registrations survive; the
+/// old file is left in place.
+fn adopt_legacy_database(database_path: &std::path::Path, dir: &std::path::Path) {
+    if database_path.exists() {
+        return;
+    }
+    let Some(legacy) = ProjectDirs::from("org", "Vantadeck", "Vantadeck")
+        .map(|dirs| dirs.data_local_dir().join("vantadeck.db"))
+    else {
+        return;
+    };
+    if legacy.is_file() && std::fs::create_dir_all(dir).is_ok() {
+        let _ = std::fs::copy(&legacy, database_path);
+    }
 }
 
 fn print_envelope(json: bool, envelope: &CliEnvelope<serde_json::Value>) {

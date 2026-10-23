@@ -287,7 +287,13 @@ pub fn is_executable_file(path: &std::path::Path) -> bool {
     }
     #[cfg(not(unix))]
     {
-        true
+        // Only what CreateProcess runs directly; scripts like .ps1 or .vbs
+        // need an interpreter and would fail to launch later.
+        path.extension().is_some_and(|extension| {
+            ["exe", "com", "bat", "cmd"]
+                .iter()
+                .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+        })
     }
 }
 

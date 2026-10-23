@@ -835,15 +835,24 @@ fn spawn_terminal(
     _path_env: &std::ffi::OsStr,
 ) -> Result<(), String> {
     use std::process::Command;
+    // Terminal.app starts a fresh login shell, so put the bundled CLI on its
+    // PATH there rather than in this process's environment.
+    let path_prefix = cli_dir()
+        .map(|dir| {
+            format!(
+                "export PATH={}:\\\"$PATH\\\" && ",
+                shell_quote(&dir.display().to_string())
+            )
+        })
+        .unwrap_or_default();
+    let cd = shell_quote(&root.display().to_string());
     let script = match program {
         Some(program) => format!(
-            "tell application \"Terminal\" to do script \"cd {} && {program}\"",
-            shell_quote(&root.display().to_string())
+            "tell application \"Terminal\" to do script \"cd {cd} && {path_prefix}{program}\""
         ),
-        None => format!(
-            "tell application \"Terminal\" to do script \"cd {}\"",
-            shell_quote(&root.display().to_string())
-        ),
+        None => {
+            format!("tell application \"Terminal\" to do script \"cd {cd} && {path_prefix}true\"")
+        }
     };
     Command::new("osascript")
         .args([

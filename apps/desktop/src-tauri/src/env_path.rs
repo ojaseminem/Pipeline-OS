@@ -109,7 +109,8 @@ pub fn fix_path() {
     unsafe { std::env::set_var("PATH", merged) };
 }
 
-#[cfg(test)]
+// PATH uses `:` separators only on unix, where this module does its work.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

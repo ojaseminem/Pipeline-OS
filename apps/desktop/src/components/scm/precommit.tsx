@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { scmApi, type CheckFinding } from "../../bridge";
+import { confirmAction } from "../../lib/confirm";
 import { attempt } from "../../lib/scm";
 
 const FIX_LABEL: Record<string, string> = { trackWithLfs: "Track with Git LFS", addGitignore: "Add to .gitignore", untrackPaths: "Stop tracking" };
@@ -26,6 +27,8 @@ export function PrecommitChecks({ root, paths, statusKey, onBlockingChange }: { 
 
   async function fix(finding: CheckFinding) {
     if (!finding.fix) return;
+    // Untracking removes files from the index; say so before doing it.
+    if (finding.fix.kind === "untrackPaths" && !(await confirmAction({ title: `Stop tracking ${finding.fix.paths.length} file${finding.fix.paths.length === 1 ? "" : "s"}?`, description: "They stay on disk but are removed from git and added to .gitignore.", confirmLabel: "Stop tracking", destructive: true }))) return;
     const done = await attempt(finding.title, () => scmApi.fix(root, finding.fix!), `Fixed: ${finding.title}`);
     if (done) {
       void queryClient.invalidateQueries({ queryKey: ["precommit", root] });

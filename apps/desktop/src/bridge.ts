@@ -57,11 +57,7 @@ export async function browsePath(opts: { directory?: boolean; title?: string }):
 /** Saves text to a file the user picks (native), or downloads it (browser). */
 export async function saveTextFile(opts: { defaultName: string; contents: string; filterName: string; extensions: string[] }): Promise<string | null> {
   if (isNativeRuntime()) {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const path = await save({ defaultPath: opts.defaultName, filters: [{ name: opts.filterName, extensions: opts.extensions }] });
-    if (!path) return null;
-    await invokeDesktop("save_text_file", { path, contents: opts.contents });
-    return path;
+    return invokeDesktop<string | null>("save_text_file", { defaultName: opts.defaultName, filterName: opts.filterName, extensions: opts.extensions, contents: opts.contents });
   }
   const url = URL.createObjectURL(new Blob([opts.contents], { type: "application/json" }));
   const link = document.createElement("a");

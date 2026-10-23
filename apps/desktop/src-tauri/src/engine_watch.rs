@@ -295,7 +295,7 @@ fn apply(
         }
         (None, status) => {
             let activity = EngineActivity {
-                id: format!("{}-{}", timestamp, list.len()),
+                id: format!("act-{}", uuid::Uuid::new_v4().simple()),
                 engine,
                 project_name: project.and_then(project_name),
                 project_path,

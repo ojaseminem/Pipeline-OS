@@ -49,6 +49,13 @@ const AUTH_PATTERNS: &[&str] = &[
     "support for password authentication was removed",
 ];
 
+/// Failures that look like network trouble but won't fix themselves.
+const PERMANENT_PATTERNS: &[&str] = &[
+    "ssl certificate problem",
+    "certificate verify failed",
+    "returned error: 404",
+];
+
 const REJECTED_PATTERNS: &[&str] = &[
     "[rejected]",
     "! [remote rejected]",
@@ -75,9 +82,7 @@ const TRANSIENT_PATTERNS: &[&str] = &[
     "connection closed",
     "early eof",
     "rpc failed",
-    "unable to access",
     "the remote end hung up unexpectedly",
-    "tls",
     "ssl_error",
     "ssl_connect",
     "gnutls",
@@ -104,7 +109,7 @@ const TRANSIENT_PATTERNS: &[&str] = &[
 
 /// Classifies a failed Git network command by its stderr. Auth and
 /// rejection patterns win over transient ones: "unable to access … 403" is an
-/// auth problem even though it also matches "unable to access".
+/// auth problem, and a certificate error is never worth retrying.
 pub fn classify_network_failure(stderr: &str) -> NetworkFailure {
     let text = stderr.to_ascii_lowercase();
     if AUTH_PATTERNS.iter().any(|pattern| text.contains(pattern)) {
@@ -115,6 +120,12 @@ pub fn classify_network_failure(stderr: &str) -> NetworkFailure {
         .any(|pattern| text.contains(pattern))
     {
         return NetworkFailure::Rejected;
+    }
+    if PERMANENT_PATTERNS
+        .iter()
+        .any(|pattern| text.contains(pattern))
+    {
+        return NetworkFailure::Other;
     }
     if TRANSIENT_PATTERNS
         .iter()
@@ -198,6 +209,18 @@ mod tests {
         );
         assert_eq!(
             classify_network_failure("error: pathspec 'x' did not match"),
+            NetworkFailure::Other
+        );
+        assert_eq!(
+            classify_network_failure(
+                "fatal: unable to access 'https://h/r.git/': SSL certificate problem: unable to get local issuer certificate"
+            ),
+            NetworkFailure::Other
+        );
+        assert_eq!(
+            classify_network_failure(
+                "fatal: unable to access 'https://h/r.git/': The requested URL returned error: 404"
+            ),
             NetworkFailure::Other
         );
     }

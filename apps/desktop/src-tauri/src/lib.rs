@@ -1043,20 +1043,34 @@ async fn set_manual_override(
         detected.ok_or("Couldn't read this app's version. Enter it, for example 4.2.3.")?
     } else {
         let trimmed = version.trim();
-        let padded = match trimmed.split('.').count() {
-            1 => format!("{trimmed}.0.0"),
-            2 => format!("{trimmed}.0"),
-            _ => trimmed.to_owned(),
-        };
-        padded
-            .parse()
-            .map_err(|e: semver::Error| format!("“{trimmed}” isn't a version like 4.2.3 ({e})."))?
+        parse_typed_version(trimmed)
+            .map_err(|e| format!("“{trimmed}” isn't a version like 4.2.3 ({e})."))?
     };
     state
         .service
         .set_manual_override(&app_id, version, &executable)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Parses a version someone typed: pads "2024" / "4.3" to three parts and
+/// turns Unity's "2022.3.18f1" into "2022.3.18+f1" so semver accepts it.
+fn parse_typed_version(typed: &str) -> Result<semver::Version, semver::Error> {
+    let padded = match typed.split('.').count() {
+        1 => format!("{typed}.0.0"),
+        2 => format!("{typed}.0"),
+        _ => typed.to_owned(),
+    };
+    let normalized = match padded.rsplit_once('.') {
+        Some((head, last)) => match last.find(|c: char| !c.is_ascii_digit()) {
+            Some(i) if i > 0 && !last[i..].starts_with(['-', '+']) => {
+                format!("{head}.{}+{}", &last[..i], &last[i..])
+            }
+            _ => padded,
+        },
+        None => padded,
+    };
+    normalized.parse()
 }
 
 fn launch_is_allowed(installations: &[AppInstallation], executable: &Path) -> bool {
@@ -1857,13 +1871,13 @@ async fn launch_app_file(
         .unwrap_or_else(|| PathBuf::from(&root));
     let arguments = app_file_arguments(&app_id, Path::new(&root), &file_path);
     let executable_display = exe.display().to_string();
-    let child = LaunchSpec::new(exe, arguments, working_directory)
-        .map_err(|e| e.to_string())?
+    let spec = LaunchSpec::new(exe, arguments, working_directory).map_err(|e| e.to_string())?;
+    let child = spec
         .command()
         .spawn()
         .map_err(|e| format!("Could not start the application: {e}"))?;
     Ok(LaunchResult {
-        process_id: child.id(),
+        process_id: child.id().filter(|_| spec.spawns_app_directly()),
         executable: executable_display,
     })
 }
@@ -2381,6 +2395,21 @@ pub fn run() {
 mod tests {
     use super::*;
     use vantadeck_domain::AppState;
+
+    #[test]
+    fn typed_versions_accept_unity_and_short_forms() {
+        assert_eq!(
+            parse_typed_version("2022.3.18f1").unwrap().to_string(),
+            "2022.3.18+f1"
+        );
+        assert_eq!(parse_typed_version("4.3").unwrap().to_string(), "4.3.0");
+        assert_eq!(parse_typed_version("2025").unwrap().to_string(), "2025.0.0");
+        assert_eq!(
+            parse_typed_version("4.3.0-stable").unwrap().to_string(),
+            "4.3.0-stable"
+        );
+        assert!(parse_typed_version("not a version").is_err());
+    }
 
     #[test]
     fn launch_requires_an_exact_detected_executable() {

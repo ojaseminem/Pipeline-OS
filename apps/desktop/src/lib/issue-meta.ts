@@ -13,8 +13,8 @@ export const KIND_META: Record<IssueKind, { label: string; icon: typeof Bug; cla
   task: { label: "Task", icon: CircleDot, className: "text-muted-foreground" },
   bug: { label: "Bug", icon: Bug, className: "text-destructive" },
   feature: { label: "Feature", icon: Lightbulb, className: "text-primary" },
-  art: { label: "Art", icon: Palette, className: "text-[color:oklch(0.72_0.15_320)]" },
-  design: { label: "Design", icon: PenTool, className: "text-[color:oklch(0.74_0.13_250)]" },
+  art: { label: "Art", icon: Palette, className: "text-success" },
+  design: { label: "Design", icon: PenTool, className: "text-warning" },
 };
 
 export const PRIORITY_META: Record<IssuePriority, { label: string; icon: typeof Bug | null; className: string }> = {

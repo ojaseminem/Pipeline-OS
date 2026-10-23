@@ -5,8 +5,10 @@
 //! The repository comes from the project's git remote (github.com or a
 //! GitHub Enterprise host). The token is personal: it lives in the OS
 //! keychain (service `PipelineOS GitHub`, account = host), or comes from
-//! `GH_TOKEN`/`GITHUB_TOKEN` (`GH_ENTERPRISE_TOKEN` for Enterprise Server),
-//! or from a signed-in GitHub CLI (`gh auth token`) — never project files.
+//! `GH_TOKEN`/`GITHUB_TOKEN` (`GH_ENTERPRISE_TOKEN` for the Enterprise Server
+//! named by `GH_HOST`), or from a signed-in GitHub CLI (`gh auth token`) —
+//! never project files. A repository's remote URL alone never decides where a
+//! token is sent: hosts other than github.com / *.ghe.com must be set up.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -101,17 +103,30 @@ pub fn parse_remote_url(url: &str) -> Option<(String, String, String)> {
     Some((host, owner, repo))
 }
 
-fn looks_like_github_host(host: &str) -> bool {
-    host == "github.com" || host.ends_with(".ghe.com") || host.contains("github")
+fn is_public_github(host: &str) -> bool {
+    host == "github.com" || host.ends_with(".ghe.com")
+}
+
+/// The Enterprise Server host the user configured with `GH_HOST`, if any.
+fn configured_enterprise_host() -> Option<String> {
+    std::env::var("GH_HOST")
+        .ok()
+        .map(|host| host.trim().to_ascii_lowercase())
+        .filter(|host| !host.is_empty())
 }
 
 impl GitHubRepo {
-    /// Resolves a GitHub repo from a remote URL. Hosts that aren't
-    /// recognizably GitHub count only once the user has stored a token for
-    /// them (that's how a custom-domain Enterprise Server opts in).
+    /// Resolves a GitHub repo from a remote URL. Enterprise Server hosts
+    /// count only once the user has set them up: a stored token, `GH_HOST`,
+    /// or a GitHub CLI sign-in for that exact host. Blocking.
     pub fn from_remote_url(url: &str) -> Option<Self> {
         let (host, owner, repo) = parse_remote_url(url)?;
-        if !looks_like_github_host(&host) && load_keychain_token(&host).is_none() {
+        let set_up = || {
+            configured_enterprise_host().as_deref() == Some(host.as_str())
+                || load_keychain_token(&host).is_some()
+                || gh_cli_token(&host).is_some()
+        };
+        if !is_public_github(&host) && !set_up() {
             return None;
         }
         Some(Self::new(&host, &owner, &repo))
@@ -172,10 +187,12 @@ pub fn clear_token(host: &str) -> Result<(), StudioError> {
 }
 
 fn env_token(host: &str) -> Option<String> {
-    let names: &[&str] = if host == "github.com" || host.ends_with(".ghe.com") {
+    let names: &[&str] = if is_public_github(host) {
         &["GH_TOKEN", "GITHUB_TOKEN"]
-    } else {
+    } else if configured_enterprise_host().as_deref() == Some(host) {
         &["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]
+    } else {
+        return None;
     };
     names
         .iter()

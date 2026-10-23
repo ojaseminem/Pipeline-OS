@@ -289,24 +289,32 @@ impl ExecutablePathDetectionSource {
 #[async_trait]
 impl DetectionSource for ExecutablePathDetectionSource {
     async fn scan(&self, request: &ScanRequest) -> io::Result<Vec<AppInstallation>> {
-        let mut found = Vec::new();
-        for directory in &self.search_paths {
-            for executable_name in &request.executables {
-                let executable = directory.join(executable_name);
-                if crate::is_executable_file(&executable) {
-                    found.push(installation(
-                        cli_version(&executable)
-                            .or_else(|| infer_version(&executable))
-                            .unwrap_or_else(unknown_version),
-                        executable,
-                        "executable-path",
-                        directory.display().to_string(),
-                        85,
-                    ));
+        // `--version` probes block for up to a few seconds each; keep them off
+        // the async workers.
+        let search_paths = self.search_paths.clone();
+        let executables = request.executables.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut found = Vec::new();
+            for directory in &search_paths {
+                for executable_name in &executables {
+                    let executable = directory.join(executable_name);
+                    if crate::is_executable_file(&executable) {
+                        found.push(installation(
+                            cli_version(&executable)
+                                .or_else(|| infer_version(&executable))
+                                .unwrap_or_else(unknown_version),
+                            executable,
+                            "executable-path",
+                            directory.display().to_string(),
+                            85,
+                        ));
+                    }
                 }
             }
-        }
-        Ok(found)
+            found
+        })
+        .await
+        .map_err(io::Error::other)
     }
 }
 
@@ -702,13 +710,23 @@ pub(crate) fn cli_version(executable: &Path) -> Option<Version> {
     if !VERSION_PROBED_TOOLS.contains(&stem.as_str()) {
         return None;
     }
-    let mut child = std::process::Command::new(executable)
+    // On macOS /usr/bin/git and friends are xcode-select shims: running one
+    // without the Command Line Tools opens the "install developer tools" dialog.
+    if cfg!(target_os = "macos") && executable.starts_with("/usr/bin") {
+        return None;
+    }
+    let mut command = std::process::Command::new(executable);
+    command
         .arg(if stem == "p4" { "-V" } else { "--version" })
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let mut child = command.spawn().ok()?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     loop {
         match child.try_wait() {
@@ -718,12 +736,26 @@ pub(crate) fn cli_version(executable: &Path) -> Option<Version> {
             }
             _ => {
                 let _ = child.kill();
+                let _ = child.wait();
                 return None;
             }
         }
     }
     let mut output = String::new();
     std::io::Read::read_to_string(&mut child.stdout.take()?, &mut output).ok()?;
+    parse_cli_version(&stem, &output)
+}
+
+/// Reads the version out of a tool's `--version` (or `p4 -V`) output.
+fn parse_cli_version(stem: &str, output: &str) -> Option<Version> {
+    if stem == "p4" {
+        // "Rev. P4/NTX64/2024.1/2605063 (2024/04/10)." after a banner.
+        return output
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("Rev. "))
+            .and_then(|rev| rev.split('/').nth(2))
+            .and_then(parse_loose_version);
+    }
     // "git version 2.47.1", "git-lfs/3.6.1 (GitHub; darwin arm64; go 1.23)".
     let first = output.lines().find(|line| !line.trim().is_empty())?;
     let after_name = first
@@ -850,5 +882,27 @@ fn installation(
             detail,
             confidence,
         }],
+    }
+}
+
+#[cfg(test)]
+mod cli_version_tests {
+    use super::parse_cli_version;
+
+    #[test]
+    fn reads_versions_from_tool_output() {
+        let git = parse_cli_version("git", "git version 2.47.1\n").expect("git");
+        assert_eq!(git.to_string(), "2.47.1");
+        let lfs = parse_cli_version("git-lfs", "git-lfs/3.6.1 (GitHub; darwin arm64; go 1.23)")
+            .expect("lfs");
+        assert_eq!(lfs.to_string(), "3.6.1");
+        let p4 = parse_cli_version(
+            "p4",
+            "Perforce - The Fast Software Configuration Management System.\n\
+             Copyright 1995-2024 Perforce Software.  All rights reserved.\n\
+             Rev. P4/NTX64/2024.1/2605063 (2024/04/10).\n",
+        )
+        .expect("p4");
+        assert_eq!(p4.to_string(), "2024.1.0");
     }
 }

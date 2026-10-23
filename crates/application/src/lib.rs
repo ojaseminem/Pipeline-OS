@@ -765,7 +765,7 @@ impl ApplicationService {
             )
             .await?;
         Ok(LaunchResult {
-            process_id: child.id(),
+            process_id: child.id().filter(|_| spec.spawns_app_directly()),
             executable,
         })
     }
@@ -819,7 +819,7 @@ impl ApplicationService {
             )
             .await?;
         Ok(LaunchResult {
-            process_id: child.id(),
+            process_id: child.id().filter(|_| spec.spawns_app_directly()),
             executable,
         })
     }
@@ -1200,7 +1200,12 @@ impl ApplicationService {
             .preferred
             .as_deref()
             .and_then(|preferred| choice.options.iter().find(|o| o.version == preferred))
-            .or_else(|| choice.options.first());
+            .or_else(|| {
+                choice
+                    .options
+                    .iter()
+                    .max_by_key(|o| o.version.parse::<Version>().ok())
+            });
         Ok(pick.map(|option| PathBuf::from(&option.executable)))
     }
 
@@ -1226,8 +1231,11 @@ impl ApplicationService {
                 id: task_id.to_owned(),
             })?;
         // `${engine}` and `${engineDir}` both need the engine executable.
-        let engine = if task.program.contains("${engine")
-            || task.args.iter().any(|arg| arg.contains("${engine"))
+        let uses_engine = |value: &str| value.contains("${engine");
+        let engine = if uses_engine(&task.program)
+            || task.args.iter().any(|arg| uses_engine(arg))
+            || task.cwd.as_deref().is_some_and(uses_engine)
+            || task.env.values().any(|value| uses_engine(value))
         {
             self.project_engine_executable(root).await?
         } else {
@@ -1285,7 +1293,14 @@ impl ApplicationService {
             health,
             notes,
         };
-        Ok(vantadeck_studio::context::project_brief(root, &input)?)
+        // Walks the tree and runs git; keep it off the async workers.
+        let root = root.to_path_buf();
+        let brief = tokio::task::spawn_blocking(move || {
+            vantadeck_studio::context::project_brief(&root, &input)
+        })
+        .await
+        .map_err(io::Error::other)??;
+        Ok(brief)
     }
 
     /// Open (not done) issues across every registered project.

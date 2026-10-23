@@ -974,7 +974,7 @@ impl ContentScan {
                 severity: CheckSeverity::Info,
                 title: "Some files weren't scanned".into(),
                 detail: format!(
-                    "{} file(s) were skipped by the content scan (only the first {MAX_SCAN_FILES} text files are checked for secrets and conflict markers).",
+                    "{} file(s) were skipped by the content scan (only the first {MAX_SCAN_FILES} files are checked for secrets and conflict markers).",
                     self.skipped
                 ),
                 paths: Vec::new(),
@@ -1007,14 +1007,14 @@ fn scan_contents(root: &Path, paths: &[String]) -> ContentScan {
     let mut scan = ContentScan::default();
     let mut scanned = 0usize;
     for path in paths {
-        let full: PathBuf = root.join(path);
-        let Some(text) = read_text_file(&full) else {
-            continue;
-        };
         if scanned >= MAX_SCAN_FILES {
             scan.skipped += 1;
             continue;
         }
+        let full: PathBuf = root.join(path);
+        let Some(text) = read_text_file(&full) else {
+            continue;
+        };
         scanned += 1;
         scan_text(path, &text, &mut scan);
     }

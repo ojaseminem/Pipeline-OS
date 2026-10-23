@@ -242,17 +242,19 @@ pub fn index_assets(root: &Path, limit: usize) -> Result<AssetIndex, StudioError
         })
         .build();
     let mut truncated = false;
+    let mut examined = 0usize;
     for entry in walker.flatten() {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
-        let Some(kind) = asset_kind(entry.path()) else {
-            continue;
-        };
-        if assets.len() >= MAX_SCANNED {
+        examined += 1;
+        if examined > MAX_SCANNED {
             truncated = true;
             break;
         }
+        let Some(kind) = asset_kind(entry.path()) else {
+            continue;
+        };
         let Ok(relative) = entry.path().strip_prefix(root) else {
             continue;
         };
@@ -327,10 +329,11 @@ pub fn set_asset_meta(root: &Path, asset_path: &str, meta: AssetMeta) -> Result<
         )));
     }
     let mut metas = load_asset_meta(root)?;
+    let key = asset_path.replace('\\', "/");
     if meta == AssetMeta::default() {
-        metas.remove(asset_path);
+        metas.remove(&key);
     } else {
-        metas.insert(asset_path.replace('\\', "/"), meta);
+        metas.insert(key, meta);
     }
     let body = toml::to_string_pretty(&AssetsFile { asset: metas })
         .map_err(|e| StudioError::Invalid(e.to_string()))?;

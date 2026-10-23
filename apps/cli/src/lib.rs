@@ -396,6 +396,10 @@ impl CliExecutionError {
             Self::Studio {
                 source: StudioError::NotFound { .. },
                 ..
+            }
+            | Self::Application {
+                source: ApplicationError::Studio(StudioError::NotFound { .. }),
+                ..
             } => ("NOT_FOUND", Some("Check the id; list items first.".into())),
             _ => (
                 "OPERATION_FAILED",

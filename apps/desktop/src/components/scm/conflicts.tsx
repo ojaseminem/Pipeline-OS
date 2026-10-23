@@ -63,8 +63,19 @@ export function PipelineFilesMerge({ root, conflicted, onDone }: { root: string;
   async function apply() {
     if (!reports) return;
     setBusy(true);
-    for (const report of reports) await attempt(`Resolving ${report.path}`, () => scmApi.tomlResolve(root, report.path, choices[report.path] ?? {}));
-    setBusy(false);
+    const failed: typeof reports = [];
+    try {
+      for (const report of reports) {
+        try { await scmApi.tomlResolve(root, report.path, choices[report.path] ?? {}); }
+        catch (error) { failed.push(report); toast.error(`Couldn't resolve ${report.path}`, { description: error instanceof Error ? error.message : String(error) }); }
+      }
+    } finally {
+      setBusy(false);
+    }
+    if (failed.length) {
+      setReports(failed);
+      return;
+    }
     setReports(null);
     toast.success("Pipeline OS files resolved");
     void queryClient.invalidateQueries({ queryKey: ["git-merge-status", root] });

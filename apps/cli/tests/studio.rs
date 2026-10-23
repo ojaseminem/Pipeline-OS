@@ -83,7 +83,7 @@ async fn task_run_requires_yes_and_reports_missing_tasks() {
     ])
     .expect("parse");
     let error = execute(cli, &service).await.expect_err("no such task");
-    assert_eq!(error.api_message().code, "OPERATION_FAILED");
+    assert_eq!(error.api_message().code, "NOT_FOUND");
     let templates = run(&service, &["tasks", "templates"]).await;
     assert!(templates.as_array().expect("templates").len() >= 5);
 }

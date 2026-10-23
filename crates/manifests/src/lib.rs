@@ -111,6 +111,10 @@ impl AppManifest {
         if self.executables.is_empty() {
             return Err(ManifestError::EmptyField("executables"));
         }
+        // Bundle ids match by prefix, so a blank one would match every app.
+        if self.mac_bundle_ids.iter().any(|id| id.trim().len() < 3) {
+            return Err(ManifestError::EmptyField("macBundleIds"));
+        }
         for argument in self
             .launch_templates
             .iter()

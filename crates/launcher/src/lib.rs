@@ -200,6 +200,12 @@ impl LaunchSpec {
         })
     }
 
+    /// Whether the spawned child is the app itself. A macOS bundle launches
+    /// through `/usr/bin/open`, whose PID says nothing about the app.
+    pub fn spawns_app_directly(&self) -> bool {
+        !(cfg!(target_os = "macos") && mac_app_bundle(&self.executable).is_some())
+    }
+
     pub fn command(&self) -> tokio::process::Command {
         if cfg!(target_os = "macos")
             && let Some(bundle) = mac_app_bundle(&self.executable)

@@ -23,6 +23,8 @@ concurrency:
 jobs:
   version:
     name: Compute dev version
+    # Manual runs can pick any branch; only `dev` may publish to the dev feed.
+    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}

@@ -2,7 +2,7 @@
 
 > Living document. It records why Pipeline OS should exist, what shipped in the
 > dev channel, and what comes next in priority order. Work lands on the dev
-> channel first (see [Release channels](#release-channels)), is tested there, and
+> channel first (see [Release channels](#6-release-channels)), is tested there, and
 > is promoted to a production release only once it is stable.
 
 ## 1. Why would anyone use this instead of opening their apps directly?
@@ -90,7 +90,8 @@ New capabilities:
   with Data Center fallback, ADF descriptions), Linear, Plane and ClickUp issues
   onto the board, idempotently matched by external key. The connection is shared in
   `.pipelineos/tracker.toml`; tokens live in the OS keychain (or
-  `PIPELINEOS_TRACKER_TOKEN` for CI). Available from the board, the CLI
+  `PIPELINEOS_TRACKER_TOKEN` for CI; for a self-hosted server also set
+  `PIPELINEOS_TRACKER_ACCOUNT=<kind>@<server URL>`). Available from the board, the CLI
   (`issues sync`) and MCP (`sync_issues`).
 - **One-click self-hosting:** writes a pinned Forgejo `docker-compose.yml`
   (Git + LFS + issues + PRs) and starts it when Docker is present, then

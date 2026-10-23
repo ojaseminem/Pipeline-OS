@@ -20,7 +20,7 @@ toml.workspace = true
 toml_edit = "0.22"
 uuid.workspace = true
 base64 = "0.22"
-keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 

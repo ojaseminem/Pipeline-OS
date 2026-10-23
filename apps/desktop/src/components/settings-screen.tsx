@@ -317,7 +317,7 @@ function AiSettings() {
       </Group>
       <McpToolsGroup />
       <Group title="Automation" description="Scripts, CI, and other tools use the same commands as AI apps.">
-        <p className="text-sm text-muted-foreground">Every command takes <code>--json</code> for stable, machine-readable output, for example <code>vantadeck --json issues list --all</code> or <code>vantadeck tasks run build --project .</code>. Agents can only run task files you've trusted.</p>
+        <p className="text-sm text-muted-foreground">Every command takes <code>--json</code> for stable, machine-readable output, for example <code>vantadeck --json issues list --all</code> or <code>vantadeck tasks run . build --yes</code>. Agents can only run task files you've trusted.</p>
         <details className="text-sm"><summary className="cursor-pointer text-muted-foreground hover:text-foreground">Manual MCP setup</summary><div className="pt-3"><McpSetup /></div></details>
       </Group>
     </>

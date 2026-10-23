@@ -95,7 +95,7 @@ export function UpdateIndicator({ update, releaseNotesUrl }: { update: UpdateInf
           <Button variant="ghost" size="sm" onClick={() => void openExternal(releaseNotesUrl)}><ExternalLink size={13} /> What's new</Button>
           {phase === "idle" || phase === "cancelled" ? <Button size="sm" onClick={() => void download()}><ArrowDownToLine size={13} /> Download</Button> : null}
           {phase === "downloading" ? <Button variant="outline" size="sm" onClick={() => void desktopApi.updateCancel()}><X size={13} /> Cancel</Button> : null}
-          {phase === "ready" ? <><Button variant="outline" size="sm" onClick={() => void desktopApi.updateCancel()}>Later</Button><Button size="sm" onClick={() => void install()}><RotateCw size={13} /> Install &amp; restart</Button></> : null}
+          {phase === "ready" ? <><Button variant="outline" size="sm" onClick={() => setOpen(false)}>Later</Button><Button size="sm" onClick={() => void install()}><RotateCw size={13} /> Install &amp; restart</Button></> : null}
           {phase === "failed" ? <><Button variant="outline" size="sm" onClick={() => void installer()}><ExternalLink size={13} /> Get installer</Button><Button size="sm" onClick={() => void download()}><RotateCw size={13} /> Try again</Button></> : null}
           {state?.blocker && (phase === "idle" || phase === "ready" || phase === "cancelled") ? <Button variant="outline" size="sm" onClick={() => void installer()}>Get installer</Button> : null}
         </div>

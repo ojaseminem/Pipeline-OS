@@ -685,6 +685,15 @@ fn glob_paths(pattern: &str) -> Result<Vec<PathBuf>, ()> {
             }
             continue;
         }
+        // `C:` must become `C:\`: `PathBuf::from("C:").join("x")` is `C:x`,
+        // relative to the current directory on that drive.
+        if index == 0 && part.len() == 2 && part.ends_with(':') {
+            current = vec![PathBuf::from(format!(
+                "{part}{}",
+                std::path::MAIN_SEPARATOR
+            ))];
+            continue;
+        }
         let mut next = Vec::new();
         for base in &current {
             if part.contains('*') {

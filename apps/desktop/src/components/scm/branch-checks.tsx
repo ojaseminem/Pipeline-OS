@@ -46,7 +46,8 @@ export function BranchChecks({ root, branch, compact = false }: { root: string; 
   // Auto-retry: re-run each failed workflow once per commit, so a flaky
   // runner or network blip doesn't need a manual click.
   useEffect(() => {
-    if (!prefs.autoRetryChecks || !data || data.rollup !== "failure" || retriedSha.current === data.sha) return;
+    // Only for the branch you're on; never re-run a teammate's PR checks.
+    if (compact || !prefs.autoRetryChecks || !data || data.rollup !== "failure" || retriedSha.current === data.sha) return;
     retriedSha.current = data.sha;
     scmApi.autoRetryChecks(root, branch, 2).then((result) => {
       if (result.retried.length) {
@@ -55,7 +56,7 @@ export function BranchChecks({ root, branch, compact = false }: { root: string; 
       }
     }).catch(() => undefined);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.sha, data?.rollup, prefs.autoRetryChecks]);
+  }, [data?.sha, data?.rollup, prefs.autoRetryChecks, compact]);
 
   if (checks.isLoading) return <p className="text-sm text-muted-foreground">Loading checks…</p>;
   if (checks.isError) return <p className="text-sm text-muted-foreground">{errorText(checks.error)}</p>;

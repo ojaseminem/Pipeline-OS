@@ -452,14 +452,12 @@ pub async fn scm_github_status(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn scm_github_set_token(host: String, token: String) -> Result<Viewer, String> {
     let host = host.trim().to_ascii_lowercase();
+    let token = token.trim().to_owned();
     if host.is_empty() || host.contains('/') {
         return Err("Enter the GitHub host, e.g. github.com".into());
     }
-    let client = GitHubClient::new(
-        GitHubRepo::new(&host, "", ""),
-        Some(token.trim().to_owned()),
-    )
-    .map_err(|e| e.to_string())?;
+    let client = GitHubClient::new(GitHubRepo::new(&host, "", ""), Some(token.clone()))
+        .map_err(|e| e.to_string())?;
     let viewer = client.viewer().await.map_err(|e| e.to_string())?;
     blocking(move || github::set_token(&host, &token))
         .await?

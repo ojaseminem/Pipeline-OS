@@ -145,7 +145,15 @@ fn validate(config: &TrackerConfig) -> Result<(), StudioError> {
             "this tracker needs its server URL".into(),
         ));
     }
-    if !(base.is_empty() || base.starts_with("https://") || base.starts_with("http://")) {
+    // Tokens ride on every request, so plain http is only for a server on
+    // this machine (the self-hosted Forgejo below).
+    let loopback = ["http://localhost", "http://127.0.0.1", "http://[::1]"]
+        .iter()
+        .any(|prefix| {
+            base.strip_prefix(prefix)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with([':', '/']))
+        });
+    if !(base.is_empty() || base.starts_with("https://") || loopback) {
         return Err(StudioError::Invalid(
             "the server URL must start with https://".into(),
         ));
@@ -166,7 +174,7 @@ fn validate(config: &TrackerConfig) -> Result<(), StudioError> {
 // ------------------------------------------------------------ credentials
 
 /// Stores the token in the OS keychain (Windows Credential Manager, macOS
-/// Keychain, Linux kernel keyring).
+/// Keychain, Linux Secret Service with the kernel keyring as a cache).
 pub fn store_token(config: &TrackerConfig, token: &str) -> Result<(), StudioError> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, &config.credential_account())
         .map_err(|e| StudioError::Invalid(format!("keychain unavailable: {e}")))?;
@@ -182,9 +190,22 @@ pub fn store_token(config: &TrackerConfig, token: &str) -> Result<(), StudioErro
 }
 
 /// The token from `PIPELINEOS_TRACKER_TOKEN` (for CI) or the keychain.
+///
+/// The environment token goes only to the tracker's own hosted API, or to the
+/// server named by `PIPELINEOS_TRACKER_ACCOUNT` (e.g. `jira@https://acme.atlassian.net`),
+/// so a project's tracker.toml can't point it at another host.
 pub fn load_token(config: &TrackerConfig) -> Option<String> {
+    let account = config.credential_account();
+    let default_host = config
+        .base_url
+        .as_deref()
+        .is_none_or(|url| url.trim().is_empty())
+        && !default_base(config.kind).is_empty();
+    let bound = default_host
+        || std::env::var("PIPELINEOS_TRACKER_ACCOUNT").is_ok_and(|bound| bound.trim() == account);
     if let Ok(token) = std::env::var("PIPELINEOS_TRACKER_TOKEN")
         && !token.is_empty()
+        && bound
     {
         return Some(token);
     }
