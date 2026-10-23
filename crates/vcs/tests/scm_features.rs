@@ -83,7 +83,10 @@ async fn pre_commit_checks_flag_unity_mistakes_and_fixes_apply() {
         "a\n<<<<<<< HEAD\nb\n=======\nc\n>>>>>>> other\n",
     )
     .unwrap();
-    fs::write(path.join("what?.txt"), "x").unwrap();
+    // Windows can't create this name at all, which is what the check warns about.
+    if !cfg!(windows) {
+        fs::write(path.join("what?.txt"), "x").unwrap();
+    }
     let big = fs::File::create(path.join("Assets/Huge.bin")).unwrap();
     big.set_len(60 * 1024 * 1024).unwrap();
     fs::write(path.join("Assets/Huge.bin.meta"), "guid: 2\n").unwrap();
@@ -101,6 +104,9 @@ async fn pre_commit_checks_flag_unity_mistakes_and_fixes_apply() {
         "windows-invalid-name",
         "large-file",
     ] {
+        if cfg!(windows) && expected == "windows-invalid-name" {
+            continue;
+        }
         assert!(ids.contains(&expected), "missing {expected} in {ids:?}");
     }
     let serialized = serde_json_free(&findings);
