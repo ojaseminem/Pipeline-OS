@@ -154,6 +154,108 @@ async fn rpc(service: &ApplicationService, id: u64, method: &str, params: Value)
     .expect("response")
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn mcp_agents_author_tasks_and_presets_but_cannot_self_trust() {
+    let _data = trust_data_dir().await;
+    let root = tempfile::tempdir().expect("root");
+    let path = root.path().to_str().expect("utf8");
+    let service = service().await;
+    run(&service, &["project", "import", path]).await;
+    let call = |name: &str, arguments: Value| json!({ "name": name, "arguments": arguments });
+    let text = |response: &Value| {
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned()
+    };
+
+    // A reusable preset lands in presets.toml and leads the preset list.
+    let preset = json!({ "id": "nightly-zip", "name": "Nightly zip", "kind": "export", "program": "sh", "args": ["-c", "echo zipped"] });
+    let saved = rpc(
+        &service,
+        1,
+        "tools/call",
+        call(
+            "save_task_preset",
+            json!({ "path": path, "preset": preset }),
+        ),
+    )
+    .await;
+    assert_eq!(saved["result"]["isError"], false, "{saved}");
+    let listed = rpc(
+        &service,
+        2,
+        "tools/call",
+        call("list_task_presets", json!({ "path": path })),
+    )
+    .await;
+    let first = &listed["result"]["structuredContent"]["presets"][0];
+    assert_eq!(
+        (
+            first["definition"]["id"].as_str(),
+            first["project"].as_bool()
+        ),
+        (Some("nightly-zip"), Some(true)),
+        "{listed}"
+    );
+
+    // Trust the (empty) task list, then let the agent add a task: the edit
+    // revokes trust, so the agent can't run what it just wrote.
+    vantadeck_studio::tasks::save_tasks(root.path(), &[]).expect("empty tasks");
+    run(&service, &["tasks", "trust", path, "--yes"]).await;
+    let task =
+        json!({ "id": "hello", "name": "Hello", "program": "sh", "args": ["-c", "echo hi"] });
+    let added = rpc(
+        &service,
+        3,
+        "tools/call",
+        call("save_task", json!({ "path": path, "task": task })),
+    )
+    .await;
+    assert!(text(&added).contains("added"), "{added}");
+    let blocked = rpc(
+        &service,
+        4,
+        "tools/call",
+        call("run_task", json!({ "path": path, "task_id": "hello" })),
+    )
+    .await;
+    assert_eq!(blocked["result"]["isError"], true, "{blocked}");
+    assert!(text(&blocked).contains("trust"), "{blocked}");
+
+    // Updates replace by id; deletes remove.
+    let renamed = json!({ "id": "hello", "name": "Hello again", "program": "sh" });
+    let updated = rpc(
+        &service,
+        5,
+        "tools/call",
+        call("save_task", json!({ "path": path, "task": renamed })),
+    )
+    .await;
+    assert!(text(&updated).contains("updated"), "{updated}");
+    assert_eq!(
+        vantadeck_studio::tasks::load_tasks(root.path()).expect("tasks")[0].name,
+        "Hello again"
+    );
+    let deleted = rpc(
+        &service,
+        6,
+        "tools/call",
+        call(
+            "delete_task_preset",
+            json!({ "path": path, "preset_id": "nightly-zip" }),
+        ),
+    )
+    .await;
+    assert_eq!(deleted["result"]["isError"], false, "{deleted}");
+    assert!(
+        vantadeck_studio::tasks::load_project_presets(root.path())
+            .expect("presets")
+            .is_empty()
+    );
+}
+
 #[tokio::test]
 async fn mcp_session_lists_tools_and_drives_issues() {
     let root = tempfile::tempdir().expect("root");
@@ -187,6 +289,9 @@ async fn mcp_session_lists_tools_and_drives_issues() {
         .map(|t| t["name"].as_str().expect("name").to_owned())
         .collect();
     for expected in [
+        "list_task_presets",
+        "save_task",
+        "save_task_preset",
         "list_projects",
         "project_brief",
         "run_task",

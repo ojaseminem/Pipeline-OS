@@ -2,7 +2,7 @@
 // grouped by engine and platform. Pick several and add them in one go, or
 // start from one and edit it.
 import { useQuery } from "@tanstack/react-query";
-import { Check, FileCode2, Pencil, Plus, Search, Sparkles } from "lucide-react";
+import { Bookmark, Check, ClipboardCopy, FileCode2, FileUp, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -15,13 +15,17 @@ import { KIND_ICONS } from "../lib/task-meta";
 
 const needsUnityScript = (preset: TaskPreset) => preset.definition.args.some((arg) => arg.startsWith("PipelineOS.Build"));
 
-export function TaskPresetDialog({ open, onOpenChange, projectPath, existing, onAdd, onCustomize }: {
+export function TaskPresetDialog({ open, onOpenChange, projectPath, existing, onAdd, onCustomize, onDeletePreset, onCopyPreset, onImport }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectPath: string;
   existing: TaskDefinition[];
   onAdd: (tasks: TaskDefinition[]) => Promise<boolean>;
   onCustomize: (task: TaskDefinition | null) => void;
+  /** Project presets (.pipelineos/presets.toml) only. */
+  onDeletePreset: (preset: TaskDefinition) => Promise<boolean>;
+  onCopyPreset: (preset: TaskDefinition) => void;
+  onImport: () => void;
 }) {
   const presets = useQuery({ queryKey: ["task-presets", projectPath], queryFn: () => studioApi.presets(projectPath), enabled: open && studioAvailable(), staleTime: 60_000 });
   const [query, setQuery] = useState("");
@@ -30,9 +34,10 @@ export function TaskPresetDialog({ open, onOpenChange, projectPath, existing, on
   const existingIds = useMemo(() => new Set(existing.map((task) => task.id)), [existing]);
 
   const filtered = (presets.data ?? []).filter((preset) => !query || `${preset.definition.name} ${preset.group} ${preset.definition.description ?? ""}`.toLowerCase().includes(query.toLowerCase()));
-  const recommended = filtered.filter((preset) => preset.recommended);
+  const own = filtered.filter((preset) => preset.project);
+  const recommended = filtered.filter((preset) => preset.recommended && !preset.project);
   const groups = new Map<string, TaskPreset[]>();
-  for (const preset of filtered.filter((item) => !item.recommended)) groups.set(preset.group, [...(groups.get(preset.group) ?? []), preset]);
+  for (const preset of filtered.filter((item) => !item.recommended && !item.project)) groups.set(preset.group, [...(groups.get(preset.group) ?? []), preset]);
   const chosen = (presets.data ?? []).filter((preset) => picked.has(preset.definition.id));
 
   function toggle(id: string) {
@@ -72,6 +77,12 @@ export function TaskPresetDialog({ open, onOpenChange, projectPath, existing, on
           {preset.definition.description ? <span className="block text-xs text-muted-foreground">{preset.definition.description}</span> : null}
         </button>
         <Button variant="ghost" size="sm" className="h-7 shrink-0" onClick={() => { onOpenChange(false); onCustomize(preset.definition); }} title="Start from this preset and edit it"><Pencil size={13} /> Customize</Button>
+        {preset.project ? (
+          <>
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" aria-label={`Copy ${preset.definition.name} as TOML`} title="Copy as TOML" onClick={() => onCopyPreset(preset.definition)}><ClipboardCopy size={13} /></Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive" aria-label={`Delete preset ${preset.definition.name}`} title="Delete preset" onClick={() => void onDeletePreset(preset.definition)}><Trash2 size={13} /></Button>
+          </>
+        ) : null}
       </li>
     );
   };
@@ -81,7 +92,7 @@ export function TaskPresetDialog({ open, onOpenChange, projectPath, existing, on
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Add pipeline tasks</DialogTitle>
-          <DialogDescription>Presets for this project are listed first. Pick as many as you need; every task is saved to <code>.pipelineos/tasks.toml</code> so the team shares them.</DialogDescription>
+          <DialogDescription>Your project's own presets and the ones that fit this project are listed first. Pick as many as you need; every task is saved to <code>.pipelineos/tasks.toml</code> so the team shares them. Save any task as a preset from its <strong>⋯</strong> menu.</DialogDescription>
         </DialogHeader>
         <div className="relative">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -89,6 +100,12 @@ export function TaskPresetDialog({ open, onOpenChange, projectPath, existing, on
         </div>
         <div className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1">
           {presets.isLoading ? <p className="text-sm text-muted-foreground">Loading presets…</p> : null}
+          {own.length ? (
+            <section className="space-y-1">
+              <h3 className="flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-primary"><Bookmark size={12} /> This project's presets</h3>
+              <ul>{own.map(row)}</ul>
+            </section>
+          ) : null}
           {recommended.length ? (
             <section className="space-y-1">
               <h3 className="flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-primary"><Sparkles size={12} /> Recommended for this project</h3>
@@ -104,7 +121,10 @@ export function TaskPresetDialog({ open, onOpenChange, projectPath, existing, on
           {presets.data && !filtered.length ? <p className="text-sm text-muted-foreground">No presets match “{query}”.</p> : null}
         </div>
         <DialogFooter className="items-center sm:justify-between">
-          <Button variant="ghost" onClick={() => { onOpenChange(false); onCustomize(null); }}><Plus size={14} /> Blank task</Button>
+          <span className="flex gap-1">
+            <Button variant="ghost" onClick={() => { onOpenChange(false); onCustomize(null); }}><Plus size={14} /> Blank task</Button>
+            <Button variant="ghost" onClick={onImport}><FileUp size={14} /> Import…</Button>
+          </span>
           <Button disabled={!chosen.length || busy} onClick={() => void addPicked()}>{chosen.length ? `Add ${chosen.length} task${chosen.length === 1 ? "" : "s"}` : "Select tasks to add"}</Button>
         </DialogFooter>
       </DialogContent>

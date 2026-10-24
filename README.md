@@ -135,6 +135,7 @@ Pipeline OS finds the engines, DCCs, editors and tools you already have, with ea
 
 ### Studio workflows
 - **Pipeline tasks.** One-click builds, cooks, renders, exports and tests from templates (Unity batch mode, Unreal BuildCookRun, Godot export, Blender render, or your own). Live logs, cancel, and run history. Commands that arrive through the repo must be reviewed and trusted on your machine before they run.
+- **Your own presets.** Save any task as a project preset (`.pipelineos/presets.toml`, shared through Git), copy tasks as TOML, and import them into another project by pasting or opening a file.
 - **Board.** A Kanban board per project, stored as one small file per issue under `.pipelineos/issues/`, so it merges cleanly through Git. *Open work* on Home and *Planning* show everything across projects. Optional sync with GitHub Issues, Jira, Linear and others.
 - **Asset library.** Concept art, references, models, audio and video with review status (WIP / In review / Approved), notes and studio folder layouts.
 - **Engine activity and time.** See what the engine is doing from its logs (lighting builds, shader compiles, cooks), and how long you've worked on each project (kept locally).
@@ -149,8 +150,8 @@ Pipeline OS finds the engines, DCCs, editors and tools you already have, with ea
 
 ### AI-ready
 - Start Claude Code, Codex, Gemini, Aider or a terminal inside any project.
-- A generated **project brief** tells agents the engine, how to build, and which folders to leave alone.
-- A built-in **MCP server** (`vantadeck mcp`) lets Claude Desktop, Claude Code, Cursor and others work with your projects, tasks and issues. The app can set this up for you. See [AI_INTEGRATION.md](docs/AI_INTEGRATION.md).
+- A generated **project brief** (on each project's Overview) tells agents the engine, how to build, and which folders to leave alone.
+- A built-in **MCP server** (`vantadeck mcp`) lets Claude Desktop, Claude Code, Cursor and others work with your projects, issues and pipelines: they can add or edit tasks and presets for you, and you review and trust the changes before anything runs. The app can set this up for you. See [AI_INTEGRATION.md](docs/AI_INTEGRATION.md).
 
 ### Desktop experience
 - 11 themes, including light, dark, glass and high-contrast, plus custom accent colors and reduced motion.

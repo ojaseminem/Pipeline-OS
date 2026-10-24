@@ -25,8 +25,10 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 const INSTRUCTIONS: &str = "Pipeline OS manages local creative projects (Unity, Unreal, Godot, \
 Blender, DCC tools). Start with list_projects, then project_brief for the project you are \
 working in: it explains the engine, which folders are generated (never edit those), the \
-build/render tasks, and open issues. Prefer run_task over inventing build commands. Track \
-work with list_issues/create_issue/update_issue so the team sees it on the project board.";
+build/render tasks, and open issues. Prefer run_task over inventing build commands. To add or \
+change a pipeline, use list_task_presets and save_task (or save_task_preset for a reusable \
+template); the user reviews and trusts changed tasks before they run. Track work with \
+list_issues/create_issue/update_issue so the team sees it on the project board.";
 
 /// Serves MCP on stdin/stdout until stdin closes.
 pub async fn serve(service: &ApplicationService) -> std::io::Result<()> {
@@ -200,6 +202,46 @@ pub fn tool_definitions() -> Vec<Value> {
             false,
         ),
         tool(
+            "list_task_presets",
+            "List task presets",
+            "Ready-made task templates for the project: the team's own presets from .pipelineos/presets.toml (`project: true`) first, then built-in Unity, Unreal, Godot, Blender and general presets ranked for this project.",
+            json!({ "path": path_schema() }),
+            &["path"],
+            true,
+        ),
+        tool(
+            "save_task",
+            "Add or update pipeline task",
+            "Adds a task to .pipelineos/tasks.toml, or replaces the task with the same id. A task runs `program` with `args` directly (never through a shell); variables: ${project}, ${engine}, ${engineDir}, ${projectName}, ${date}, ${time}. Changing the tasks file revokes trust, so the user must review and trust it in Pipeline OS before it can run. For multi-step pipelines, point `program` at a script in the repo.",
+            json!({ "path": path_schema(), "task": task_schema() }),
+            &["path", "task"],
+            false,
+        ),
+        tool(
+            "delete_task",
+            "Delete pipeline task",
+            "Removes a task from .pipelineos/tasks.toml.",
+            json!({ "path": path_schema(), "task_id": { "type": "string" } }),
+            &["path", "task_id"],
+            false,
+        ),
+        tool(
+            "save_task_preset",
+            "Add or update project preset",
+            "Saves a reusable task template to the project's .pipelineos/presets.toml (shared with the team via version control), replacing any preset with the same id. Presets never run by themselves; the user adds them to the pipeline from Pipeline > Add tasks.",
+            json!({ "path": path_schema(), "preset": task_schema() }),
+            &["path", "preset"],
+            false,
+        ),
+        tool(
+            "delete_task_preset",
+            "Delete project preset",
+            "Removes a preset from the project's .pipelineos/presets.toml.",
+            json!({ "path": path_schema(), "preset_id": { "type": "string" } }),
+            &["path", "preset_id"],
+            false,
+        ),
+        tool(
             "list_issues",
             "List issues",
             "Issues on a project's board, or open issues across all projects when `path` is omitted. Optional `status`: backlog, todo, in-progress, review, done.",
@@ -264,6 +306,44 @@ pub fn tool_definitions() -> Vec<Value> {
             false,
         ),
     ]
+}
+
+fn task_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "1-48 lowercase letters, digits, or dashes." },
+            "name": { "type": "string" },
+            "kind": { "type": "string", "enum": ["build", "test", "render", "export", "cook", "script"] },
+            "description": { "type": "string" },
+            "program": { "type": "string", "description": "Executable or ${engine}." },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "cwd": { "type": "string", "description": "Working directory relative to the project root." },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+        },
+        "required": ["id", "name", "program"]
+    })
+}
+
+fn task_arg(args: &Value, key: &str) -> Result<tasks::TaskDefinition, String> {
+    let value = args
+        .get(key)
+        .ok_or_else(|| format!("missing required argument `{key}`"))?;
+    serde_json::from_value(value.clone()).map_err(|e| format!("invalid `{key}`: {e}"))
+}
+
+/// Inserts `item`, replacing an existing entry with the same id in place.
+fn upsert(list: &mut Vec<tasks::TaskDefinition>, item: tasks::TaskDefinition) -> &'static str {
+    match list.iter_mut().find(|existing| existing.id == item.id) {
+        Some(existing) => {
+            *existing = item;
+            "updated"
+        }
+        None => {
+            list.push(item);
+            "added"
+        }
+    }
 }
 
 fn str_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
@@ -339,6 +419,55 @@ async fn call_tool(
         }
         "list_tasks" => {
             to_value(json!({ "tasks": tasks::load_tasks(&path_arg(args)?).map_err(|e| err(&e))? }))
+        }
+        "list_task_presets" => to_value(json!({
+            "presets": vantadeck_studio::task_presets::task_presets(&path_arg(args)?)
+        })),
+        "save_task" => {
+            let path = path_arg(args)?;
+            let task = task_arg(args, "task")?;
+            let mut list = tasks::load_tasks(&path).map_err(|e| err(&e))?;
+            let id = task.id.clone();
+            let action = upsert(&mut list, task);
+            tasks::save_tasks(&path, &list).map_err(|e| err(&e))?;
+            to_value(json!({
+                "task": id,
+                "action": action,
+                "note": "Saved to .pipelineos/tasks.toml. The tasks file changed, so the user must review and trust it in Pipeline OS (project > Pipeline) before any task runs."
+            }))
+        }
+        "delete_task" => {
+            let path = path_arg(args)?;
+            let id = str_arg(args, "task_id").ok_or("missing required argument `task_id`")?;
+            let mut list = tasks::load_tasks(&path).map_err(|e| err(&e))?;
+            let before = list.len();
+            list.retain(|task| task.id != id);
+            if list.len() == before {
+                return Err(format!("no task {id:?} in this project"));
+            }
+            tasks::save_tasks(&path, &list).map_err(|e| err(&e))?;
+            to_value(json!({ "deleted": id }))
+        }
+        "save_task_preset" => {
+            let path = path_arg(args)?;
+            let preset = task_arg(args, "preset")?;
+            let mut list = tasks::load_project_presets(&path).map_err(|e| err(&e))?;
+            let id = preset.id.clone();
+            let action = upsert(&mut list, preset);
+            tasks::save_project_presets(&path, &list).map_err(|e| err(&e))?;
+            to_value(json!({ "preset": id, "action": action }))
+        }
+        "delete_task_preset" => {
+            let path = path_arg(args)?;
+            let id = str_arg(args, "preset_id").ok_or("missing required argument `preset_id`")?;
+            let mut list = tasks::load_project_presets(&path).map_err(|e| err(&e))?;
+            let before = list.len();
+            list.retain(|preset| preset.id != id);
+            if list.len() == before {
+                return Err(format!("no preset {id:?} in this project"));
+            }
+            tasks::save_project_presets(&path, &list).map_err(|e| err(&e))?;
+            to_value(json!({ "deleted": id }))
         }
         "run_task" => {
             let path = path_arg(args)?;

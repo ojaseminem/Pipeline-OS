@@ -258,7 +258,7 @@ export async function openExternal(url: string): Promise<void> {
 
 export type TaskKind = "build" | "test" | "render" | "export" | "cook" | "script";
 export type TaskDefinition = { id: string; name: string; kind: TaskKind; description?: string | null; program: string; args: string[]; cwd?: string | null; env?: Record<string, string> };
-export type TaskPreset = { definition: TaskDefinition; engine: string | null; group: string; recommended: boolean };
+export type TaskPreset = { definition: TaskDefinition; engine: string | null; group: string; recommended: boolean; /** Saved in the project's .pipelineos/presets.toml. */ project?: boolean };
 export type ProjectTasks = { tasks: TaskDefinition[]; fingerprint: string | null; trusted: boolean };
 export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type TaskRun = {
@@ -328,6 +328,9 @@ export const studioApi = {
   presets: (path: string) => studioCall<TaskPreset[]>("tasks_presets", { path }),
   installUnityBuildScript: (path: string) => studioCall<string>("tasks_install_unity_script", { path }),
   saveTasks: (path: string, tasks: TaskDefinition[]) => studioCall<void>("tasks_save", { path, tasks }),
+  savePresets: (path: string, presets: TaskDefinition[]) => studioCall<void>("presets_save", { path, presets }),
+  tasksToToml: (tasks: TaskDefinition[]) => studioCall<string>("tasks_to_toml", { tasks }),
+  parseTasksToml: (text: string) => studioCall<TaskDefinition[]>("tasks_parse_toml", { text }),
   trustTasks: (path: string, fingerprint: string) => studioCall<void>("tasks_trust", { path, fingerprint }),
   planTask: (path: string, taskId: string) => studioCall<string>("task_plan", { path, taskId }),
   runTask: (path: string, taskId: string) => studioCall<TaskRun>("task_run", { path, taskId }),

@@ -3,7 +3,7 @@
 // the repository.
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, MoreHorizontal, Pencil, Play, Plus, ShieldAlert, ShieldCheck, Trash2, Workflow } from "lucide-react";
+import { BookmarkPlus, ClipboardCopy, Copy, FileUp, MoreHorizontal, Pencil, Play, Plus, ShieldAlert, ShieldCheck, Trash2, Workflow } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import { RunProgress, RunRow } from "./task-runs";
 import { KIND_ICONS, cliRunCommand } from "../lib/task-meta";
 import { useTaskRuns } from "../lib/task-runs-context";
 import { TaskPresetDialog } from "./task-presets";
+import { ImportTasksDialog } from "./task-import";
 
 const KIND_LABELS: Record<TaskKind, string> = { build: "Build", test: "Test", render: "Render", export: "Export", cook: "Cook / package", script: "Script" };
 
@@ -31,7 +32,18 @@ function uniqueId(base: string, taken: Set<string>): string {
   return id;
 }
 
-type Draft = { original: string | null; id: string; name: string; kind: TaskKind; description: string; program: string; args: string; cwd: string };
+type Draft = { original: string | null; id: string; name: string; kind: TaskKind; description: string; program: string; args: string; cwd: string; env: string };
+
+/** `KEY=value` lines for the editor; blank and malformed lines are skipped. */
+function parseEnv(text: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const at = line.indexOf("=");
+    const key = line.slice(0, at).trim();
+    if (at > 0 && key) env[key] = line.slice(at + 1).trim();
+  }
+  return env;
+}
 
 function toDraft(task: TaskDefinition | null, original: string | null): Draft {
   return {
@@ -43,7 +55,13 @@ function toDraft(task: TaskDefinition | null, original: string | null): Draft {
     program: task?.program ?? "",
     args: (task?.args ?? []).join("\n"),
     cwd: task?.cwd ?? "",
+    env: Object.entries(task?.env ?? {}).map(([key, value]) => `${key}=${value}`).join("\n"),
   };
+}
+
+/** Inserts or replaces (by id) a definition, keeping list order. */
+function upsert(list: TaskDefinition[], item: TaskDefinition): TaskDefinition[] {
+  return list.some((existing) => existing.id === item.id) ? list.map((existing) => (existing.id === item.id ? item : existing)) : [...list, item];
 }
 
 export function ProjectPipeline({ projectPath }: { projectPath: string }) {
@@ -54,6 +72,9 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [presetsOpen, setPresetsOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const presetsQuery = useQuery({ queryKey: ["task-presets", projectPath], queryFn: () => studioApi.presets(projectPath), enabled: available, staleTime: 60_000 });
+  const projectPresets = useMemo(() => (presetsQuery.data ?? []).filter((preset) => preset.project).map((preset) => preset.definition), [presetsQuery.data]);
   const tasks = useMemo(() => tasksQuery.data?.tasks ?? [], [tasksQuery.data]);
   const trusted = tasksQuery.data?.trusted ?? false;
   const projectRuns = runs.filter((run) => run.projectPath === projectPath);
@@ -99,6 +120,7 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
       program,
       args: draft.args.split("\n").map((arg) => arg.trim()).filter(Boolean),
       cwd: draft.cwd.trim() || null,
+      env: parseEnv(draft.env),
     };
     const next = draft.original ? tasks.map((existing) => (existing.id === draft.original ? task : existing)) : [...tasks, task];
     if (await save(next, draft.original ? `Saved "${name}"` : `Added "${name}"`)) setDraft(null);
@@ -115,6 +137,38 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
     return save(next, added.length === 1 ? `Added "${added[0].name}"` : `Added ${added.length} tasks`);
   }
 
+  async function savePresets(next: TaskDefinition[], message: string) {
+    try {
+      await studioApi.savePresets(projectPath, next);
+      await queryClient.invalidateQueries({ queryKey: ["task-presets", projectPath] });
+      toast.success(message, { description: "Saved in .pipelineos/presets.toml. Commit it to share with the team." });
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }
+
+  async function saveAsPreset(task: TaskDefinition) {
+    const replacing = projectPresets.some((preset) => preset.id === task.id);
+    await savePresets(upsert(projectPresets, task), replacing ? `Updated preset "${task.name}"` : `Saved "${task.name}" as a project preset`);
+  }
+
+  async function importPresets(imported: TaskDefinition[]) {
+    let next = projectPresets;
+    for (const preset of imported) next = upsert(next, preset);
+    return savePresets(next, imported.length === 1 ? `Saved "${imported[0].name}" as a project preset` : `Saved ${imported.length} project presets`);
+  }
+
+  async function copyToml(list: TaskDefinition[]) {
+    try {
+      await navigator.clipboard.writeText(await studioApi.tasksToToml(list));
+      toast.success(list.length === 1 ? `Copied "${list[0].name}" as TOML` : `Copied ${list.length} tasks as TOML`, { description: "Paste it into Import in another project, or share it." });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function remove(task: TaskDefinition) {
     if (!(await confirmAction({ title: `Delete "${task.name}"?`, description: "It's removed from .pipelineos/tasks.toml for everyone once you commit the change.", confirmLabel: "Delete task", destructive: true }))) return;
     await save(tasks.filter((existing) => existing.id !== task.id), `Deleted "${task.name}"`);
@@ -125,6 +179,13 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
   }
 
   const addMenu = <Button size="sm" onClick={() => setPresetsOpen(true)}><Plus size={14} /> Add tasks</Button>;
+  const headerActions = (
+    <div className="flex flex-wrap gap-2">
+      <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}><FileUp size={14} /> Import</Button>
+      {tasks.length ? <Button size="sm" variant="outline" onClick={() => void copyToml(tasks)} title="Copy every task as TOML to paste into another project"><ClipboardCopy size={14} /> Copy all</Button> : null}
+      {addMenu}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -133,7 +194,7 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
           <h2 className="text-base font-semibold">Pipeline tasks</h2>
           <p className="max-w-2xl text-sm text-muted-foreground">One-click builds, cooks, renders, exports, and tests. Tasks live in <code>.pipelineos/tasks.toml</code> so the whole team (and CI, and AI agents) run them the same way.</p>
         </div>
-        {addMenu}
+        {headerActions}
       </div>
 
       {tasks.length && !trusted ? (
@@ -169,6 +230,8 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
                       <DropdownMenuContent align="end" className="w-56">
                         <DropdownMenuItem onClick={() => setDraft(toDraft(task, task.id))}><Pencil size={14} /> Edit</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setDraft(toDraft({ ...task, id: uniqueId(task.id, new Set(tasks.map((t) => t.id))), name: `${task.name} (copy)` }, null))}><Copy size={14} /> Duplicate</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => void saveAsPreset(task)}><BookmarkPlus size={14} /> Save as project preset</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => void copyToml([task])}><ClipboardCopy size={14} /> Copy as TOML</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => { void navigator.clipboard?.writeText(cliRunCommand(projectPath, task.id)); toast.success("CLI command copied."); }}><Copy size={14} /> Copy CLI command</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem variant="destructive" onClick={() => void remove(task)}><Trash2 size={14} /> Delete</DropdownMenuItem>
@@ -194,7 +257,10 @@ export function ProjectPipeline({ projectPath }: { projectPath: string }) {
       ) : null}
 
       <TaskEditor draft={draft} onChange={setDraft} onSubmit={() => void submitDraft()} />
-      <TaskPresetDialog open={presetsOpen} onOpenChange={setPresetsOpen} projectPath={projectPath} existing={tasks} onAdd={addPresets} onCustomize={addFromTemplate} />
+      <TaskPresetDialog open={presetsOpen} onOpenChange={setPresetsOpen} projectPath={projectPath} existing={tasks} onAdd={addPresets} onCustomize={addFromTemplate}
+        onDeletePreset={(preset) => savePresets(projectPresets.filter((item) => item.id !== preset.id), `Deleted preset "${preset.name}"`)}
+        onCopyPreset={(preset) => void copyToml([preset])} onImport={() => { setPresetsOpen(false); setImportOpen(true); }} />
+      <ImportTasksDialog open={importOpen} onOpenChange={setImportOpen} onAddTasks={addPresets} onSavePresets={importPresets} />
       <TrustReview open={reviewing} projectPath={projectPath} tasks={tasks} fingerprint={tasksQuery.data?.fingerprint ?? null} onClose={() => setReviewing(false)} onTrusted={() => { setReviewing(false); void refresh(); }} />
     </div>
   );
@@ -222,6 +288,7 @@ function TaskEditor({ draft, onChange, onSubmit }: { draft: Draft | null; onChan
             <label className="space-y-1 text-sm sm:col-span-2"><span className="font-medium">Arguments <span className="font-normal text-muted-foreground">(one per line)</span></span><Textarea value={draft.args} onChange={(event) => set({ args: event.target.value })} rows={6} className="font-mono text-xs" placeholder={"-batchmode\n-projectPath\n${project}"} /></label>
             <label className="space-y-1 text-sm"><span className="font-medium">Working folder</span><Input value={draft.cwd} onChange={(event) => set({ cwd: event.target.value })} placeholder="(project folder)" /></label>
             <label className="space-y-1 text-sm"><span className="font-medium">Description</span><Input value={draft.description} onChange={(event) => set({ description: event.target.value })} placeholder="What it produces and where" /></label>
+            <label className="space-y-1 text-sm sm:col-span-2"><span className="font-medium">Environment variables <span className="font-normal text-muted-foreground">(KEY=value, one per line)</span></span><Textarea value={draft.env} onChange={(event) => set({ env: event.target.value })} rows={2} className="font-mono text-xs" placeholder={"BUILD_CHANNEL=nightly\nUNITY_LOG=${project}/Logs/build.log"} /></label>
             <DialogFooter className="sm:col-span-2">
               <Button type="button" variant="ghost" onClick={() => onChange(null)}>Cancel</Button>
               <Button type="submit">{draft.original ? "Save task" : "Add task"}</Button>

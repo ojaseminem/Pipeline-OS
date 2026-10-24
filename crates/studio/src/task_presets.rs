@@ -30,6 +30,9 @@ pub struct TaskPreset {
     pub group: String,
     /// Fits this project and this computer.
     pub recommended: bool,
+    /// Saved by the team in `.pipelineos/presets.toml` (vs. built in).
+    #[serde(default)]
+    pub project: bool,
 }
 
 /// Operating system the presets are generated for.
@@ -154,7 +157,19 @@ pub fn task_presets_for(root: &Path, host: Host) -> Vec<TaskPreset> {
         _ => 3,
     };
     presets.sort_by_key(rank);
-    presets
+    // The project's own presets come first; a broken presets.toml just means
+    // none are offered (the file's error shows when it's opened for editing).
+    let own = crate::tasks::load_project_presets(root).unwrap_or_default();
+    own.into_iter()
+        .map(|definition| TaskPreset {
+            definition,
+            engine: None,
+            group: "This project".into(),
+            recommended: false,
+            project: true,
+        })
+        .chain(presets)
+        .collect()
 }
 
 /// Every preset's definition in catalog order, for a generic project on this
@@ -240,6 +255,7 @@ impl Builder {
         args: &[&str],
     ) {
         self.presets.push(TaskPreset {
+            project: false,
             definition: TaskDefinition {
                 id: id.into(),
                 name: name.into(),

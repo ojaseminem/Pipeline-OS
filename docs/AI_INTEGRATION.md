@@ -48,6 +48,9 @@ real path on your machine.
 | `list_apps` | Detected engine/DCC/IDE installations | yes |
 | `list_tasks` | Pipeline tasks | yes |
 | `run_task` | Run a task; returns status, exit code, last 200 log lines. Only for task files you have trusted on this machine | no |
+| `list_task_presets` | The project's own presets (`.pipelineos/presets.toml`) plus built-in Unity/Unreal/Godot/Blender presets ranked for the project | yes |
+| `save_task` / `delete_task` | Add, replace (by id) or remove a pipeline task. Any change revokes trust, so you review it before it runs | no |
+| `save_task_preset` / `delete_task_preset` | Keep reusable task templates in the project's `presets.toml` | no |
 | `list_issues` | Board issues (one project, or open issues everywhere) | yes |
 | `create_issue` / `update_issue` | Track work on the shared board | no |
 | `sync_issues` | Pull issues from the project's connected tracker | no |
@@ -59,7 +62,7 @@ annotated so clients can treat them accordingly.
 
 ## The project brief
 
-`vantadeck context <path>` (or the AI tab) produces a compact brief that keeps
+`vantadeck context <path>` (or the brief card on a project's Overview tab) produces a compact brief that keeps
 agents out of trouble in game/CG projects: it names generated folders such as
 `Library/` and `Intermediate/`, Unity's `.meta` rule, how to build via tasks,
 and what is in flight. `--write` saves it to `.pipelineos/context.md` so agents
@@ -97,8 +100,25 @@ Mutating commands (`tasks run`, `tasks trust`, VCS sync/commit/push,
 run tasks whose exact file content you have reviewed: trust it in the app
 (project → Pipeline → Review & trust) or with
 `vantadeck tasks trust <path> --yes`, which prints every command first. Any
-later change to the file (for example after a pull) revokes trust until you
-review it again.
+later change to the file (for example after a pull, or an agent calling
+`save_task`) revokes trust until you review it again. So you can ask Claude to
+"add a nightly build that runs the tests, builds Windows and zips it", review
+the commands in the app, and only then run them.
+
+### Custom pipelines and presets
+
+A task runs one program with arguments (no shell), with `${engine}`,
+`${project}`, `${projectName}`, `${date}`, `${time}` and `${engineDir}`
+expanded in the program, arguments, working folder and environment values.
+For a multi-step pipeline (test, build, zip, upload), point a task at a script
+in the repository, for example `python Tools/build_and_zip.py`.
+
+Presets are reusable task templates. Save any task as a project preset from
+its menu in the Pipeline tab; presets live in `.pipelineos/presets.toml` and
+are shared through version control. **Copy as TOML** / **Copy all** copy tasks
+as `[[task]]` tables, and **Import** accepts pasted TOML or a `.toml` file
+(another project's `tasks.toml` or `presets.toml` works), showing the exact
+commands before anything is saved.
 
 ## Project files
 
@@ -106,6 +126,7 @@ review it again.
 | --- | --- | --- |
 | `.pipelineos/project.toml` | yes | Identity, linked apps, launch profiles |
 | `.pipelineos/tasks.toml` | yes | Pipeline tasks (argv, never shell strings) |
+| `.pipelineos/presets.toml` | yes | The project's reusable task presets |
 | `.pipelineos/issues/<id>.toml` | yes | One file per issue |
 | `.pipelineos/assets.toml` | yes | Asset review status and notes |
 | `.pipelineos/tracker.toml` | yes | Connected issue tracker (no secrets) |

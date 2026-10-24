@@ -20,7 +20,7 @@ const layouts: FolderLayout[] = [
   { id: "film-vfx", name: "Film / VFX / Animation", description: "Asset- and shot-based structure.", folders: ["editorial", "reference", "concept", "assets", "shots", "renders", "comp", "delivery"] },
 ];
 
-type ProjectStore = { tasks: TaskDefinition[]; trusted: boolean; issues: Issue[]; assets: AssetEntry[]; tracker: TrackerConfig | null; hasToken: boolean };
+type ProjectStore = { tasks: TaskDefinition[]; presets: TaskDefinition[]; trusted: boolean; issues: Issue[]; assets: AssetEntry[]; tracker: TrackerConfig | null; hasToken: boolean };
 const stores = new Map<string, ProjectStore>();
 const runs: TaskRun[] = [];
 const logs = new Map<string, string[]>();
@@ -62,7 +62,7 @@ function seededAssets(): AssetEntry[] {
 function store(path: string): ProjectStore {
   let entry = stores.get(path);
   if (!entry) {
-    entry = { tasks: [templates[0], templates[1]], trusted: false, issues: seededIssues(), assets: seededAssets(), tracker: null, hasToken: false };
+    entry = { tasks: [templates[0], templates[1]], presets: [], trusted: false, issues: seededIssues(), assets: seededAssets(), tracker: null, hasToken: false };
     stores.set(path, entry);
   }
   return entry;
@@ -129,8 +129,20 @@ export async function demoStudio(command: string, args: Record<string, unknown>)
         { id: "unity-android-dev", name: "Unity: Android development APK", kind: "build" as const, description: "Development build with script debugging. Needs Assets/Editor/PipelineOSBuild.cs.", program: "${engine}", args: ["-batchmode", "-quit", "-projectPath", "${project}", "-buildTarget", "Android", "-executeMethod", "PipelineOS.Build.Android", "-pipelineosDevelopment"] },
         { id: "unity-android-release", name: "Unity: Android release (AAB)", kind: "build" as const, description: "Google Play App Bundle. Needs Assets/Editor/PipelineOSBuild.cs.", program: "${engine}", args: ["-batchmode", "-quit", "-projectPath", "${project}", "-buildTarget", "Android", "-executeMethod", "PipelineOS.Build.AndroidAppBundle"] },
       ];
-      return presets.map((definition) => ({ definition, engine: engineOf(definition.id) === "custom" ? null : engineOf(definition.id), group: groupOf[engineOf(definition.id)] ?? "General", recommended: engineOf(definition.id) === "unity" }));
+      const own = store(path).presets.map((definition) => ({ definition, engine: null, group: "This project", recommended: false, project: true }));
+      return [...own, ...presets.map((definition) => ({ definition, engine: engineOf(definition.id) === "custom" ? null : engineOf(definition.id), group: groupOf[engineOf(definition.id)] ?? "General", recommended: engineOf(definition.id) === "unity" }))];
     }
+    case "presets_save": { store(path).presets = args.presets as TaskDefinition[]; return undefined; }
+    case "tasks_to_toml": {
+      const q = (value: string) => JSON.stringify(value);
+      return (args.tasks as TaskDefinition[]).map((task) => [
+        "[[task]]", `id = ${q(task.id)}`, `name = ${q(task.name)}`, `kind = ${q(task.kind)}`,
+        ...(task.description ? [`description = ${q(task.description)}`] : []),
+        `program = ${q(task.program)}`, `args = [${task.args.map(q).join(", ")}]`,
+        ...(task.cwd ? [`cwd = ${q(task.cwd)}`] : []),
+      ].join("\n")).join("\n\n") + "\n";
+    }
+    case "tasks_parse_toml": throw new Error("Importing tasks works in the desktop app.");
     case "tasks_install_unity_script": return `${path}/Assets/Editor/PipelineOSBuild.cs`;
     case "tasks_save": { const entry = store(path); entry.tasks = args.tasks as TaskDefinition[]; entry.trusted = true; return undefined; }
     case "tasks_trust": { store(path).trusted = true; return undefined; }

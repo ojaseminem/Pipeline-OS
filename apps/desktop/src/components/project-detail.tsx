@@ -30,6 +30,7 @@ import { ProjectPipeline } from "./project-pipeline";
 import { ProjectBoard } from "./project-board";
 import { ProjectAssets } from "./project-assets";
 import { ProjectAi } from "./project-ai";
+import { ProjectBriefCard } from "./project-brief";
 import { studioApi } from "../bridge";
 import { Bot, CircleCheckBig, Pin, GitPullRequest, KanbanSquare, SquareTerminal, Tags, Undo2, Workflow } from "lucide-react";
 import { browsePath, desktopApi, isNativeRuntime, openExternal, type BranchInfo, type ConflictResolution, type HealthIssue } from "../bridge";
@@ -746,6 +747,7 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
+          <ProjectBriefCard projectPath={project.path} projectName={name} />
           <ActiveTimeCard projectPath={project.path} />
           <Card><CardContent className="space-y-3 p-5">
             <h2 className="text-base font-semibold">Launch</h2>

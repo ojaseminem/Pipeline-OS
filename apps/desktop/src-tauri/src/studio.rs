@@ -152,6 +152,29 @@ pub async fn tasks_presets(path: String) -> Vec<TaskPreset> {
     task_presets::task_presets(&root(&path))
 }
 
+/// Saves the project's own presets (`.pipelineos/presets.toml`). Presets are
+/// templates only, so no trust decision is involved.
+#[tauri::command]
+pub async fn presets_save(path: String, presets: Vec<TaskDefinition>) -> Result<(), String> {
+    let root = root(&path);
+    // The picker skips an unreadable presets.toml; never overwrite it with a
+    // list built without its contents.
+    tasks::load_project_presets(&root).map_err(err)?;
+    tasks::save_project_presets(&root, &presets).map_err(err)
+}
+
+/// Task definitions as a `[[task]]` TOML snippet for copying or sharing.
+#[tauri::command]
+pub async fn tasks_to_toml(tasks: Vec<TaskDefinition>) -> Result<String, String> {
+    tasks::tasks_to_toml(&tasks).map_err(err)
+}
+
+/// Parses pasted or imported task TOML (validated, nothing is saved).
+#[tauri::command]
+pub async fn tasks_parse_toml(text: String) -> Result<Vec<TaskDefinition>, String> {
+    tasks::parse_tasks_toml(&text).map_err(err)
+}
+
 /// Installs the Pipeline OS Unity build script
 /// (`Assets/Editor/PipelineOSBuild.cs`) unless one exists; returns its path.
 #[tauri::command]

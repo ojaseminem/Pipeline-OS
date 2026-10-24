@@ -110,6 +110,89 @@ pub fn save_tasks(root: &Path, tasks: &[TaskDefinition]) -> Result<(), StudioErr
     write_atomic(&tasks_path(root), &format!("{header}{body}"))
 }
 
+/// Project presets: reusable task definitions the team keeps in
+/// `.pipelineos/presets.toml`. They are only templates; nothing runs until a
+/// preset is added to `tasks.toml` and trusted.
+pub const PRESETS_FILE: &str = "presets.toml";
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct PresetsFile {
+    #[serde(default = "schema_version")]
+    schema_version: u32,
+    #[serde(default, rename = "preset")]
+    presets: Vec<TaskDefinition>,
+}
+
+/// Loads the project's own presets; a missing file means none.
+pub fn load_project_presets(root: &Path) -> Result<Vec<TaskDefinition>, StudioError> {
+    let path = metadata_path(root, PRESETS_FILE);
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(StudioError::io(&path, error)),
+    };
+    let file: PresetsFile = toml::from_str(&raw).map_err(|e| StudioError::Parse {
+        path: path.clone(),
+        message: e.to_string(),
+    })?;
+    validate_tasks(&file.presets)?;
+    Ok(file.presets)
+}
+
+/// Saves the project's presets, replacing the file atomically.
+pub fn save_project_presets(root: &Path, presets: &[TaskDefinition]) -> Result<(), StudioError> {
+    validate_tasks(presets)?;
+    let file = PresetsFile {
+        schema_version: schema_version(),
+        presets: presets.to_vec(),
+    };
+    let body = toml::to_string_pretty(&file).map_err(|e| StudioError::Invalid(e.to_string()))?;
+    let header = "# Pipeline OS presets: reusable task templates for this project.\n\
+                  # Add one to the pipeline from Pipeline > Add tasks. Same format as tasks.toml.\n\n";
+    write_atomic(
+        &metadata_path(root, PRESETS_FILE),
+        &format!("{header}{body}"),
+    )
+}
+
+/// Task definitions as a TOML snippet (`[[task]]` tables) for copying,
+/// sharing, or pasting into another project.
+pub fn tasks_to_toml(tasks: &[TaskDefinition]) -> Result<String, StudioError> {
+    #[derive(Serialize)]
+    struct Snippet<'a> {
+        task: &'a [TaskDefinition],
+    }
+    toml::to_string_pretty(&Snippet { task: tasks })
+        .map_err(|e| StudioError::Invalid(e.to_string()))
+}
+
+/// Parses pasted or imported task definitions: `[[task]]` and/or `[[preset]]`
+/// tables (a whole tasks.toml or presets.toml works too), or a single task
+/// written as top-level keys.
+pub fn parse_tasks_toml(text: &str) -> Result<Vec<TaskDefinition>, StudioError> {
+    #[derive(Deserialize)]
+    struct Snippet {
+        #[serde(default)]
+        task: Vec<TaskDefinition>,
+        #[serde(default)]
+        preset: Vec<TaskDefinition>,
+    }
+    let invalid =
+        |e: toml::de::Error| StudioError::Invalid(format!("not valid task TOML: {}", e.message()));
+    let snippet: Snippet = toml::from_str(text).map_err(invalid)?;
+    let mut tasks = snippet.task;
+    tasks.extend(snippet.preset);
+    if tasks.is_empty() {
+        tasks.push(toml::from_str::<TaskDefinition>(text).map_err(|_| {
+            StudioError::Invalid(
+                "no tasks found: expected [[task]] tables or a task's id, name and program".into(),
+            )
+        })?);
+    }
+    validate_tasks(&tasks)?;
+    Ok(tasks)
+}
+
 fn validate_tasks(tasks: &[TaskDefinition]) -> Result<(), StudioError> {
     let mut seen = std::collections::BTreeSet::new();
     for task in tasks {
@@ -557,6 +640,71 @@ mod tests {
             cwd: None,
             env: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn project_presets_round_trip_and_feed_the_picker() {
+        let root = tempfile::tempdir().expect("root");
+        assert!(load_project_presets(root.path()).expect("none").is_empty());
+        let mut preset = sample("nightly-zip");
+        preset.env.insert("BUILD_CHANNEL".into(), "nightly".into());
+        save_project_presets(root.path(), std::slice::from_ref(&preset)).expect("save");
+        assert_eq!(
+            load_project_presets(root.path()).expect("load"),
+            vec![preset.clone()]
+        );
+        // Presets are templates only: they don't touch tasks.toml.
+        assert!(load_tasks(root.path()).expect("tasks").is_empty());
+        let offered = crate::task_presets::task_presets(root.path());
+        assert!(
+            offered[0].project && offered[0].definition == preset,
+            "project presets come first"
+        );
+        assert!(offered[1..].iter().all(|p| !p.project));
+    }
+
+    #[test]
+    fn task_snippets_round_trip_and_accept_common_shapes() {
+        let mut task = sample("build-win");
+        task.cwd = Some("Tools".into());
+        task.env.insert("UNITY_LOG".into(), "build.log".into());
+        let snippet = tasks_to_toml(std::slice::from_ref(&task)).expect("export");
+        assert!(snippet.contains("[[task]]"), "{snippet}");
+        assert_eq!(
+            parse_tasks_toml(&snippet).expect("import"),
+            vec![task.clone()]
+        );
+
+        // A presets.toml (with its header and schema version) imports too.
+        let root = tempfile::tempdir().expect("root");
+        save_project_presets(root.path(), std::slice::from_ref(&task)).expect("save");
+        let file =
+            std::fs::read_to_string(root.path().join(".pipelineos/presets.toml")).expect("read");
+        assert_eq!(
+            parse_tasks_toml(&file).expect("presets file"),
+            vec![task.clone()]
+        );
+
+        // So does a single task written as top-level keys.
+        let bare = "id = \"zip\"\nname = \"Zip build\"\nprogram = \"7z\"\nargs = [\"a\", \"build.zip\", \"Build/\"]\n";
+        let parsed = parse_tasks_toml(bare).expect("bare task");
+        assert_eq!(
+            (parsed[0].id.as_str(), parsed[0].kind),
+            ("zip", TaskKind::Script)
+        );
+    }
+
+    #[test]
+    fn task_snippets_reject_unsafe_or_empty_input() {
+        assert!(parse_tasks_toml("not toml at all [").is_err());
+        assert!(parse_tasks_toml("# nothing here\n").is_err());
+        let escape = "[[task]]\nid = \"x\"\nname = \"X\"\nprogram = \"sh\"\ncwd = \"../outside\"\n";
+        assert!(
+            parse_tasks_toml(escape).is_err(),
+            "cwd must stay in the project"
+        );
+        let dupes = "[[task]]\nid = \"a\"\nname = \"A\"\nprogram = \"sh\"\n[[task]]\nid = \"a\"\nname = \"B\"\nprogram = \"sh\"\n";
+        assert!(parse_tasks_toml(dupes).is_err());
     }
 
     #[test]
