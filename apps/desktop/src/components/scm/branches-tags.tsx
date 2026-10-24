@@ -14,6 +14,7 @@ import { desktopApi, scmApi, type BranchInfo } from "../../bridge";
 import { confirmAction } from "../../lib/confirm";
 import { formatLastOpened } from "../../lib/format";
 import { attempt, errorText } from "../../lib/scm";
+import { BranchUpdated } from "./branch-updated";
 
 export function BranchesAndTags({ root, current }: { root: string; current: string | undefined }) {
   const queryClient = useQueryClient();
@@ -85,6 +86,7 @@ export function BranchesAndTags({ root, current }: { root: string; current: stri
               ) : <span className="min-w-0 flex-1 truncate">{branch.name}</span>}
               {branch.remote ? <Badge variant="outline" className="text-[10px]">{branch.remote}</Badge> : null}
               {branch.name === current && !branch.remote ? <Badge variant="secondary" className="text-[10px]">current</Badge> : null}
+              <BranchUpdated branch={branch} />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Actions for ${branch.name}`}><MoreHorizontal size={14} /></Button></DropdownMenuTrigger>
                 <DropdownMenuContent align="end">

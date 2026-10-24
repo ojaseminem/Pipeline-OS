@@ -276,6 +276,15 @@ async fn lists_remote_branches_without_a_local_counterpart() {
     assert_eq!(remote.len(), 1);
     assert_eq!(remote[0].name, "feature");
     assert_eq!(remote[0].remote.as_deref(), Some("origin"));
+    // Every branch reports when its latest commit was made.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_secs() as i64;
+    for branch in &branches {
+        let updated = branch.updated_at.expect("commit time");
+        assert!((now - 600..=now + 60).contains(&updated), "{branch:?}");
+    }
 }
 
 #[tokio::test]

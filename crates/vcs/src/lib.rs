@@ -169,6 +169,9 @@ pub enum ConflictResolution {
 pub struct BranchInfo {
     pub name: String,
     pub remote: Option<String>,
+    /// When the branch's latest commit was made (Unix seconds), if known.
+    #[serde(default)]
+    pub updated_at: Option<i64>,
 }
 
 /// Commit counts comparing another branch to the current `HEAD`.
@@ -511,50 +514,24 @@ impl GitProvider {
         self.operation(root, &["commit", "--no-edit"]).await
     }
 
-    /// Local branch names for the repository.
-    async fn local_branch_names(&self, root: &Path) -> Result<Vec<String>, VcsError> {
-        let output = self
-            .run(root, &["branch", "--format=%(refname:short)"])
-            .await?;
-        Ok(String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(|line| line.trim().to_string())
-            .filter(|line| !line.is_empty())
-            .collect())
-    }
-
     /// Every branch worth showing in the UI: local branches, plus
     /// remote-tracking branches that don't already have a local counterpart
     /// (switching to one auto-creates a local tracking branch via Git's
     /// single-remote-match DWIM resolution, the same as GitHub Desktop).
     /// Excludes each remote's `HEAD` symref, which isn't a real branch.
     pub async fn branches(&self, root: &Path) -> Result<Vec<BranchInfo>, VcsError> {
-        let local = self.local_branch_names(root).await?;
-        let remote_output = self
-            .run(root, &["branch", "-r", "--format=%(refname:short)"])
+        let output = self
+            .run(
+                root,
+                &[
+                    "for-each-ref",
+                    "--format=%(refname)%1f%(committerdate:unix)",
+                    "refs/heads",
+                    "refs/remotes",
+                ],
+            )
             .await?;
-        let mut remote_only: Vec<BranchInfo> = String::from_utf8_lossy(&remote_output.stdout)
-            .lines()
-            .filter_map(|line| {
-                let full = line.trim();
-                let (remote, name) = full.split_once('/')?;
-                if name.is_empty() || name == "HEAD" || local.iter().any(|l| l == name) {
-                    return None;
-                }
-                Some(BranchInfo {
-                    name: name.to_owned(),
-                    remote: Some(remote.to_owned()),
-                })
-            })
-            .collect();
-        remote_only.sort_by(|a, b| a.name.cmp(&b.name));
-        remote_only.dedup_by(|a, b| a.name == b.name);
-        let mut branches: Vec<BranchInfo> = local
-            .into_iter()
-            .map(|name| BranchInfo { name, remote: None })
-            .collect();
-        branches.extend(remote_only);
-        Ok(branches)
+        Ok(parse_branch_refs(&String::from_utf8_lossy(&output.stdout)))
     }
 
     /// Recent commit history.
@@ -567,6 +544,41 @@ impl GitProvider {
             .await?;
         Ok(parse_log_records(&String::from_utf8_lossy(&output.stdout)))
     }
+}
+
+/// Parses `for-each-ref` lines of `<full refname>\x1f<unix time>` into the
+/// branch list: local branches first, then remote-tracking branches that have
+/// no local counterpart (deduplicated across remotes), each group by name.
+fn parse_branch_refs(text: &str) -> Vec<BranchInfo> {
+    let mut local = Vec::new();
+    let mut remote_only = Vec::new();
+    for line in text.lines() {
+        let (refname, time) = line.split_once('\u{1f}').unwrap_or((line, ""));
+        let updated_at = time.trim().parse::<i64>().ok();
+        if let Some(name) = refname.strip_prefix("refs/heads/") {
+            local.push(BranchInfo {
+                name: name.to_owned(),
+                remote: None,
+                updated_at,
+            });
+        } else if let Some((remote, name)) = refname
+            .strip_prefix("refs/remotes/")
+            .and_then(|rest| rest.split_once('/'))
+            .filter(|(_, name)| !name.is_empty() && *name != "HEAD")
+        {
+            remote_only.push(BranchInfo {
+                name: name.to_owned(),
+                remote: Some(remote.to_owned()),
+                updated_at,
+            });
+        }
+    }
+    remote_only.retain(|branch| local.iter().all(|l: &BranchInfo| l.name != branch.name));
+    local.sort_by(|a, b| a.name.cmp(&b.name));
+    remote_only.sort_by(|a, b| a.name.cmp(&b.name));
+    remote_only.dedup_by(|a, b| a.name == b.name);
+    local.extend(remote_only);
+    local
 }
 
 /// `git log` field/record format shared by `log` and `file_history`: unit
@@ -1370,4 +1382,36 @@ pub fn parse_git_porcelain_v2(input: &str) -> Result<VcsStatus, VcsError> {
         }
     }
     Ok(status)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn branch_refs_carry_their_last_commit_time() {
+        let text = "refs/heads/main\u{1f}1700000300\n\
+                    refs/heads/feature/login\u{1f}1700000200\n\
+                    refs/remotes/origin/HEAD\u{1f}1700000300\n\
+                    refs/remotes/origin/main\u{1f}1700000300\n\
+                    refs/remotes/origin/release\u{1f}1700000100\n\
+                    refs/remotes/upstream/release\u{1f}1700000050\n\
+                    refs/heads/odd\u{1f}\n";
+        let branches = parse_branch_refs(text);
+        let summary: Vec<(&str, Option<&str>, Option<i64>)> = branches
+            .iter()
+            .map(|b| (b.name.as_str(), b.remote.as_deref(), b.updated_at))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("feature/login", None, Some(1_700_000_200)),
+                ("main", None, Some(1_700_000_300)),
+                ("odd", None, None),
+                // origin/HEAD and origin/main (has a local branch) are dropped;
+                // release appears once.
+                ("release", Some("origin"), Some(1_700_000_100)),
+            ]
+        );
+    }
 }

@@ -91,7 +91,7 @@ export type BranchComparison = { ahead: number; behind: number };
 export type ConflictResolution = "ours" | "theirs" | "resolved";
 /** A branch the UI can switch to or merge. `remote` is set (e.g. "origin")
  *  for a remote-tracking branch with no local copy yet; unset for local. */
-export type BranchInfo = { name: string; remote?: string | null };
+export type BranchInfo = { name: string; remote?: string | null; /** Latest commit time, Unix seconds. */ updatedAt?: number | null };
 export type ToolManifest = {
   id: string;
   name: string;
