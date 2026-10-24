@@ -60,19 +60,39 @@ jobs:
           printf 'sha=%s\n' "$(git rev-list -n 1 "${REQUESTED_TAG}")" >> "${GITHUB_OUTPUT}"
 
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.label }})
     needs: validate-ref
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
+        # Each Mac architecture is its own build so the updater feed gets a
+        # correctly labelled darwin-aarch64 and darwin-x86_64 entry.
         include:
-          - os: windows-latest
+          - label: Windows x64
+            os: windows-latest
             args: "--bundles nsis,msi"
-          - os: macos-latest
-            args: "--bundles app,dmg"
-          - os: ubuntu-24.04
+            bundle: target/release/bundle
+            artifact: windows-x64
+          - label: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            arch: aarch64
+            args: "--target aarch64-apple-darwin --bundles app,dmg"
+            bundle: target/aarch64-apple-darwin/release/bundle
+            artifact: macos-aarch64
+          - label: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            arch: x64
+            args: "--target x86_64-apple-darwin --bundles app,dmg"
+            bundle: target/x86_64-apple-darwin/release/bundle
+            artifact: macos-x64
+          - label: Linux x64
+            os: ubuntu-24.04
             args: "--bundles appimage,deb,rpm"
+            bundle: target/release/bundle
+            artifact: linux-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -82,6 +102,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
         with:
           toolchain: 1.96.0
+          targets: ${{ matrix.target }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
@@ -92,6 +113,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Stage the vantadeck CLI sidecar
+        env:
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
         run: node scripts/prepare-sidecar.mjs
       - name: Build native bundles
         env:
@@ -100,10 +123,24 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri --workspace @vantadeck/desktop -- build ${{ matrix.args }} --config src-tauri/tauri.updater.conf.json --config src-tauri/tauri.sidecar.conf.json
+      - name: Name the Mac updater bundle by architecture
+        # Both Macs produce "<Product>.app.tar.gz"; add version + arch so they
+        # can share one release and the feed can tell them apart.
+        if: matrix.arch
+        shell: bash
+        env:
+          VALIDATED_TAG: ${{ needs.validate-ref.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd "${{ matrix.bundle }}/macos"
+          for file in *.app.tar.gz *.app.tar.gz.sig; do
+            mv "${file}" "${file/.app.tar.gz/_${VALIDATED_TAG#v}_${{ matrix.arch }}.app.tar.gz}"
+          done
+          ls -la
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: vantadeck-${{ runner.os }}
-          path: target/release/bundle/**
+          name: vantadeck-${{ matrix.artifact }}
+          path: ${{ matrix.bundle }}/**
           if-no-files-found: error
           retention-days: 14
 

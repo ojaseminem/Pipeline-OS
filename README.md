@@ -41,6 +41,7 @@ A single game or film project leans on a dozen tools: an engine (often one speci
 | --- | --- |
 | Windows 10/11 (x64) | `PipelineOS_<version>_x64-setup.exe` or `.msi` |
 | macOS (Apple Silicon) | `PipelineOS_<version>_aarch64.dmg` |
+| macOS (Intel) | `PipelineOS_<version>_x64.dmg` |
 | Linux (x64) | `.AppImage`, `.deb` or `.rpm` |
 
 All on the **[latest release](https://github.com/ojaseminem/Pipeline-OS/releases/latest)**. Once installed, the app updates itself.

@@ -48,7 +48,13 @@ function platformFor(name) {
   if (name.endsWith(".nsis.zip")) return "windows-x86_64";
   if (name.endsWith(".msi.zip")) return "windows-x86_64";
   if (name.endsWith(".AppImage")) return "linux-x86_64";
-  if (name.endsWith(".app.tar.gz")) return name.includes("aarch64") ? "darwin-aarch64" : "darwin-x86_64";
+  if (name.endsWith(".app.tar.gz")) {
+    // Never guess: a mislabelled Mac entry sends Apple Silicon users no update
+    // and Intel users a build they can't run.
+    if (/_aarch64\.app\.tar\.gz$/.test(name)) return "darwin-aarch64";
+    if (/_(x64|x86_64)\.app\.tar\.gz$/.test(name)) return "darwin-x86_64";
+    throw new Error(`${name}: Mac updater bundle must end in _aarch64.app.tar.gz or _x64.app.tar.gz`);
+  }
   return null;
 }
 
