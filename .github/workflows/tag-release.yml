@@ -1,0 +1,40 @@
+name: Tag release (one-off)
+
+# Creates the annotated v0.5.4 tag on main and dispatches the Release workflow
+# for it. Tags pushed with GITHUB_TOKEN don't fire `push` workflows, so the
+# release is started explicitly via workflow_dispatch.
+on:
+  push:
+    branches: [claude/beautiful-feynman-g9q2j6]
+    paths: [.github/workflows/tag-release.yml]
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: v0.5.4
+      SHA: a791dc0cfd09ff9eba406c0dc4a9f67b68eabfdb
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Create and push annotated tag
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse origin/main)" = "$SHA" ] || { echo "main moved from $SHA" >&2; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists"
+          else
+            git tag -a "$TAG" "$SHA" -m "PipelineOS ${TAG#v}"
+            git push origin "refs/tags/$TAG"
+          fi
+      - name: Start the Release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f tag="$TAG"
