@@ -5517,7 +5517,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5541,7 +5541,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-application"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "ignore",
@@ -5564,7 +5564,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-desktop"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5593,7 +5593,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-detection"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "glob",
@@ -5608,7 +5608,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-domain"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "schemars 0.8.22",
@@ -5622,7 +5622,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-health"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5633,7 +5633,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-launcher"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "semver",
  "tempfile",
@@ -5645,7 +5645,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-manifests"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5656,7 +5656,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-projects"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "tempfile",
  "thiserror 2.0.18",
@@ -5668,7 +5668,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-security"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "sha2",
  "tempfile",
@@ -5677,7 +5677,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-storage"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "semver",
@@ -5692,7 +5692,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-studio"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5714,7 +5714,7 @@ dependencies = [
 
 [[package]]
 name = "vantadeck-vcs"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "chrono",
