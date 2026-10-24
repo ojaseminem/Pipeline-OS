@@ -13,8 +13,13 @@ export const queryKeys = {
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
+    // Reads and actions go to the local Rust backend over IPC, not the
+    // internet, so they must run whether or not the OS reports a network.
+    // (TanStack's default "online" mode pauses everything while offline,
+    // which left screens stuck loading on a Mac with Wi-Fi off.)
     defaultOptions: {
-      queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000 },
+      queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000, networkMode: "always" },
+      mutations: { networkMode: "always" },
     },
   });
 }

@@ -141,9 +141,45 @@ pub fn is_transient_network_error(stderr: &str) -> bool {
     classify_network_failure(stderr) == NetworkFailure::Transient
 }
 
+/// Failures that mean this machine has no network at all (no DNS, no route).
+/// One quick retry covers a blip; more just keeps an offline user waiting.
+const OFFLINE_PATTERNS: &[&str] = &[
+    "could not resolve host",
+    "temporary failure in name resolution",
+    "network is unreachable",
+    "no route to host",
+];
+
+pub fn looks_offline(stderr: &str) -> bool {
+    let text = stderr.to_ascii_lowercase();
+    OFFLINE_PATTERNS
+        .iter()
+        .any(|pattern| text.contains(pattern))
+}
+
+/// Attempts allowed for a failure: the full budget for transient trouble, a
+/// single retry when the machine is plainly offline.
+pub fn attempt_budget(stderr: &str) -> u32 {
+    if looks_offline(stderr) {
+        2
+    } else {
+        MAX_NETWORK_ATTEMPTS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offline_failures_get_one_retry() {
+        let offline = "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com";
+        assert!(looks_offline(offline) && is_transient_network_error(offline));
+        assert_eq!(attempt_budget(offline), 2);
+        let blip = "error: RPC failed; curl 56 Recv failure: Connection reset by peer";
+        assert!(!looks_offline(blip));
+        assert_eq!(attempt_budget(blip), MAX_NETWORK_ATTEMPTS);
+    }
 
     #[test]
     fn transient_failures_are_retryable() {

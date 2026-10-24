@@ -468,6 +468,9 @@ export function ProjectDetail({ project, initialTab, onBack, onRenamed, onOpenIn
     if (/cannot lock ref|non-fast-forward|\[rejected\]|fetch first/i.test(message)) {
       return "The remote has commits you don't have locally. Fetching and pulling again should resolve it.";
     }
+    if (/could not resolve host|temporary failure in name resolution|network is unreachable|no route to host/i.test(message)) {
+      return "Couldn't reach the Git remote, so you may be offline. Your local commits are safe; sync again once you're back online.";
+    }
     if (/terminal prompts disabled|could not read username|could not read password|authentication failed/i.test(message)) {
       return "Git needs you to sign in to the remote. Push or pull once from a terminal in this folder to set up your credentials (Git Credential Manager will prompt there), then try again here.";
     }

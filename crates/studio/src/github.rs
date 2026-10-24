@@ -1001,7 +1001,7 @@ impl GitHubClient {
         let response = request
             .send()
             .await
-            .map_err(|e| StudioError::Invalid(format!("couldn't reach GitHub: {e}")))?;
+            .map_err(|e| crate::unreachable("GitHub", &e))?;
         let status = response.status();
         let headers = response.headers().clone();
         let text = response.text().await.unwrap_or_default();
@@ -1092,7 +1092,7 @@ impl GitHubClient {
             .json(&json!({ "query": query, "variables": variables }))
             .send()
             .await
-            .map_err(|e| StudioError::Invalid(format!("couldn't reach GitHub: {e}")))?;
+            .map_err(|e| crate::unreachable("GitHub", &e))?;
         let status = response.status();
         let headers = response.headers().clone();
         let value: Value = response.json().await.unwrap_or(Value::Null);
@@ -1593,7 +1593,7 @@ impl GitHubClient {
             .build(Method::GET, &url)
             .send()
             .await
-            .map_err(|e| StudioError::Invalid(format!("couldn't reach GitHub: {e}")))?;
+            .map_err(|e| crate::unreachable("GitHub", &e))?;
         let status = response.status();
         let headers = response.headers().clone();
         let text = response.text().await.unwrap_or_default();

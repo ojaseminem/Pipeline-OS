@@ -2,422 +2,209 @@
 
 # Pipeline OS
 
-**The local-first creative launcher for game development, CG, VFX, animation, and technical art.**
+**A free, local-first home base for game, CG, VFX and animation projects.**
 
-<sub>The product is **Pipeline OS**. This repository and its crates/packages are named `Vantadeck` (links and internal paths keep that name). The per-project metadata folder is user-facing, though, so it's branded `.pipelineos/` (older `.vantadeck/` folders are migrated automatically).</sub>
+Find your creative apps, open projects in the right version, run builds and renders, track work, and manage Git — from one desktop app and a scriptable CLI. No account, no cloud, no telemetry.
 
-Manage projects, creative applications, health checks, launch profiles, and source-control workflows from one open-source desktop app and automation-friendly CLI.
+[![CI](https://github.com/ojaseminem/Pipeline-OS/actions/workflows/ci.yml/badge.svg)](https://github.com/ojaseminem/Pipeline-OS/actions/workflows/ci.yml)
+[![Security](https://github.com/ojaseminem/Pipeline-OS/actions/workflows/security.yml/badge.svg)](https://github.com/ojaseminem/Pipeline-OS/actions/workflows/security.yml)
+[![Latest release](https://img.shields.io/github/v/release/ojaseminem/Pipeline-OS)](https://github.com/ojaseminem/Pipeline-OS/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/ojaseminem/Pipeline-OS)](LICENSE)
 
-[![CI](https://github.com/ojaseminem/Vantadeck/actions/workflows/ci.yml/badge.svg)](https://github.com/ojaseminem/Vantadeck/actions/workflows/ci.yml)
-[![Security](https://github.com/ojaseminem/Vantadeck/actions/workflows/security.yml/badge.svg)](https://github.com/ojaseminem/Vantadeck/actions/workflows/security.yml)
-[![License](https://img.shields.io/github/license/ojaseminem/Vantadeck)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/ojaseminem/Vantadeck?style=flat)](https://github.com/ojaseminem/Vantadeck/stargazers)
-[![Forks](https://img.shields.io/github/forks/ojaseminem/Vantadeck?style=flat)](https://github.com/ojaseminem/Vantadeck/forks)
-[![Issues](https://img.shields.io/github/issues/ojaseminem/Vantadeck)](https://github.com/ojaseminem/Vantadeck/issues)
-[![Contributors](https://img.shields.io/github/contributors/ojaseminem/Vantadeck)](https://github.com/ojaseminem/Vantadeck/graphs/contributors)
-[![Top language](https://img.shields.io/github/languages/top/ojaseminem/Vantadeck)](https://github.com/ojaseminem/Vantadeck)
-[![Repository size](https://img.shields.io/github/repo-size/ojaseminem/Vantadeck)](https://github.com/ojaseminem/Vantadeck)
-[![Last commit](https://img.shields.io/github/last-commit/ojaseminem/Vantadeck)](https://github.com/ojaseminem/Vantadeck/commits/main)
-
-[Getting Started](#getting-started) | [Features](#features) | [CLI](#command-line-interface) | [Architecture](#architecture) | [Contributing](#contributing)
+[Download](#download) · [Features](#features) · [Works offline](#works-offline) · [CLI](#command-line) · [Build from source](#build-from-source) · [Contributing](#contributing)
 
 </div>
 
 ![Pipeline OS dashboard](docs/design/vantadeck-dashboard-reference.png)
 
-> [!IMPORTANT]
-> Pipeline OS is a **Windows-first app at public-V1 stage**. The Rust backend and CLI are feature-complete and tested, and the Tauri 2 + React desktop app is functional. Signed, multi-platform builds are produced automatically by CI on each `vX.Y.Z` tag, and the in-app auto-updater ships them. The Windows installer is **not yet code-signed**, so Windows SmartScreen shows an "unknown publisher" prompt — choose *More info → Run anyway*. macOS/Linux artifacts are built but remain experimental. See [docs/release/BLOCKERS.md](docs/release/BLOCKERS.md) for the remaining gates.
+## Why
 
-## Why Pipeline OS?
+A single game or film project leans on many tools: an engine (often a specific version), DCC apps, editors, source control, build scripts. Pipeline OS keeps all of that in one place on your machine:
 
-Creative projects rarely use one application. A game project may depend on multiple engine versions, DCC packages, editors, source-control tools, local utilities, and platform-specific paths. Pipeline OS provides one transparent local workspace for those dependencies without introducing another account or cloud service.
+- **Free and open source.** MIT-licensed for personal and commercial use. No tiers, seats or feature gates.
+- **Local-first.** Projects, preferences, history and caches stay on your computer.
+- **Works offline.** Everything except the features that talk to a server keeps working with no connection (details [below](#works-offline)).
+- **No account, no telemetry.** Nothing is sent anywhere unless you ask for it.
+- **Team-friendly.** Shared settings live in plain files in the repo (`.pipelineos/`), with relative paths, so they travel through version control.
+- **Scriptable.** The desktop app and the `vantadeck` CLI use the same Rust core, and the CLI has stable JSON output for automation and AI agents.
 
-- **Free and open source:** MIT-licensed, free for personal and commercial use — no paid tiers, seats, or feature gates.
-- **Local-first:** project discovery, preferences, caches, and activity remain on your machine.
-- **Account-free:** no sign-in is required for core workflows.
-- **Private by default:** no telemetry, advertising, analytics, or background network traffic.
-- **Portable projects:** team-owned configuration uses relative paths in `.pipelineos/project.toml`.
-- **Machine-aware:** absolute executable paths and local overrides remain outside source-controlled project files.
-- **Automation-ready:** desktop and CLI clients use the same Rust application services.
-- **Open governance:** roadmap, RFCs, security policy, funding disclosures, and contribution rules are public.
+## Download
 
-## Project Status
+| Platform | Get it |
+| --- | --- |
+| Windows 10/11 (x64) | `PipelineOS_<version>_x64-setup.exe` or `.msi` |
+| macOS (Apple Silicon) | `PipelineOS_<version>_aarch64.dmg` |
+| Linux (x64) | `.AppImage`, `.deb` or `.rpm` |
 
-| Area | Status | Notes |
-| --- | --- | --- |
-| Windows desktop app | Available | Native Tauri build; CI publishes signed auto-updating releases on each tag |
-| Auto-update | Implemented | CI signs updater artifacts + `latest.json`; the in-app updater installs them |
-| Rust CLI | Available | Human-readable and versioned JSON output |
-| Windows application detection | Implemented | Registry, Unity Hub, Epic, Steam, shortcuts, PATH, and filesystem sources |
-| macOS/Linux adapters | Experimental | Built by CI; not notarized/signed or clean-machine validated |
-| Git and Git LFS | Implemented | Status, sync, commit, push, branch switching, per-file actions, and health |
-| Perforce | Experimental | Typed provider and fixture tests; not wired into the desktop UI; live-server validation remains |
-| Tools Hub | Experimental | Local/cached manifests with SHA-256 verification; hosted public index is not yet launched |
-| Code-signed installer | Not yet | Updater artifacts are signed; Windows Authenticode signing of the installer is pending (SmartScreen prompt until then) |
-| Public V1 (Windows) | In progress | Functionally complete; pending installer code-signing and clean-machine validation |
+All on the **[latest release](https://github.com/ojaseminem/Pipeline-OS/releases/latest)**. Once installed, the app updates itself.
 
-## Known limitations (V1)
+Installers aren't code-signed by Microsoft or Apple yet, so the first launch needs one extra step:
 
-- **Unsigned Windows installer** — SmartScreen shows "unknown publisher"; choose *More info → Run anyway*. Code signing is planned (Azure Trusted Signing, the Microsoft Store, or an Authenticode certificate).
-- **Windows is the supported target** — macOS/Linux are built by CI but are not notarized/signed or clean-machine validated.
-- **Manual version overrides require a semantic version** (e.g. `4.1.1`); some engine build labels (e.g. Unity `6000.0.67f1`) aren't accepted yet.
-- **Perforce** is a typed, fixture-tested provider — not yet exposed in the desktop UI or validated against a live server.
-- **Tools Hub** reads local and cached tool manifests; the hosted, separately-governed public index is not launched.
+- **Windows:** SmartScreen shows "unknown publisher". Choose *More info → Run anyway*.
+- **macOS:** right-click the app → *Open* → *Open*, or run `xattr -dr com.apple.quarantine "/Applications/PipelineOS.app"`.
+
+Update files are signed, and every release ships checksums (`SHA256SUMS.txt`), SBOMs and Sigstore build provenance.
+
+**Dev builds.** To try the newest work early, install **PipelineOS Dev** from the rolling [`dev-latest` pre-release](https://github.com/ojaseminem/Pipeline-OS/releases/tag/dev-latest) (Windows, macOS Apple Silicon and Intel). It installs alongside the stable app with its own data, and updates itself from the `dev` branch.
 
 ## Features
 
-### Application Discovery
+### Apps and projects
+- **Finds your creative apps automatically**, including multiple versions side by side: 60+ apps such as Unity, Unreal Engine, Godot, Blender, Maya, Houdini, 3ds Max, Cinema 4D, ZBrush, Substance, Photoshop, Krita, Aseprite, Spine, DaVinci Resolve, Nuke, Wwise, FMOD, Rider, VS Code, Visual Studio, Xcode, Git and Perforce.
+- **Detects on every OS**: Windows (Registry, Unity Hub, Epic, Steam, shortcuts), macOS (app bundles in Applications folders) and Linux (desktop entries, Flatpak, Snap, AppImage), plus PATH and common install folders.
+- **Imports projects** for Unity, Unreal, Godot, Blender/Maya and any creative folder, and finds projects already on your disk.
+- **Opens projects in the right version**, with preferred and fallback versions, launch profiles, and per-machine overrides that are never committed.
+- **Suggests the tools a project uses** (Maya, Substance, Houdini…) from the files it contains.
+- **Pins, search and recent projects**, with a small search box next to *Pinned / Recent*.
 
-- Detects and groups multiple installed versions of creative applications.
-- Records evidence and confidence for every discovery.
-- Supports machine-local executable overrides without modifying project metadata.
-- Provides Windows Registry, Unity Hub, Epic Launcher, Steam, shortcut, PATH, and recursive filesystem sources.
-- Includes experimental macOS bundle and Linux desktop, Flatpak, Snap, AppImage, PATH, and common-location adapters.
-- Ships auditable manifests for Blender, Unreal Engine, Unity, Godot, VS Code, Rider, Git, Git LFS, and Perforce.
+### Studio workflows
+- **Pipeline tasks.** One-click builds, cooks, renders, exports and tests from templates (Unity batch mode, Unreal BuildCookRun, Godot export, Blender render, or your own). Live logs, cancel, and run history. Commands that arrive through the repo must be reviewed and trusted on your machine before they run.
+- **Board.** A Kanban board per project, stored as one small file per issue under `.pipelineos/issues/`, so it merges cleanly through Git. *Open work* on Home shows everything across projects. Optional sync with GitHub Issues, Jira, Linear and others.
+- **Asset library.** Concept art, references, models, audio and video with review status (WIP / In review / Approved), notes and studio folder layouts.
+- **Engine activity and time.** See what the engine is doing from its logs, and how long you've worked on each project (kept locally).
 
-### Portable Projects
+### Source control
+- Git status, diffs, history, branches, stash on switch, commit, pull, push and one-click sync, in the style of GitHub Desktop.
+- Merge-conflict help (including automatic merging of TOML settings), pre-commit checks, and guarded branch deletion.
+- GitHub pull requests and CI checks for the current branch, with failed-job logs. This uses an optional token kept in your OS keychain.
+- Git LFS checks that only warn when a project actually has large files.
+- Perforce support (experimental; not yet tested against a live server).
 
-- Imports Unity, Unreal Engine, Godot, Blender/Maya, and generic creative folders.
-- Stores canonical team configuration in `.pipelineos/project.toml`.
-- Supports linked applications, preferred versions, fallbacks, launch profiles, shortcuts, VCS configuration, and enabled health checks.
-- Auto-detects DCC tools used in a project (Maya, Substance Painter, ZBrush, Houdini, and any app with a manifest) by matching file extensions found in the project, with a one-click "add" suggestion and manual override.
-- Shows each linked app's own project files (not just the engine's), with a version picker and one-click open.
-- Uses revision-checked writes, recovery backups, no-replace publication, and conflict preservation for external edits.
-- Keeps project pinning, search state, local paths, and activity in SQLite.
+### AI-ready
+- Start Claude Code, Codex, Gemini, Aider or a terminal inside any project.
+- A generated **project brief** tells agents the engine, how to build, and which folders to leave alone.
+- A built-in **MCP server** (`vantadeck mcp`) lets Claude Desktop, Claude Code, Cursor and others work with your projects, tasks and issues. The app can set this up for you. See [AI_INTEGRATION.md](docs/AI_INTEGRATION.md).
 
-### Safe Launching
+### Desktop experience
+- 11 themes, including light, dark, glass and high-contrast, plus custom accent colors and reduced motion.
+- A command palette (`Ctrl/⌘+K`) for everything, plus shortcuts for new project, undo/redo and back/forward. Press `?` to see them all.
+- An activity screen showing every running task across projects.
 
-- Represents launches as executable, argument vector, and working directory fields.
-- Never sends manifest values through a shell.
-- Resolves preferred versions and explicit fallbacks from detected installations.
-- Restricts native desktop launches to detected or explicitly configured executables.
+## Works offline
 
-### Source Control And Health
+Pipeline OS runs entirely on your machine. With no internet connection you can still:
 
-- Git status, history with per-file commit diffs, branch switching, fast-forward pull, commit, and push operations.
-- Branch switching prompts to bring or leave uncommitted changes (via a labeled stash), mirroring GitHub Desktop, and offers to restore them next time you're back on that branch.
-- Automatic, silent recovery from common corrupted local ref states (e.g. a stale `origin/HEAD`) that would otherwise break fetch/pull with a confusing error.
-- Git LFS diagnostics that only flag "LFS not configured" when the project actually has large files that need it — not on every repo.
-- Typed Perforce diagnosis, sync, opened files, reconcile, changelists, submit, locks, timeouts, and caller cancellation.
-- Confirmation gates at both client and shared application-service boundaries for repository mutations.
-- Project path, linked-application, launch-profile, Git, Git LFS, disk-space, and repository-size health reporting with stable error codes.
+- browse, search, pin, import and open projects, and launch apps;
+- detect apps and discover projects on disk;
+- run pipeline tasks and see their logs and history;
+- use the board, asset library, project brief and MCP server;
+- use Git locally: status, diffs, history, branches, stash and commits.
 
-### Curated Tools Metadata
+Only these features need a connection:
 
-- Strict schema and semantic validation before metadata is cached.
-- Review states for submitted, reviewed, verified, stale, and withdrawn tools.
-- HTTPS source and artifact validation with platform and host metadata.
-- Streaming SHA-256 verification for downloaded artifacts.
-- No automatic execution of installers, scripts, or downloaded content.
-
-### Studio Workflows
-
-- **Pipeline tasks:** one-click builds, cooks, renders, exports and tests from templates (Unity batch mode, Unreal BuildCookRun, Godot export, Blender render, custom), stored in `.pipelineos/tasks.toml`, with live progress, logs, cancellation, run history, and a trust review before running commands that came from the repository.
-- **Board:** a git-native Kanban per project. One TOML file per issue under `.pipelineos/issues/`, so it syncs through version control without merge conflicts, plus "Open work" across every project on Home.
-- **Asset library:** concept art, references, source art, models, audio and video with shared review status (WIP / In review / Approved), feedback notes, and studio folder layouts.
-- **AI-ready:** start Claude Code (or Codex, Gemini, Aider) or a terminal in any project; a generated project brief tells agents the engine, the generated folders to leave alone, and how to build; a bundled **MCP server** (`vantadeck mcp`) lets Claude Desktop/Code work with projects, tasks and issues. See [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md).
-
-### Desktop Experience
-
-- Home dashboard, projects, applications, health, tools, and settings views.
-- Real machine-local data in the native application; browser fixtures require explicit demo mode.
-- Seven themes (Midnight, Daylight, Graphite, Nordic, Ember, Paper, High contrast) with reduced-motion support.
-- Command palette (`Ctrl+K`) for projects, launching, AI agents, actions and themes; `Ctrl+1–7` navigation; `?` shows every shortcut.
-- Activity screen with every running task across projects.
-- Confirmation-gated Git controls and project launch profiles.
-
-## Supported Applications
-
-The built-in catalog currently includes:
-
-| Category | Applications |
+| Feature | Offline behavior |
 | --- | --- |
-| Game engines | Unreal Engine, Unity, Godot |
-| DCC and art | Blender |
-| Code editors and IDEs | Visual Studio Code, JetBrains Rider |
-| Version control | Git, Git LFS, Perforce CLI |
+| Git fetch / pull / push / sync | Tries once more, then says the remote isn't reachable. Local commits are safe. |
+| GitHub pull requests and checks | Shows "GitHub isn't reachable", and refreshes on its own once you're back online. |
+| Tracker sync (GitHub Issues, Jira, Linear…) | Says the tracker isn't reachable; your local board is unaffected. |
+| Update check (at launch if auto-update is on, or from Settings) | Fails quietly at launch. A manual check says it couldn't reach the server instead of claiming you're up to date. |
 
-The manifest format is open and documented in [APP_MANIFEST_SPEC.md](docs/APP_MANIFEST_SPEC.md). New official manifests require schema validation, structured launch arguments, provenance, tests, and review.
+## Command line
 
-## Getting Started
+The `vantadeck` CLI ships inside the desktop app (it powers the MCP server) and can also be built from source with `cargo run -p vantadeck`. It exposes the same features. Every command supports `--json`, which returns a stable envelope (`schemaVersion`, `command`, `success`, `data`, `warnings`, `errors`). Commands that change something or touch a remote require `--yes`.
 
-### Download
-
-Grab the latest signed Windows build from [GitHub Releases](https://github.com/ojaseminem/Vantadeck/releases/latest) — no account, installer license, or payment required. The app self-updates after that. The installer isn't code-signed yet, so Windows SmartScreen shows an "unknown publisher" prompt on first run — choose *More info → Run anyway* (see [Known limitations](#known-limitations-v1)). Prefer to build it yourself? Follow the steps below.
-
-### Dev builds
-
-Want the newest work before it is released? Install **PipelineOS Dev** (Windows, or macOS on Apple Silicon or Intel) from the rolling [`dev-latest` pre-release](https://github.com/ojaseminem/Pipeline-OS/releases/tag/dev-latest), built from the `dev` branch. It installs next to the stable app with its own data and updates itself. See [RELEASING.md](RELEASING.md#dev-channel) and the [improvement plan](docs/dev/IMPROVEMENT_PLAN.md).
-
-### Prerequisites
-
-- Windows 10/11 for the currently validated desktop development workflow
-- [Rust 1.96](https://www.rust-lang.org/tools/install)
-- [Node.js 24](https://nodejs.org/) and npm 11
-- Git
-- Windows WebView2 Runtime for the Tauri desktop application
-
-### Clone And Build
-
-```powershell
-git clone https://github.com/ojaseminem/Vantadeck.git
-cd Vantadeck
-npm install
-cargo build --workspace
-npm run build
+```bash
+vantadeck scan apps                                   # detect installed apps
+vantadeck project import ~/Projects/MyGame            # add a project
+vantadeck project launch ~/Projects/MyGame editor     # open it with a launch profile
+vantadeck project vcs ~/Projects/MyGame sync --yes    # fetch, pull and push
+vantadeck tasks run ~/Projects/MyGame build --yes     # run a pipeline task
+vantadeck issues list ~/Projects/MyGame               # the project's board
+vantadeck context ~/Projects/MyGame                   # AI-ready project brief
+vantadeck discover                                    # projects not added yet
+vantadeck mcp                                         # serve AI agents over MCP (stdio)
 ```
 
-### Run The Desktop Application
+Run `vantadeck --help` or `vantadeck <command> --help` for everything. Automation details and exit codes are in [HEADLESS_MODE.md](docs/HEADLESS_MODE.md).
 
-Development mode with hot reload:
+## Project files
 
-```powershell
-npm run tauri --workspace @vantadeck/desktop -- dev
-```
-
-Build and run the local debug executable:
-
-```powershell
-npm run tauri --workspace @vantadeck/desktop -- build --debug --no-bundle
-.\target\debug\vantadeck-desktop.exe
-```
-
-### Run The CLI
-
-```powershell
-cargo run -p vantadeck -- --help
-cargo run -p vantadeck -- --json apps list
-```
-
-## Command-Line Interface
-
-Every JSON response uses a stable envelope containing `schemaVersion`, `command`, `success`, `data`, `warnings`, and structured `errors`.
-
-### Applications
-
-```powershell
-# Zero-config platform scan
-cargo run -p vantadeck -- --json scan apps
-
-# Scan an explicit portable tools directory
-cargo run -p vantadeck -- --json scan apps --root "D:/Creative Apps"
-
-# Add a machine-local executable override
-cargo run -p vantadeck -- --json apps override blender `
-  --version 4.2.3 `
-  --path "D:/Portable/Blender/blender.exe"
-```
-
-### Projects
-
-```powershell
-cargo run -p vantadeck -- --json project import "D:/Projects/MyGame" --name MyGame
-cargo run -p vantadeck -- --json project show "D:/Projects/MyGame"
-cargo run -p vantadeck -- --json project list --query "MyGame"
-cargo run -p vantadeck -- --json project pin "D:/Projects/MyGame"
-cargo run -p vantadeck -- --json project health "D:/Projects/MyGame"
-cargo run -p vantadeck -- --json project launch "D:/Projects/MyGame" editor
-```
-
-### Git
-
-Remote or mutating operations require `--yes` in non-interactive CLI usage.
-
-```powershell
-cargo run -p vantadeck -- --json project vcs "D:/Projects/MyGame" status
-cargo run -p vantadeck -- --json project vcs "D:/Projects/MyGame" switch --branch develop --yes
-cargo run -p vantadeck -- --json project vcs "D:/Projects/MyGame" sync --yes
-cargo run -p vantadeck -- --json project vcs "D:/Projects/MyGame" commit --message "Update assets" --yes
-cargo run -p vantadeck -- --json project vcs "D:/Projects/MyGame" push --yes
-```
-
-### Tools Metadata
-
-```powershell
-# Validate and cache a reviewed index file for offline use
-cargo run -p vantadeck -- --json tools cache `
-  "https://tools.vantadeck.org/v1/index.json" `
-  --file ".\reviewed-index.json"
-
-# Read the validated offline cache
-cargo run -p vantadeck -- --json tools list `
-  "https://tools.vantadeck.org/v1/index.json"
-
-# Verify an artifact without executing it
-cargo run -p vantadeck -- --json tools verify ".\tool.zip" --sha256 "<64-character-digest>"
-```
-
-See [HEADLESS_MODE.md](docs/HEADLESS_MODE.md) for automation and exit-code details.
-
-## Project Configuration
-
-Portable project metadata lives at `.pipelineos/project.toml`:
+Shared, team-owned settings live in the project's `.pipelineos/` folder and are meant to be committed:
 
 ```toml
+# .pipelineos/project.toml
 schema_version = 1
 name = "My Game"
 project_type = "game-development"
-enabled_health_checks = ["project-path", "linked-apps", "git", "git-lfs"]
 
 [[linked_apps]]
 app_id = "unity"
 preferred_version = "6000.0.0"
-folder = "."
 
 [[launch_profiles]]
 id = "editor"
 name = "Open Editor"
 app_id = "unity"
 arguments = ["-projectPath", "{projectRoot}"]
-working_directory = "."
-preferred_version = "^6000.0"
-fallback_version = "2022.3.18"
-
-[version_control]
-provider = "git"
-root = "."
 ```
 
-Absolute executable paths, credentials, user preferences, and machine-specific overrides must not be committed to this file. See [PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for the complete contract.
+Pipeline tasks live in `.pipelineos/tasks.toml` and issues in `.pipelineos/issues/`. Absolute paths, credentials and personal preferences never go in these files; they stay in the app's local data. The full contract is in [PROJECT_SPEC.md](docs/PROJECT_SPEC.md). Older `.vantadeck/` folders are migrated automatically.
+
+## Build from source
+
+Requirements: [Rust 1.96](https://www.rust-lang.org/tools/install), [Node.js 24](https://nodejs.org/) with npm 11, and Git. Also install the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS (WebView2 on Windows, Xcode Command Line Tools on macOS, WebKitGTK on Linux).
+
+```bash
+git clone https://github.com/ojaseminem/Pipeline-OS.git
+cd Pipeline-OS
+npm install
+
+# Desktop app with hot reload
+npm run tauri --workspace @vantadeck/desktop -- dev
+
+# CLI
+cargo run -p vantadeck -- --help
+```
+
+Before opening a pull request, run the same checks CI runs:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+npm run typecheck && npm run lint && npm test && npm run build
+```
 
 ## Architecture
 
 ```text
-React + Tauri Desktop ----+
-                          |-- Rust application services
-Rust CLI -----------------+         |
-                                    +-- domain contracts
-                                    +-- project files and migrations
-                                    +-- application detection
-                                    +-- safe process launching
-                                    +-- Git / Git LFS / Perforce
-                                    +-- health checks
-                                    +-- SQLite machine-local storage
+Desktop app (Tauri 2 + React) ──┐
+                                ├── Rust application services ── SQLite (local state)
+CLI + MCP server (vantadeck) ───┘           │
+                                            ├── detection   app discovery per OS
+                                            ├── projects    import, validation, safe writes
+                                            ├── launcher    structured, shell-free launches
+                                            ├── vcs         Git, Git LFS, Perforce
+                                            ├── studio      tasks, board, assets, trackers, GitHub
+                                            └── health      project health checks
 ```
 
-The Cargo workspace separates responsibilities into focused crates:
+The code lives in a Cargo workspace (`crates/`) plus two apps (`apps/desktop`, `apps/cli`). The internal crate and package names still use the project's original name, **Vantadeck**. See [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-| Crate | Responsibility |
-| --- | --- |
-| `domain` | Versioned public types, CLI envelopes, project contracts |
-| `application` | Shared orchestration used by desktop and CLI |
-| `storage` | SQLite machine-local state and caches |
-| `manifests` | Application and Tools Hub validation |
-| `detection` | Portable and platform-specific discovery sources |
-| `projects` | Import, inference, validation, recovery, and conflict-safe writes |
-| `launcher` | Structured launch resolution and command creation |
-| `vcs` | Git, Git LFS, and typed Perforce operations |
-| `health` | Composable health checks and remediation guidance |
-| `security` | Path containment and artifact integrity verification |
+## Privacy and security
 
-Read [ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing ownership boundaries or public contracts.
-
-## Privacy And Security
-
-Vantadeck is designed to remain useful with networking disabled.
-
-- No account, telemetry, analytics, advertising, or background networking by default.
-- Network-enabled features must be independently opt-in and visibly identified.
-- Credentials are never stored in SQLite or project files.
-- Existing authenticated Git and Perforce CLIs are used instead of collecting credentials.
-- Manifests cannot provide shell command strings.
-- Remote tool metadata is treated as untrusted and validated before caching.
+- No account, telemetry, analytics or ads. The network is only used for the features listed in [Works offline](#works-offline). The launch-time update check can be turned off in Settings.
+- Tokens are stored in the OS keychain, never in SQLite or project files. Git and Perforce use your existing CLI credentials.
+- Apps are launched with structured arguments, never through a shell. Task commands from a repository need your review before they run.
 - Downloaded content is never executed automatically.
-- Release automation produces checksums, SBOMs, and GitHub provenance/SBOM attestations. Every published file is also Sigstore-signed and logged to the public Rekor transparency log (verify with `cosign verify-blob` or `gh attestation verify`) — the release page itself only carries the installers, `SHA256SUMS.txt`, and the two SBOMs, not a signature bundle per file. Platform signing remains a release gate.
 
-Report vulnerabilities privately according to [SECURITY.md](SECURITY.md). Do not open public issues containing exploit details, credentials, private repository URLs, or proprietary project data.
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
-## Development
+## Status
 
-Run the complete local quality gate before opening a pull request:
-
-```powershell
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-npm test
-npm run typecheck
-npm run lint
-npm run build
-npm run validate:contracts
-```
-
-Repository automation additionally performs:
-
-- Windows, macOS, and Linux CI builds/tests
-- dependency, advisory, source, and license policy checks
-- secret scanning
-- native release packaging
-- SBOM, checksum, provenance, and Sigstore evidence generation
-- draft-only release assembly pending manual native validation
-
-## Repository Layout
-
-```text
-apps/
-  cli/                 Rust command-line client
-  desktop/             Tauri 2 + React desktop client
-crates/
-  application/         Shared use cases and orchestration
-  detection/           Platform discovery adapters
-  domain/              Public data contracts
-  health/              Health checks
-  launcher/            Safe process construction
-  manifests/           Manifest validation
-  projects/            Portable project handling
-  security/            Path and artifact security
-  storage/             SQLite persistence
-  vcs/                 Git, Git LFS, and Perforce
-docs/                  Architecture, specifications, and release runbooks
-manifests/apps/         Built-in application catalog
-schemas/               Versioned public JSON Schemas
-rfcs/                   Public design proposals
-.github/workflows/      CI, security, and release automation
-```
-
-## Roadmap
-
-| Milestone | Primary outcome |
-| --- | --- |
-| Alpha 1 | Windows detection, launching, projects, Git/LFS, CLI JSON, desktop dashboard |
-| Alpha 2 | Deeper workflows, background operations, activity, and Perforce validation |
-| Beta | Governed Tools Hub, packaging, accessibility/performance budgets, macOS/Linux parity |
-| 1.0 | Stable contracts, signed artifacts, migration guarantees, recovery documentation, supported-version policy |
-
-Roadmap labels describe intent, not shipped support. See [ROADMAP.md](ROADMAP.md) for current evidence and remaining release gates.
+**0.5** is the current release. It is stable for daily use on Windows, and macOS and Linux builds ship with every release. Still open before 1.0: Microsoft/Apple installer signing, clean-machine validation on each OS, and live Perforce testing. See [BLOCKERS.md](docs/release/BLOCKERS.md) and the [roadmap](ROADMAP.md).
 
 ## Contributing
 
-Contributions are welcome from game developers, artists, animators, technical artists, pipeline engineers, tool authors, documentation writers, testers, and translators.
+Contributions from developers, artists, technical artists, pipeline engineers, writers and testers are welcome.
 
 1. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
-2. Discuss behavior or public-contract changes through an issue or RFC.
-3. Add focused tests and document privacy/network impact.
-4. Run the complete quality gate.
-5. Sign commits with `git commit -s` to certify the [Developer Certificate of Origin](DCO.txt).
+2. For behavior or public-contract changes, start with an issue or an [RFC](docs/RFC_PROCESS.md).
+3. Add tests, note any network or privacy impact, and run the checks above.
+4. Sign off commits (`git commit -s`) per the [DCO](DCO.txt).
 
-Major decisions follow the public [RFC process](docs/RFC_PROCESS.md). Maintainer responsibilities and project governance are documented in [GOVERNANCE.md](GOVERNANCE.md).
-
-## Transparency
-
-- [Governance](GOVERNANCE.md)
-- [Roadmap](ROADMAP.md)
-- [Funding and relationships](FUNDING_DISCLOSURE.md)
-- [Privacy statement](PRIVACY.md)
-- [Security policy](SECURITY.md)
-- [Support policy](SUPPORT.md)
-- [Trademark policy](TRADEMARK.md)
-- [Contributor ladder](docs/CONTRIBUTOR_LADDER.md)
-- [Release and rollback process](docs/release/RELEASE.md)
+More: [Governance](GOVERNANCE.md) · [Releasing](RELEASING.md) · [Privacy](PRIVACY.md) · [Support](SUPPORT.md) · [Funding](FUNDING_DISCLOSURE.md) · [Trademark](TRADEMARK.md)
 
 ## License
 
-Vantadeck source code is free and open source, licensed under the [MIT License](LICENSE) — free for personal and commercial use, with no royalties or paid tiers. Documentation is licensed under CC BY 4.0 unless a file states otherwise. Contributions use DCO sign-off rather than a contributor license agreement.
-
----
-
-<div align="center">
-
-Built openly for people creating games, animation, VFX, CG, tools, and production pipelines.
-
-</div>
+[MIT](LICENSE) for code; documentation is CC BY 4.0 unless a file says otherwise.

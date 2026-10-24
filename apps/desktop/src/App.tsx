@@ -311,6 +311,10 @@ function AppShell() {
     void run("Checking for updates", async () => {
       const info = await desktopApi.checkForUpdate();
       setUpdate(info);
+      if (info.error && !info.available) {
+        toast.message("Couldn't check for updates", { description: "The update server isn't reachable. You may be offline; everything else keeps working." });
+        return;
+      }
       toast.message(info.available ? `Update ${info.version} is available.` : "You're on the latest version.");
     }, { quiet: true });
   }

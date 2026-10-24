@@ -53,6 +53,19 @@ impl StudioError {
     }
 }
 
+/// A request that never got an answer. Connection and timeout failures almost
+/// always mean the machine is offline, so say that instead of a raw transport
+/// error; everything local keeps working meanwhile.
+pub(crate) fn unreachable(service: &str, error: &reqwest::Error) -> StudioError {
+    if error.is_connect() || error.is_timeout() {
+        StudioError::Invalid(format!(
+            "{service} isn't reachable right now. Check your internet connection; everything local keeps working offline."
+        ))
+    } else {
+        StudioError::Invalid(format!("couldn't reach {service}: {error}"))
+    }
+}
+
 pub(crate) fn metadata_path(root: &Path, relative: &str) -> PathBuf {
     root.join(METADATA_DIR).join(relative)
 }
@@ -122,5 +135,17 @@ mod tests {
         assert_eq!(slugify("Build Win64 (Shipping)!"), "build-win64-shipping");
         assert_eq!(slugify("  --  "), "");
         assert!(validate_id(&slugify("Render Shot 010 / Beauty")).is_ok());
+    }
+
+    #[tokio::test]
+    async fn an_unanswered_request_reads_as_offline() {
+        // Nothing listens on port 1, so the connection is refused like it is
+        // when there's no network.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let error = reqwest::get("http://127.0.0.1:1/")
+            .await
+            .expect_err("refused");
+        let message = unreachable("GitHub", &error).to_string();
+        assert!(message.starts_with("GitHub isn't reachable"), "{message}");
     }
 }

@@ -277,10 +277,11 @@ impl GitProvider {
             let output = self
                 .run_raw_inner(root, &["pull", "--no-edit"], true)
                 .await?;
+            let stderr = String::from_utf8_lossy(&output.stderr);
             if output.status.success()
-                || attempt >= MAX_NETWORK_ATTEMPTS
+                || attempt >= attempt_budget(&stderr)
                 || self.has_merge_in_progress(root).await
-                || !is_transient_network_error(&String::from_utf8_lossy(&output.stderr))
+                || !is_transient_network_error(&stderr)
             {
                 break output;
             }
@@ -1057,7 +1058,7 @@ impl GitProvider {
                     return Ok(result);
                 }
                 Err(VcsError::CommandFailed { ref stderr, .. })
-                    if attempt < MAX_NETWORK_ATTEMPTS && is_transient_network_error(stderr) =>
+                    if attempt < attempt_budget(stderr) && is_transient_network_error(stderr) =>
                 {
                     tokio::time::sleep(self.backoff_for(attempt)).await;
                     attempt += 1;

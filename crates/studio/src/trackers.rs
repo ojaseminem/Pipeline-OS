@@ -560,7 +560,7 @@ async fn send(request: reqwest::RequestBuilder, what: &str) -> Result<Value, Stu
     let response = request
         .send()
         .await
-        .map_err(|e| StudioError::Invalid(format!("couldn't reach {what}: {e}")))?;
+        .map_err(|e| crate::unreachable(what, &e))?;
     let status = response.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         return Err(StudioError::Invalid(format!(

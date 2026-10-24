@@ -398,7 +398,7 @@ async fn network_operations_retry_transient_failures_only() {
     let flaky = fake_git(
         scripts.path(),
         2,
-        "fatal: unable to access 'https://example.invalid/': Could not resolve host: example.invalid",
+        "error: RPC failed; curl 56 Recv failure: Connection reset by peer",
     );
     let provider = GitProvider::new(&flaky).with_retry_backoff(std::time::Duration::ZERO);
     let result = provider
@@ -406,6 +406,19 @@ async fn network_operations_retry_transient_failures_only() {
         .await
         .expect("fetch after retries");
     assert_eq!(result.attempts, 3);
+
+    // Offline (no DNS): one quick retry, then give up instead of making the
+    // user wait through the full backoff.
+    let offline_dir = tempfile::tempdir().unwrap();
+    let offline = fake_git(
+        offline_dir.path(),
+        5,
+        "fatal: unable to access 'https://example.invalid/': Could not resolve host: example.invalid",
+    );
+    let provider = GitProvider::new(&offline).with_retry_backoff(std::time::Duration::ZERO);
+    assert!(provider.fetch(work.path()).await.is_err());
+    let count = fs::read_to_string(offline_dir.path().join("count")).unwrap();
+    assert_eq!(count.trim(), "2", "offline gets a single retry");
 
     let auth_dir = tempfile::tempdir().unwrap();
     let auth = fake_git(
