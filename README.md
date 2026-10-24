@@ -2,31 +2,38 @@
 
 # Pipeline OS
 
-**A free, local-first home base for game, CG, VFX and animation projects.**
+### Your whole game, film or VFX pipeline — in one local, open-source app.
 
-Find your creative apps, open projects in the right version, run builds and renders, track work, and manage Git — from one desktop app and a scriptable CLI. No account, no cloud, no telemetry.
+Find every creative app and version on your machine, open projects in the right one, run builds and renders, track the work, and drive Git — from one desktop app and a scriptable CLI.<br>
+**No account. No cloud. No telemetry. Works offline.**
 
+[![Latest release](https://img.shields.io/github/v/release/ojaseminem/Pipeline-OS?label=download&color=2bb3a6)](https://github.com/ojaseminem/Pipeline-OS/releases/latest)
 [![CI](https://github.com/ojaseminem/Pipeline-OS/actions/workflows/ci.yml/badge.svg)](https://github.com/ojaseminem/Pipeline-OS/actions/workflows/ci.yml)
 [![Security](https://github.com/ojaseminem/Pipeline-OS/actions/workflows/security.yml/badge.svg)](https://github.com/ojaseminem/Pipeline-OS/actions/workflows/security.yml)
-[![Latest release](https://img.shields.io/github/v/release/ojaseminem/Pipeline-OS)](https://github.com/ojaseminem/Pipeline-OS/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/ojaseminem/Pipeline-OS)](LICENSE)
+![Windows · macOS · Linux](https://img.shields.io/badge/platforms-Windows%20·%20macOS%20·%20Linux-555)
 
-[Download](#download) · [Features](#features) · [Works offline](#works-offline) · [CLI](#command-line) · [Build from source](#build-from-source) · [Contributing](#contributing)
+[Download](#download) · [Tour](#a-quick-tour) · [Features](#features) · [Works offline](#works-offline) · [CLI](#command-line) · [Build from source](#build-from-source) · [Contributing](#contributing)
+
+<br>
+
+<img src="docs/screenshots/home.png" alt="Pipeline OS home: continue where you left off, pinned projects, a running build, open work and project health" width="100%">
 
 </div>
 
-![Pipeline OS dashboard](docs/design/vantadeck-dashboard-reference.png)
+## Why Pipeline OS
 
-## Why
+A single game or film project leans on a dozen tools: an engine (often one specific version), DCC apps, editors, source control, build scripts, a tracker. Pipeline OS puts all of it in one place, on your machine.
 
-A single game or film project leans on many tools: an engine (often a specific version), DCC apps, editors, source control, build scripts. Pipeline OS keeps all of that in one place on your machine:
-
-- **Free and open source.** MIT-licensed for personal and commercial use. No tiers, seats or feature gates.
-- **Local-first.** Projects, preferences, history and caches stay on your computer.
-- **Works offline.** Everything except the features that talk to a server keeps working with no connection (details [below](#works-offline)).
-- **No account, no telemetry.** Nothing is sent anywhere unless you ask for it.
-- **Team-friendly.** Shared settings live in plain files in the repo (`.pipelineos/`), with relative paths, so they travel through version control.
-- **Scriptable.** The desktop app and the `vantadeck` CLI use the same Rust core, and the CLI has stable JSON output for automation and AI agents.
+| | |
+| --- | --- |
+| 🧭 **One home for every project** | Pinned and recent projects, what changed, health warnings and open work, the moment you open the app. |
+| 🎯 **The right version, every time** | Detects 60+ creative apps with every installed version side by side, and opens each project in the version it needs. |
+| ⚙️ **One-click pipeline** | Builds, cooks, renders, exports and tests from templates, with live progress, logs and history. |
+| 🌿 **Git without the friction** | Changes, diffs, branches (with when each was last updated), merges, pull requests and CI checks. |
+| 🗂️ **Work tracking that lives in the repo** | A Kanban board and asset reviews stored as plain files, so they sync through Git. |
+| 🤖 **AI-ready** | A project brief and a built-in MCP server let Claude, Cursor, Codex and others work with your projects safely. |
+| 🔒 **Yours** | MIT-licensed, local-first, no account, no telemetry, and it [works offline](#works-offline). |
 
 ## Download
 
@@ -47,6 +54,74 @@ Update files are signed, and every release ships checksums (`SHA256SUMS.txt`), S
 
 **Dev builds.** To try the newest work early, install **PipelineOS Dev** from the rolling [`dev-latest` pre-release](https://github.com/ojaseminem/Pipeline-OS/releases/tag/dev-latest) (Windows, macOS Apple Silicon and Intel). It installs alongside the stable app with its own data, and updates itself from the `dev` branch.
 
+## A quick tour
+
+### Source control, built for creative projects
+Stage, diff and commit with pre-commit checks, then sync in one click. The branch menu shows when every branch was last updated, and keeps *New branch* and *Merge* pinned at the bottom.
+
+<img src="docs/screenshots/source-control.png" alt="Source control: changed files with a colored diff of PlayerController.cs" width="100%">
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/branches.png" alt="Branch menu with last-updated times and pinned New branch and Merge actions"></td>
+    <td width="50%"><img src="docs/screenshots/project-overview.png" alt="Project overview with active time and health checks"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Branches with last-updated times</sub></td>
+    <td align="center"><sub>Active time and project health</sub></td>
+  </tr>
+</table>
+
+### One-click pipeline
+Unity, Unreal, Godot and Blender templates (or your own commands) become buttons. Runs show live progress and logs, and history stays with the project. Tasks that arrive through the repo must be reviewed and trusted on your machine before they run.
+
+<img src="docs/screenshots/pipeline.png" alt="Pipeline tasks: a Windows build running at 64% with run history" width="100%">
+
+### Plan the work where the work lives
+Every project gets a Kanban board stored as plain files in `.pipelineos/issues/`, so it merges cleanly through Git. Planning rolls up progress, workload and recent changes across all of your projects.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/board.png" alt="Project board with backlog, to do, in progress, review and done columns"></td>
+    <td width="50%"><img src="docs/screenshots/planning.png" alt="Planning dashboard with progress by project and team workload"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Board per project</sub></td>
+    <td align="center"><sub>Planning across every project</sub></td>
+  </tr>
+</table>
+
+### Assets and reviews
+Concept art, references, models, audio and video in one library, with shared review status (WIP, In review, Approved) and studio folder layouts.
+
+<img src="docs/screenshots/assets.png" alt="Asset library with previews and review status badges" width="100%">
+
+### Made for AI agents
+Open Claude Code, Codex, Gemini or a terminal right in the project. A generated brief tells agents the engine, how to build and what to leave alone, and the built-in MCP server connects your AI apps in one click.
+
+<img src="docs/screenshots/ai.png" alt="AI tab: launch agents, connect AI apps over MCP, and the generated project brief" width="100%">
+
+### Every app, every version
+Pipeline OS finds the engines, DCCs, editors and tools you already have, with each installed version side by side, ready to launch or pin to Quick Launch.
+
+<img src="docs/screenshots/applications.png" alt="Applications grouped by category with every installed version" width="100%">
+
+### Make it yours
+11 themes (including Glass, High contrast and light themes), custom accent colors, density and motion settings.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/settings.png" alt="Appearance settings with theme previews and accent colors"></td>
+    <td width="50%"><img src="docs/screenshots/home-light.png" alt="Home screen in the Daylight theme"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Themes and accents</sub></td>
+    <td align="center"><sub>Daylight theme</sub></td>
+  </tr>
+</table>
+
+<sub>Screenshots show the real app with sample projects.</sub>
+
 ## Features
 
 ### Apps and projects
@@ -55,16 +130,17 @@ Update files are signed, and every release ships checksums (`SHA256SUMS.txt`), S
 - **Imports projects** for Unity, Unreal, Godot, Blender/Maya and any creative folder, and finds projects already on your disk.
 - **Opens projects in the right version**, with preferred and fallback versions, launch profiles, and per-machine overrides that are never committed.
 - **Suggests the tools a project uses** (Maya, Substance, Houdini…) from the files it contains.
-- **Pins, search and recent projects**, with a small search box next to *Pinned / Recent*.
+- **Pins, search and recent projects**, with a quick filter next to *Pinned / Recent*.
 
 ### Studio workflows
 - **Pipeline tasks.** One-click builds, cooks, renders, exports and tests from templates (Unity batch mode, Unreal BuildCookRun, Godot export, Blender render, or your own). Live logs, cancel, and run history. Commands that arrive through the repo must be reviewed and trusted on your machine before they run.
-- **Board.** A Kanban board per project, stored as one small file per issue under `.pipelineos/issues/`, so it merges cleanly through Git. *Open work* on Home shows everything across projects. Optional sync with GitHub Issues, Jira, Linear and others.
+- **Board.** A Kanban board per project, stored as one small file per issue under `.pipelineos/issues/`, so it merges cleanly through Git. *Open work* on Home and *Planning* show everything across projects. Optional sync with GitHub Issues, Jira, Linear and others.
 - **Asset library.** Concept art, references, models, audio and video with review status (WIP / In review / Approved), notes and studio folder layouts.
-- **Engine activity and time.** See what the engine is doing from its logs, and how long you've worked on each project (kept locally).
+- **Engine activity and time.** See what the engine is doing from its logs (lighting builds, shader compiles, cooks), and how long you've worked on each project (kept locally).
 
 ### Source control
 - Git status, diffs, history, branches, stash on switch, commit, pull, push and one-click sync, in the style of GitHub Desktop.
+- Every branch list shows when each branch was last updated; the branch menu sizes to your branch names and keeps *New branch* and *Merge* pinned.
 - Merge-conflict help (including automatic merging of TOML settings), pre-commit checks, and guarded branch deletion.
 - GitHub pull requests and CI checks for the current branch, with failed-job logs. This uses an optional token kept in your OS keychain.
 - Git LFS checks that only warn when a project actually has large files.
