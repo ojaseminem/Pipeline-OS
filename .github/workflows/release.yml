@@ -51,11 +51,14 @@ jobs:
           if [[ "$(git cat-file -t "refs/tags/${REQUESTED_TAG}")" != tag ]]; then
             {
               echo "release tag must be annotated; lightweight tags cannot carry release metadata"
-              echo "create it with: git tag -a ${REQUESTED_TAG} -m 'Vantadeck ${REQUESTED_TAG#v}'"
+              echo "create it with: git tag -a ${REQUESTED_TAG} -m 'Pipeline OS ${REQUESTED_TAG#v}'"
             } >&2
             exit 1
           fi
           git verify-tag "${REQUESTED_TAG}" || echo "::warning::Tag ${REQUESTED_TAG} is not GPG-signed (recommended for releases)."
+          # Fail before the long builds if the tag has no CHANGELOG notes.
+          git show "${REQUESTED_TAG}:CHANGELOG.md" > /tmp/CHANGELOG.md
+          node scripts/release-notes.mjs /tmp/CHANGELOG.md "${REQUESTED_TAG}" > /dev/null
           printf 'tag=%s\n' "${REQUESTED_TAG}" >> "${GITHUB_OUTPUT}"
           printf 'sha=%s\n' "$(git rev-list -n 1 "${REQUESTED_TAG}")" >> "${GITHUB_OUTPUT}"
 
@@ -145,7 +148,7 @@ jobs:
           retention-days: 14
 
   publish-draft:
-    name: Assemble signed draft and evidence
+    name: Assemble signed release and evidence
     needs: [validate-ref, build]
     timeout-minutes: 30
     runs-on: ubuntu-24.04
@@ -229,12 +232,17 @@ jobs:
         with:
           subject-path: release-assets/*
           sbom-path: artifact-sbom.spdx.json
+      - name: Write release notes from CHANGELOG.md
+        shell: bash
+        env:
+          VALIDATED_TAG: ${{ needs.validate-ref.outputs.tag }}
+        run: node source/scripts/release-notes.mjs source/CHANGELOG.md "${VALIDATED_TAG}" > release-notes.md
       - name: Publish signed release (consumed by the auto-updater)
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
         with:
           tag_name: ${{ needs.validate-ref.outputs.tag }}
           draft: false
-          generate_release_notes: true
+          body_path: release-notes.md
           fail_on_unmatched_files: true
           files: |
             release-assets/*

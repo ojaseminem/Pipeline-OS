@@ -46,7 +46,9 @@ The tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml), w
    GitHub build-provenance attestations;
 5. **publishes** the GitHub release, which installed apps then offer as an update.
 
-Add a [CHANGELOG.md](CHANGELOG.md) entry in the release commit. If a release has to
+Add a `## X.Y.Z — date` section to [CHANGELOG.md](CHANGELOG.md) in the release commit,
+written in plain words (what's new, then fixes). It becomes the GitHub release notes,
+and the workflow stops before building if the section is missing. If a release has to
 be stopped, cancel the run and delete the tag before it publishes; never move or reuse
 a tag after a release is public (see [docs/release/RECOVERY.md](docs/release/RECOVERY.md)).
 

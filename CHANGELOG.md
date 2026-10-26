@@ -1,70 +1,76 @@
 # Changelog
 
-All notable changes to Pipeline OS. Versions follow [Semantic Versioning](https://semver.org/);
-each one is a [GitHub release](https://github.com/ojaseminem/Pipeline-OS/releases) with
-installers for Windows, macOS (Apple Silicon and Intel) and Linux. Installed apps update
-themselves from the latest release.
+What changed in each Pipeline OS release. The same notes appear on each
+[GitHub release](https://github.com/ojaseminem/Pipeline-OS/releases). Installed apps
+update themselves from the latest release.
 
 ## 0.5.4 — 2026-10-24
 
-### Added
-- AI agents can author pipelines over MCP: `list_task_presets`, `save_task`,
-  `delete_task`, `save_task_preset` and `delete_task_preset`. Any change to a task
-  revokes trust, so an agent can propose a pipeline but it only runs after you review
-  and trust it.
-- Project presets in `.pipelineos/presets.toml`, shared through version control and
-  listed first in Add tasks. Save any task as a preset from its menu.
-- Copy one task or the whole pipeline as TOML, and import pasted TOML or a `.toml`
-  file. The exact commands are shown before anything is saved.
-- The project brief is now a card at the top of Overview that opens a large reader
-  with a Markdown source view, copy, and save to `context.md`.
+### What's new
 
-### Fixed
-- The task editor edits environment variables and no longer drops them on save.
+- **AI agents can build your pipeline.** Claude, Cursor and other AI apps connected to
+  Pipeline OS can now create, edit and remove build tasks and presets for you. Nothing
+  they write runs until you've looked at the commands and trusted them.
+- **Your own presets, per project.** Save any task as a preset and it shows up first in
+  Add tasks. Presets live in the project (`.pipelineos/presets.toml`), so everyone on the
+  team gets them through Git.
+- **Copy and import tasks.** Copy one task or the whole pipeline as text, and paste it
+  into another project, or open a `.toml` file. You see exactly what each task will run
+  before anything is saved.
+- **Project brief on Overview.** The brief now sits at the top of the Overview tab.
+  Click it to read the whole thing in a large window, view the Markdown, copy it, or
+  save it for AI agents.
+
+### Fixes
+
+- Editing a task no longer loses its environment variables.
 
 ## 0.5.3 — 2026-10-24
 
-### Fixed
-- macOS updates: the update feed now has separate Apple Silicon and Intel entries.
-  0.5.0 on Apple Silicon reported it was up to date because the feed only listed an
-  (incorrectly labelled) Intel build.
+### What's new
 
-### Added
-- A macOS Intel installer alongside Apple Silicon.
+- **Intel Mac support.** There's now a separate installer for Intel Macs alongside
+  Apple Silicon.
+
+### Fixes
+
+- Macs now get updates. Apple Silicon Macs on 0.5.0 said they were up to date even when
+  a newer version was out.
 
 ## 0.5.2 — 2026-10-24
 
-0.5.1 was cancelled before it published; its changes ship here.
+### What's new
 
-### Added
-- Branch lists (switcher, merge picker, Branches & tags) show when each branch was
-  last updated, with the exact date on hover.
-- The branch switcher sizes to the longest branch name and keeps New branch and Merge
-  pinned below the scrolling list.
+- **See when each branch was last updated.** The branch switcher, the merge picker and
+  Branches & tags show how long ago each branch changed. Hover for the exact date.
+- **Easier branch switcher.** It widens to fit long branch names, and New branch and
+  Merge stay pinned at the bottom while the list scrolls.
 
-### Fixed
-- The app works offline. Screens no longer hang loading on macOS when the network is
-  down; Git, GitHub and tracker actions say the remote isn't reachable instead of
-  showing raw errors.
-- A manual update check no longer claims you're up to date when it couldn't reach
-  the server.
+### Fixes
+
+- **Works offline.** Screens no longer get stuck loading on a Mac with no network. Git,
+  GitHub and tracker actions now say they can't reach the server instead of showing
+  raw errors.
+- Checking for updates while offline no longer says you're up to date.
+
+0.5.1 was cancelled before release; its changes are included here.
 
 ## 0.5.0 — 2026-10-23
 
-First public release as Pipeline OS (formerly Vantadeck).
+The first public release as Pipeline OS (formerly Vantadeck).
 
-- Projects: import or discover Unity, Unreal, Godot, Blender and other projects, with
-  health checks, pinning, and launching into the right editor version.
-- Applications: detects installed engines and DCCs on Windows, macOS and Linux, with
-  per-machine version overrides.
-- Source Control: Git status, diffs, commits, branches, merges, stashes, and GitHub pull
+- **Projects:** add or discover Unity, Unreal, Godot, Blender and other projects, see
+  their health, pin them, and open each in the right app version.
+- **Applications:** finds 60+ engines and creative apps on Windows, macOS and Linux,
+  including several versions side by side.
+- **Source Control:** changes, diffs, commits, branches, merges, and GitHub pull
   requests and checks.
-- Pipeline: build, cook, render, export and test tasks stored in
-  `.pipelineos/tasks.toml`, with built-in templates and live output.
-- Board: a git-native issue board with optional sync from GitHub Issues, Jira, Linear,
-  Plane, Gitea/Forgejo and ClickUp.
-- Assets: an asset library and studio folder layouts.
-- AI: the `vantadeck mcp` server, one-click setup for Claude, Codex, Cursor, VS Code and
-  others, and an AI-ready project brief.
-- The `vantadeck` command line with a stable `--json` envelope.
-- Signed in-app updates.
+- **Pipeline:** one-click builds, cooks, renders, exports and tests from templates, with
+  live logs and run history.
+- **Board:** an issue board stored in the project, with optional sync from GitHub
+  Issues, Jira, Linear, Plane, Gitea/Forgejo and ClickUp.
+- **Assets:** an asset library and ready-made studio folder layouts.
+- **AI:** connect Claude, Codex, Cursor, VS Code and others in one click, plus a
+  project brief that tells agents how your project works.
+- **Command line:** everything above from scripts with the `vantadeck` CLI.
+- **Automatic updates,** signed so only real releases install.

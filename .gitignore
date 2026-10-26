@@ -28,8 +28,7 @@ Thumbs.db
 # Local release staging (built artifacts, not source)
 release-assets/
 
-# Local Claude Code state (personal permissions, worktrees) — .claude/launch.json is shared
-.claude/settings.local.json
-.claude/worktrees/
+# Local Claude Code state
+.claude/
 apps/desktop/src-tauri/tauri.version.conf.json
 /apps/desktop/src-tauri/binaries/

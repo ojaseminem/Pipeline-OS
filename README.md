@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/logo.png" alt="Pipeline OS logo" width="112" height="112">
+
 # Pipeline OS
 
 ### Your whole game, film or VFX pipeline — in one local, open-source app.
@@ -281,7 +283,7 @@ Contributions from developers, artists, technical artists, pipeline engineers, w
 3. Add tests, note any network or privacy impact, and run the checks above.
 4. Sign off commits (`git commit -s`) per the [DCO](DCO.txt).
 
-More: [Governance](GOVERNANCE.md) · [Releasing](RELEASING.md) · [Privacy](PRIVACY.md) · [Support](SUPPORT.md) · [Funding](FUNDING_DISCLOSURE.md) · [Trademark](TRADEMARK.md)
+More: [Governance](GOVERNANCE.md) · [Releasing](RELEASING.md) · [Privacy](PRIVACY.md) · [Support](SUPPORT.md) · [Trademark](TRADEMARK.md)
 
 ## License
 
