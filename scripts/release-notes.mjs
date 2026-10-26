@@ -17,7 +17,15 @@ if (start === -1) {
 }
 let end = lines.findIndex((line, index) => index > start && line.startsWith("## "));
 if (end === -1) end = lines.length;
-const body = lines.slice(start + 1, end).join("\n").trim();
+// GitHub shows every newline in a release body as a line break, so join the
+// CHANGELOG's hard-wrapped lines back into whole paragraphs and bullets.
+const body = lines.slice(start + 1, end).reduce((out, line) => {
+  const previous = out.at(-1);
+  const continues = line.trim() && previous?.trim() && !previous.startsWith("#") && !/^\s*(#|- )/.test(line);
+  if (continues) out[out.length - 1] = `${previous} ${line.trim()}`;
+  else out.push(line);
+  return out;
+}, []).join("\n").trim();
 if (!body) {
   console.error(`CHANGELOG.md section for ${version} is empty`);
   process.exit(1);
@@ -26,8 +34,5 @@ process.stdout.write(`${body}
 
 ### Download
 
-Pick the installer for your system under **Assets** below: \`.exe\` or \`.msi\` for
-Windows, \`aarch64.dmg\` for Apple Silicon Macs, \`x64.dmg\` for Intel Macs, and
-\`.AppImage\`, \`.deb\` or \`.rpm\` for Linux. Already installed? Pipeline OS updates
-itself.
+Pick the installer for your system under **Assets** below: \`.exe\` or \`.msi\` for Windows, \`aarch64.dmg\` for Apple Silicon Macs, \`x64.dmg\` for Intel Macs, and \`.AppImage\`, \`.deb\` or \`.rpm\` for Linux. Already installed? Pipeline OS updates itself.
 `);

@@ -1,4 +1,4 @@
-name: Update v0.5.4 release notes (one-off)
+name: Update v0.5.4 release notes (one-off, unwrapped)
 
 on:
   push:
