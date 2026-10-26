@@ -1,0 +1,24 @@
+name: Update v0.5.4 release notes (one-off)
+
+on:
+  push:
+    branches: [claude/beautiful-feynman-g9q2j6]
+    paths: [.github/workflows/update-release-notes.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Replace the v0.5.4 release body with its CHANGELOG notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/release-notes.mjs CHANGELOG.md v0.5.4 > notes.md
+          gh release edit v0.5.4 --repo "${GITHUB_REPOSITORY}" --notes-file notes.md
