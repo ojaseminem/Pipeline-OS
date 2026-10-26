@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pipeline OS — your whole pipeline, on your machine</title>
+  <meta name="description" content="Pipeline OS is a free, open-source desktop app for game, film and VFX work. Find every creative app and version, open projects in the right one, run builds and renders, track the work and drive Git. No account, no cloud, no telemetry.">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="canonical" href="https://ojaseminem.github.io/Pipeline-OS/">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Pipeline OS — your whole pipeline, on your machine">
+  <meta property="og:description" content="One local, open-source app for your game, film or VFX pipeline. Apps, projects, builds, Git and work tracking. No account, no cloud, no telemetry.">
+  <meta property="og:url" content="https://ojaseminem.github.io/Pipeline-OS/">
+  <meta property="og:image" content="https://ojaseminem.github.io/Pipeline-OS/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/site.css">
+  <link rel="preload" as="image" href="assets/shots/home.webp" fetchpriority="high">
+  <script defer src="assets/site.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- Icon sprite (Lucide-style strokes, as in the app) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-wifi-off" viewBox="0 0 24 24"><path d="M12 20h.01M8.5 16.4a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.2-2.8M19 12.9a10 10 0 0 0-2.3-1.7M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8A15 15 0 0 0 11 5.1M2 2l20 20"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.7 2.7M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6M2 2l20 20M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6m8 14h8"/></symbol>
+  <symbol id="i-hammer" viewBox="0 0 24 24"><path d="m15 12-8.4 8.4a2.1 2.1 0 0 1-3-3L12 9M17.6 15 22 10.6M20 12.6l-1.3-1.3a2.4 2.4 0 0 1-.7-1.7V7.9l-2.3-2.3a5.8 5.8 0 0 0-4.1-1.7H9l.9.8a6.2 6.2 0 0 1 2.1 4.6V11l2 2h1.2a2.4 2.4 0 0 1 1.7.7L18.2 15"/></symbol>
+</svg>
+
+<header class="nav" id="top">
+  <div class="wrap nav__inner">
+    <a class="brand" href="#top" aria-label="Pipeline OS home">
+      <img src="assets/logo.png" width="32" height="32" alt="">
+      <span>Pipeline <b>OS</b></span>
+    </a>
+    <nav class="nav__links" aria-label="Sections">
+      <a href="#tour">Tour</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#ai">AI</a>
+      <a href="#offline">Offline</a>
+      <a href="#cli">CLI</a>
+    </nav>
+    <div class="nav__actions">
+      <a class="btn btn--ghost btn--sm" href="https://github.com/ojaseminem/Pipeline-OS" aria-label="Pipeline OS on GitHub">
+        <svg class="ico"><use href="#i-github"/></svg><span class="hide-sm">GitHub</span>
+      </a>
+      <a class="btn btn--primary btn--sm" href="#download">Download</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ───────── Hero ───────── -->
+<section class="hero">
+  <div class="hero__grid" aria-hidden="true"></div>
+  <div class="wrap">
+    <p class="eyebrow hero__eyebrow">
+      <span class="dot dot--live" aria-hidden="true"></span>
+      <span><span data-release-version>v0.5.4</span> · MIT licensed · Windows · macOS · Linux</span>
+    </p>
+    <h1 class="display">Your whole pipeline,<br> on your machine.</h1>
+    <div class="hero__row">
+      <p class="lead">
+        Pipeline OS finds every creative app and version you have, opens each project in the one it needs,
+        runs your builds and renders, tracks the work and drives Git. One desktop app and a scriptable CLI
+        for game, film and VFX.
+      </p>
+      <div class="hero__cta">
+        <a class="btn btn--primary btn--lg" href="https://github.com/ojaseminem/Pipeline-OS/releases/latest" data-os-download>
+          <svg class="ico"><use href="#i-download"/></svg>
+          <span data-os-label>Download for free</span>
+        </a>
+        <a class="btn btn--ghost btn--lg" href="https://github.com/ojaseminem/Pipeline-OS">
+          <svg class="ico"><use href="#i-github"/></svg> Source on GitHub
+        </a>
+        <p class="hero__meta mono"><span data-os-meta>Free and open source</span> · <a href="#download">All platforms</a></p>
+      </div>
+    </div>
+    <ul class="pledges mono" aria-label="Principles">
+      <li>No account</li><li>No cloud</li><li>No telemetry</li><li>Works offline</li>
+    </ul>
+
+    <figure class="hero__shot">
+      <div class="frame frame--hero">
+        <img src="assets/shots/home.webp" width="2160" height="1350"
+             alt="Pipeline OS home screen: continue where you left off on the Voidline Unity project, pinned projects with their engine versions, a running Windows build and project health">
+      </div>
+      <div class="runcard" aria-hidden="true">
+        <div class="runcard__head">
+          <span class="spinner"></span>
+          <span class="runcard__title">Build Windows (Development)</span>
+          <span class="runcard__pct mono" data-run-pct>64%</span>
+        </div>
+        <div class="bar"><span data-run-bar style="width:64%"></span></div>
+        <ol class="runcard__log mono" data-run-log>
+          <li>Compiling shader variants (2,140/3,312)</li>
+        </ol>
+      </div>
+      <figcaption class="caption">The real app, with sample projects.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ───────── Apps ───────── -->
+<section class="apps" aria-labelledby="apps-title">
+  <div class="wrap apps__head">
+    <h2 id="apps-title" class="h3">Finds the 60+ creative apps you already have — <span class="muted">every installed version, side by side.</span></h2>
+    <p class="small muted">Registry, Unity Hub, Epic and Steam on Windows. App bundles on macOS. Desktop entries, Flatpak, Snap and AppImage on Linux. Plus PATH and common install folders.</p>
+  </div>
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee__track mono">
+      <span>Unity</span><span>Unreal Engine</span><span>Godot</span><span>Blender</span><span>Maya</span><span>Houdini</span><span>3ds Max</span><span>Cinema 4D</span><span>ZBrush</span><span>Substance</span><span>Photoshop</span><span>Krita</span><span>Aseprite</span><span>Spine</span><span>DaVinci Resolve</span><span>Nuke</span><span>Wwise</span><span>FMOD</span><span>Rider</span><span>VS Code</span><span>Visual Studio</span><span>Xcode</span><span>Git</span><span>Perforce</span>
+      <span>Unity</span><span>Unreal Engine</span><span>Godot</span><span>Blender</span><span>Maya</span><span>Houdini</span><span>3ds Max</span><span>Cinema 4D</span><span>ZBrush</span><span>Substance</span><span>Photoshop</span><span>Krita</span><span>Aseprite</span><span>Spine</span><span>DaVinci Resolve</span><span>Nuke</span><span>Wwise</span><span>FMOD</span><span>Rider</span><span>VS Code</span><span>Visual Studio</span><span>Xcode</span><span>Git</span><span>Perforce</span>
+    </div>
+  </div>
+  <p class="sr-only">Detected apps include Unity, Unreal Engine, Godot, Blender, Maya, Houdini, 3ds Max, Cinema 4D, ZBrush, Substance, Photoshop, Krita, Aseprite, Spine, DaVinci Resolve, Nuke, Wwise, FMOD, Rider, VS Code, Visual Studio, Xcode, Git and Perforce.</p>
+</section>
+
+<!-- ───────── Tour ───────── -->
+<section class="section" id="tour" aria-labelledby="tour-title">
+  <div class="wrap">
+    <div class="section__head">
+      <p class="eyebrow">01 — The tour</p>
+      <h2 id="tour-title" class="h2">Everything a project leans on,<br> in one place.</h2>
+      <p class="lead muted">An engine in one exact version, a few DCC apps, source control, build scripts, a tracker. Pipeline OS keeps them together, per project.</p>
+    </div>
+
+    <div class="tour" data-tabs>
+      <div class="tour__list" role="tablist" aria-label="Screens" aria-orientation="vertical">
+        <button class="tour__tab" role="tab" id="t-home" aria-controls="p-home" aria-selected="true">
+          <span class="mono tour__n">Home</span>
+          <span class="tour__t">Pick up where you left off</span>
+          <span class="tour__d">Pinned and recent projects, what changed, health warnings and open work, the moment the app opens.</span>
+        </button>
+        <button class="tour__tab" role="tab" id="t-git" aria-controls="p-git" aria-selected="false" tabindex="-1">
+          <span class="mono tour__n">Source control</span>
+          <span class="tour__t">Git, built for creative projects</span>
+          <span class="tour__d">Stage, diff and commit with pre-commit checks, then sync in one click. Pull requests and CI checks for your branch.</span>
+        </button>
+        <button class="tour__tab" role="tab" id="t-pipe" aria-controls="p-pipe" aria-selected="false" tabindex="-1">
+          <span class="mono tour__n">Pipeline</span>
+          <span class="tour__t">Builds become buttons</span>
+          <span class="tour__d">Unity, Unreal, Godot and Blender templates, or your own commands. Live progress, logs and history.</span>
+        </button>
+        <button class="tour__tab" role="tab" id="t-board" aria-controls="p-board" aria-selected="false" tabindex="-1">
+          <span class="mono tour__n">Board</span>
+          <span class="tour__t">Plan where the work lives</span>
+          <span class="tour__d">A Kanban board per project, stored as plain files in the repo so it merges through Git.</span>
+        </button>
+        <button class="tour__tab" role="tab" id="t-assets" aria-controls="p-assets" aria-selected="false" tabindex="-1">
+          <span class="mono tour__n">Assets</span>
+          <span class="tour__t">Reviews without another tool</span>
+          <span class="tour__d">Concept art, references, models, audio and video, with WIP, In review and Approved status.</span>
+        </button>
+        <button class="tour__tab" role="tab" id="t-apps" aria-controls="p-apps" aria-selected="false" tabindex="-1">
+          <span class="mono tour__n">Applications</span>
+          <span class="tour__t">The right version, every time</span>
+          <span class="tour__d">Every engine, DCC and editor you have, grouped, with each version ready to launch or pin.</span>
+        </button>
+      </div>
+
+      <div class="tour__stage">
+        <div class="frame" role="tabpanel" id="p-home" aria-labelledby="t-home" tabindex="0">
+          <img src="assets/shots/home.webp" width="2160" height="1350" loading="lazy" alt="Home: continue where you left off, pinned projects, pipeline and open work">
+        </div>
+        <div class="frame" role="tabpanel" id="p-git" aria-labelledby="t-git" tabindex="0" hidden>
+          <img src="assets/shots/source-control.webp" width="2160" height="1350" loading="lazy" alt="Source control: changed files with a colored diff of PlayerController.cs">
+        </div>
+        <div class="frame" role="tabpanel" id="p-pipe" aria-labelledby="t-pipe" tabindex="0" hidden>
+          <img src="assets/shots/pipeline.webp" width="2160" height="1350" loading="lazy" alt="Pipeline tasks: a Windows build running at 64% with run history">
+        </div>
+        <div class="frame" role="tabpanel" id="p-board" aria-labelledby="t-board" tabindex="0" hidden>
+          <img src="assets/shots/board.webp" width="2160" height="1350" loading="lazy" alt="Project board with backlog, to do, in progress, review and done columns">
+        </div>
+        <div class="frame" role="tabpanel" id="p-assets" aria-labelledby="t-assets" tabindex="0" hidden>
+          <img src="assets/shots/assets.webp" width="2160" height="1350" loading="lazy" alt="Asset library with previews and review status badges">
+        </div>
+        <div class="frame" role="tabpanel" id="p-apps" aria-labelledby="t-apps" tabindex="0" hidden>
+          <img src="assets/shots/applications.webp" width="2160" height="1350" loading="lazy" alt="Applications grouped by category with every installed version">
+        </div>
+      </div>
+    </div>
+
+    <div class="duo">
+      <figure>
+        <div class="frame"><img src="assets/shots/branches-1080.webp" width="1080" height="675" loading="lazy" alt="Branch menu showing when each branch was last updated, with New branch and Merge pinned at the bottom"></div>
+        <figcaption class="caption">Every branch shows when it was last updated.</figcaption>
+      </figure>
+      <figure>
+        <div class="frame"><img src="assets/shots/planning-1080.webp" width="1080" height="675" loading="lazy" alt="Planning dashboard with progress by project and team workload"></div>
+        <figcaption class="caption">Planning rolls up progress and workload across every project.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── Pipeline ───────── -->
+<section class="section section--panel" id="pipeline" aria-labelledby="pipe-title">
+  <div class="wrap split">
+    <div class="split__text">
+      <p class="eyebrow">02 — One-click pipeline</p>
+      <h2 id="pipe-title" class="h2">Builds, cooks, renders and tests. Nothing runs until you trust it.</h2>
+      <p class="body">Unity batch mode, Unreal BuildCookRun, Godot export, Blender render, or your own command. Each becomes a button with live logs, cancel and a run history that stays with the project.</p>
+      <p class="body">Tasks live in <code>.pipelineos/tasks.toml</code>, so the whole team shares them through Git. When a task file arrives through the repo, you read the commands and trust them on your machine before any of them can run.</p>
+      <ul class="ticks">
+        <li>Save any task as a preset that the whole team gets</li>
+        <li>Copy a pipeline as TOML and paste it into another project</li>
+        <li>Engine activity from the logs: lighting builds, shader compiles, cooks</li>
+      </ul>
+    </div>
+
+    <div class="console" aria-label="Example pipeline run history">
+      <div class="console__bar">
+        <span class="mono">Voidline · Pipeline</span>
+        <span class="chip mono">1 running</span>
+      </div>
+      <ul class="runs">
+        <li class="run run--live">
+          <svg class="ico ico--muted" aria-hidden="true"><use href="#i-hammer"/></svg>
+          <div>
+            <p class="run__t">Build Windows (Development) <span class="mono run__pct" data-run-pct>64%</span></p>
+            <div class="bar"><span data-run-bar style="width:64%"></span></div>
+            <p class="run__l mono" data-run-line>Compiling shader variants (2,140/3,312)</p>
+          </div>
+        </li>
+        <li class="run run--ok">
+          <span class="status" aria-hidden="true"><svg class="ico"><use href="#i-check"/></svg></span>
+          <div>
+            <p class="run__t">EditMode tests <span class="mono run__time">2m 51s</span></p>
+            <p class="run__l mono">248 passed, 0 failed</p>
+          </div>
+        </li>
+        <li class="run run--ok">
+          <span class="status" aria-hidden="true"><svg class="ico"><use href="#i-check"/></svg></span>
+          <div>
+            <p class="run__t">Render reactor turntable <span class="mono run__time">28m 0s</span></p>
+            <p class="run__l mono">Saved 240 frames to Renders/turntable</p>
+          </div>
+        </li>
+        <li class="run run--err">
+          <span class="status" aria-hidden="true"><svg class="ico"><use href="#i-x"/></svg></span>
+          <div>
+            <p class="run__t">Build Windows (Development) <span class="mono run__time">4m 12s</span></p>
+            <p class="run__l mono">error CS0103: The name 'grounded' does not exist in the current context</p>
+          </div>
+        </li>
+      </ul>
+      <div class="trust">
+        <svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg>
+        <p><b>tasks.toml changed in the last pull.</b> Review the 2 new commands before they can run on this machine.</p>
+        <span class="btn btn--ghost btn--xs" aria-hidden="true">Review</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── AI ───────── -->
+<section class="section" id="ai" aria-labelledby="ai-title">
+  <div class="wrap">
+    <div class="section__head section__head--wide">
+      <p class="eyebrow">03 — Made for AI agents</p>
+      <h2 id="ai-title" class="h2">Agents that know not to touch <code class="h2code">Library/</code>.</h2>
+      <p class="lead muted">Every project gets a brief: the engine, how to build, which folders are generated and what is in flight. A built-in MCP server gives Claude, Cursor, Codex and others the same view you have.</p>
+    </div>
+
+    <div class="ai">
+      <figure class="ai__shot">
+        <div class="frame"><img src="assets/shots/ai.webp" width="2160" height="1350" loading="lazy" alt="AI tab: launch Claude Code, Codex, Gemini or a terminal in the project, connect AI apps over MCP, and the generated project brief"></div>
+      </figure>
+      <div class="ai__side">
+        <div class="code" data-copy-scope>
+          <div class="code__bar">
+            <span class="mono">Connect Claude Code</span>
+            <button class="copy" type="button" data-copy aria-label="Copy command"><svg class="ico"><use href="#i-copy"/></svg><span>Copy</span></button>
+          </div>
+<pre><code data-copy-src><span class="t-cmd">claude</span> mcp add pipeline-os -- \
+  <span class="t-str">"C:/Program Files/PipelineOS/vantadeck.exe"</span> mcp</code></pre>
+        </div>
+        <p class="small muted">The app shows this with the real path on your machine, and can set it up for you in one click.</p>
+        <dl class="facts">
+          <div><dt>Launch in the project</dt><dd>Claude Code, Codex, Gemini, Aider or a terminal.</dd></div>
+          <div><dt>Agents can build your pipeline</dt><dd>They add or edit tasks and presets. You review and trust the commands before anything runs.</dd></div>
+          <div><dt>Brief on disk</dt><dd>Saved to <code>.pipelineos/context.md</code> for agents that read files.</dd></div>
+        </dl>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── Offline ───────── -->
+<section class="section section--panel" id="offline" aria-labelledby="off-title">
+  <div class="wrap">
+    <div class="section__head section__head--wide">
+      <p class="eyebrow">04 — Local first</p>
+      <h2 id="off-title" class="h2">Pull the cable. Keep working.</h2>
+      <p class="lead muted">Pipeline OS runs entirely on your machine. There is no account to sign into and no server to go down.</p>
+    </div>
+
+    <div class="offline">
+      <div class="offline__col">
+        <h3 class="h3"><svg class="ico ico--teal" aria-hidden="true"><use href="#i-wifi-off"/></svg> Works with no connection</h3>
+        <ul class="ticks">
+          <li>Browse, search, pin, import and open projects; launch apps</li>
+          <li>Detect apps and discover projects on disk</li>
+          <li>Run pipeline tasks and read their logs and history</li>
+          <li>The board, asset library, project brief and MCP server</li>
+          <li>Local Git: status, diffs, history, branches, stash and commits</li>
+        </ul>
+      </div>
+      <div class="offline__col">
+        <h3 class="h3">Only these need the network</h3>
+        <table class="table">
+          <caption class="sr-only">Features that need a connection, and what happens offline</caption>
+          <thead><tr><th scope="col">Feature</th><th scope="col">Offline</th></tr></thead>
+          <tbody>
+            <tr><td>Git fetch, pull, push, sync</td><td>Says the remote isn't reachable. Local commits are safe.</td></tr>
+            <tr><td>GitHub pull requests and checks</td><td>Refreshes on its own once you're back.</td></tr>
+            <tr><td>Tracker sync</td><td>Your local board is unaffected.</td></tr>
+            <tr><td>Update check</td><td>Fails quietly at launch. Can be turned off.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <ul class="privacy">
+      <li><svg class="ico" aria-hidden="true"><use href="#i-eye-off"/></svg><span><b>No telemetry.</b> No analytics, no ads, no account.</span></li>
+      <li><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg><span><b>Keychain only.</b> Tokens stay in your OS keychain, never in project files.</span></li>
+      <li><svg class="ico" aria-hidden="true"><use href="#i-terminal"/></svg><span><b>No shell.</b> Apps launch with structured arguments.</span></li>
+      <li><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span><b>Nothing auto-runs.</b> Downloaded content is never executed for you.</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ───────── CLI ───────── -->
+<section class="section" id="cli" aria-labelledby="cli-title">
+  <div class="wrap split split--rev">
+    <div class="split__text">
+      <p class="eyebrow">05 — Scriptable</p>
+      <h2 id="cli-title" class="h2">Same features, from the terminal and CI.</h2>
+      <p class="body">The <code>vantadeck</code> CLI ships inside the app. Every command takes <code>--json</code> and returns a stable envelope, and anything that changes something or touches a remote asks for <code>--yes</code>.</p>
+      <p class="body">Team settings live in the project's <code>.pipelineos/</code> folder and get committed. Absolute paths, credentials and personal preferences never go there.</p>
+      <a class="quiet" href="https://github.com/ojaseminem/Pipeline-OS/blob/main/docs/HEADLESS_MODE.md">Automation and exit codes <svg class="ico"><use href="#i-arrow"/></svg></a>
+    </div>
+
+    <div class="code code--tabs" data-tabs data-copy-scope>
+      <div class="code__bar">
+        <div role="tablist" aria-label="Examples" class="code__tabs">
+          <button role="tab" id="c-cli" aria-controls="cp-cli" aria-selected="true" class="mono">terminal</button>
+          <button role="tab" id="c-toml" aria-controls="cp-toml" aria-selected="false" tabindex="-1" class="mono">project.toml</button>
+        </div>
+        <button class="copy" type="button" data-copy aria-label="Copy example"><svg class="ico"><use href="#i-copy"/></svg><span>Copy</span></button>
+      </div>
+<pre role="tabpanel" id="cp-cli" aria-labelledby="c-cli" tabindex="0"><code data-copy-src><span class="t-com"># detect installed apps</span>
+<span class="t-cmd">vantadeck</span> scan apps
+<span class="t-com"># add a project and open it in its engine</span>
+<span class="t-cmd">vantadeck</span> project import ~/Projects/MyGame
+<span class="t-cmd">vantadeck</span> project launch ~/Projects/MyGame editor
+<span class="t-com"># run a pipeline task</span>
+<span class="t-cmd">vantadeck</span> tasks run ~/Projects/MyGame build <span class="t-flag">--yes</span>
+<span class="t-com"># fetch, pull and push</span>
+<span class="t-cmd">vantadeck</span> project vcs ~/Projects/MyGame sync <span class="t-flag">--yes</span>
+<span class="t-com"># AI-ready brief, and the MCP server</span>
+<span class="t-cmd">vantadeck</span> context ~/Projects/MyGame
+<span class="t-cmd">vantadeck</span> mcp</code></pre>
+<pre role="tabpanel" id="cp-toml" aria-labelledby="c-toml" tabindex="0" hidden><code data-copy-src><span class="t-com"># .pipelineos/project.toml — committed with the project</span>
+<span class="t-key">schema_version</span> = <span class="t-num">1</span>
+<span class="t-key">name</span> = <span class="t-str">"My Game"</span>
+<span class="t-key">project_type</span> = <span class="t-str">"game-development"</span>
+
+<span class="t-sec">[[linked_apps]]</span>
+<span class="t-key">app_id</span> = <span class="t-str">"unity"</span>
+<span class="t-key">preferred_version</span> = <span class="t-str">"6000.0.0"</span>
+
+<span class="t-sec">[[launch_profiles]]</span>
+<span class="t-key">id</span> = <span class="t-str">"editor"</span>
+<span class="t-key">name</span> = <span class="t-str">"Open Editor"</span>
+<span class="t-key">app_id</span> = <span class="t-str">"unity"</span>
+<span class="t-key">arguments</span> = [<span class="t-str">"-projectPath"</span>, <span class="t-str">"{projectRoot}"</span>]</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── Themes ───────── -->
+<section class="section section--tight" aria-labelledby="theme-title">
+  <div class="wrap">
+    <div class="themes">
+      <div class="themes__text">
+        <p class="eyebrow">06 — Make it yours</p>
+        <h2 id="theme-title" class="h2">Eleven themes. Your accent.</h2>
+        <p class="body muted">Dark, light, Glass and High contrast, custom accent colors, density and reduced motion. A command palette on <kbd>Ctrl</kbd> <kbd>K</kbd> for everything, and <kbd>?</kbd> for every shortcut.</p>
+      </div>
+      <figure class="themes__a"><div class="frame"><img src="assets/shots/settings-1080.webp" width="1080" height="675" loading="lazy" alt="Appearance settings with theme previews and accent colors"></div></figure>
+      <figure class="themes__b"><div class="frame"><img src="assets/shots/home-light-1080.webp" width="1080" height="675" loading="lazy" alt="Home screen in the light Daylight theme"></div></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── Download ───────── -->
+<section class="section section--download" id="download" aria-labelledby="dl-title">
+  <div class="wrap">
+    <div class="dl__head">
+      <img src="assets/logo.png" width="72" height="72" alt="" class="dl__logo">
+      <h2 id="dl-title" class="h2">Get Pipeline OS</h2>
+      <p class="lead muted">Free and MIT licensed. <span data-release-line>Version 0.5.4.</span> Once installed, it updates itself.</p>
+    </div>
+
+    <div class="platforms">
+      <article class="plat" data-plat="windows">
+        <h3 class="plat__name">Windows</h3>
+        <p class="plat__req mono">Windows 10/11 · x64</p>
+        <a class="btn btn--primary" data-asset="x64-setup.exe" href="https://github.com/ojaseminem/Pipeline-OS/releases/latest"><svg class="ico"><use href="#i-download"/></svg> Installer (.exe)</a>
+        <a class="plat__alt mono" data-asset="x64_en-US.msi" href="https://github.com/ojaseminem/Pipeline-OS/releases/latest">.msi</a>
+      </article>
+      <article class="plat" data-plat="mac">
+        <h3 class="plat__name">macOS</h3>
+        <p class="plat__req mono">Apple Silicon or Intel</p>
+        <a class="btn btn--primary" data-asset="aarch64.dmg" href="https://github.com/ojaseminem/Pipeline-OS/releases/latest"><svg class="ico"><use href="#i-download"/></svg> Apple Silicon (.dmg)</a>
+        <a class="plat__alt mono" data-asset="x64.dmg" href="https://github.com/ojaseminem/Pipeline-OS/releases/latest">Intel (.dmg)</a>
+      </article>
+      <article class="plat" data-plat="linux">
+        <h3 class="plat__name">Linux</h3>
+        <p class="plat__req mono">x64</p>
+        <a class="btn btn--primary" data-asset=".AppImage" href="https://github.com/ojaseminem/Pipeline-OS/releases/latest"><svg class="ico"><use href="#i-download"/></svg> AppImage</a>
+        <span class="plat__alts">
+          <a class="plat__alt mono" data-asset=".deb" href="https://github.com/ojaseminem/Pipeline-OS/releases/latest">.deb</a>
+          <a class="plat__alt mono" data-asset=".rpm" href="https://github.com/ojaseminem/Pipeline-OS/releases/latest">.rpm</a>
+        </span>
+      </article>
+    </div>
+
+    <div class="notes">
+      <details>
+        <summary>First launch on Windows or macOS</summary>
+        <p>The installers aren't code-signed by Microsoft or Apple yet, so the first launch takes one extra step.</p>
+        <p><b>Windows:</b> SmartScreen says "unknown publisher". Choose <i>More info → Run anyway</i>.</p>
+        <p><b>macOS:</b> right-click the app, choose <i>Open</i>, then <i>Open</i> again. Or run:</p>
+        <pre class="inline-code"><code>xattr -dr com.apple.quarantine "/Applications/PipelineOS.app"</code></pre>
+      </details>
+      <details>
+        <summary>Verify what you downloaded</summary>
+        <p>Update files are signed, and every release ships <code>SHA256SUMS.txt</code>, SBOMs and Sigstore build provenance. See the <a href="https://github.com/ojaseminem/Pipeline-OS/releases/latest">release page</a>.</p>
+      </details>
+      <details>
+        <summary>Try the newest work early</summary>
+        <p><b>PipelineOS Dev</b> installs alongside the stable app with its own data and updates itself from the <code>dev</code> branch. Get it from the rolling <a href="https://github.com/ojaseminem/Pipeline-OS/releases/tag/dev-latest">dev-latest pre-release</a>.</p>
+      </details>
+      <details>
+        <summary>Build from source</summary>
+        <p>Needs Rust 1.96, Node.js 24 with npm 11, Git and the <a href="https://v2.tauri.app/start/prerequisites/">Tauri prerequisites</a> for your OS.</p>
+        <pre class="inline-code"><code>git clone https://github.com/ojaseminem/Pipeline-OS.git
+cd Pipeline-OS &amp;&amp; npm install
+npm run tauri --workspace @vantadeck/desktop -- dev</code></pre>
+      </details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer__grid">
+    <div class="footer__brand">
+      <a class="brand" href="#top"><img src="assets/logo.png" width="28" height="28" alt=""><span>Pipeline <b>OS</b></span></a>
+      <p class="small muted"><b class="footer__status">0.5 is the current release.</b> Stable for daily use on Windows; macOS and Linux builds ship with every release. Before 1.0: installer signing, clean-machine validation on each OS, and Perforce in the app.</p>
+    </div>
+    <nav aria-label="Project">
+      <h2 class="footer__h mono">Project</h2>
+      <a href="https://github.com/ojaseminem/Pipeline-OS">Source code</a>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/releases">Releases</a>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/blob/main/ROADMAP.md">Roadmap</a>
+    </nav>
+    <nav aria-label="Docs">
+      <h2 class="footer__h mono">Docs</h2>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/blob/main/docs/AI_INTEGRATION.md">AI &amp; MCP</a>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/blob/main/docs/PROJECT_SPEC.md">Project files</a>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/blob/main/docs/HEADLESS_MODE.md">CLI &amp; automation</a>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/blob/main/docs/ARCHITECTURE.md">Architecture</a>
+    </nav>
+    <nav aria-label="Community">
+      <h2 class="footer__h mono">Community</h2>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/blob/main/CONTRIBUTING.md">Contributing</a>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/issues">Issues</a>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/blob/main/SECURITY.md">Security</a>
+      <a href="https://github.com/ojaseminem/Pipeline-OS/blob/main/PRIVACY.md">Privacy</a>
+    </nav>
+  </div>
+  <div class="wrap footer__base small muted">
+    <span>MIT for code · docs CC BY 4.0</span>
+    <span>Product names are trademarks of their owners.</span>
+  </div>
+</footer>
+</body>
+</html>
