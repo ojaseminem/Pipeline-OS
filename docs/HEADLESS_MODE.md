@@ -1,36 +1,83 @@
 # Headless Mode
 
-The `vantadeck` CLI is automation-safe and uses the same application contracts as the
-desktop app.
+The Pipeline OS command line (`vantadeck`) uses the same application service as the
+desktop app and opens the same database, so it sees your registered projects and
+detected apps. Every command accepts `--json` for a stable envelope that scripts and
+AI agents can parse.
 
 ```text
-vantadeck --json apps list
+# Apps
 vantadeck --json scan apps --root "D:/Creative Apps"
+vantadeck --json apps list
 vantadeck --json apps override blender --version 4.2.3 --path "D:/Portable/Blender/blender.exe"
+
+# Projects
+vantadeck --json discover
 vantadeck --json project import D:/Projects/MyGame --name MyGame
+vantadeck --json project list --query MyGame --limit 100
 vantadeck --json project show D:/Projects/MyGame
 vantadeck --json project health D:/Projects/MyGame
+vantadeck --json project pin D:/Projects/MyGame
+vantadeck --json project launch D:/Projects/MyGame editor
+
+# Source control
 vantadeck --json project vcs D:/Projects/MyGame status
 vantadeck --json project vcs D:/Projects/MyGame sync --yes
 vantadeck --json project vcs D:/Projects/MyGame commit --message "Update assets" --yes
 vantadeck --json project vcs D:/Projects/MyGame push --yes
-vantadeck --json project list --query MyGame --limit 100
-vantadeck --json project pin D:/Projects/MyGame
-vantadeck --json project launch D:/Projects/MyGame editor
 vantadeck --json project vcs D:/Projects/MyGame switch --branch develop --yes
-vantadeck --json tools cache https://tools.vantadeck.org/v1/index.json --file reviewed-index.json
-vantadeck --json tools list https://tools.vantadeck.org/v1/index.json
+
+# Pipeline tasks
+vantadeck --json tasks templates
+vantadeck --json tasks list D:/Projects/MyGame
+vantadeck --json tasks plan D:/Projects/MyGame build-windows
+vantadeck --json tasks run D:/Projects/MyGame build-windows --yes
+vantadeck tasks trust D:/Projects/MyGame
+
+# Issue board
+vantadeck --json issues list D:/Projects/MyGame
+vantadeck --json issues add D:/Projects/MyGame --title "Catwalk collision" --kind bug --priority high
+vantadeck --json issues move D:/Projects/MyGame <id> in-progress
+vantadeck --json issues sync D:/Projects/MyGame
+
+# Assets and folder layouts
+vantadeck --json assets list D:/Projects/MyGame
+vantadeck --json assets layouts
+vantadeck --json assets apply-layout D:/Projects/MyGame <layout> --yes
+
+# AI
+vantadeck context D:/Projects/MyGame --write
+vantadeck --json ai status
+vantadeck ai setup --client claude-code --yes
+vantadeck mcp
+
+# Tools Hub metadata
+vantadeck --json tools cache <index-url> --file reviewed-index.json
+vantadeck --json tools list <index-url>
 vantadeck --json tools verify tool.zip --sha256 <digest>
 ```
 
-JSON uses a stable envelope with `schemaVersion`, `command`, `success`, `data`,
-`warnings`, and `errors`. Future destructive or remote-mutating commands require
-`--yes`; non-interactive execution never infers consent. Missing confirmation returns
-exit code 2 and error code `CONFIRMATION_REQUIRED` in JSON mode.
+## Output and consent
 
-Machine-local state is stored under the operating system's Vantadeck data directory.
-Tests and managed deployments can set `VANTADECK_DATABASE_PATH` to an explicit SQLite
-file without changing project metadata.
+JSON uses a stable envelope with `schemaVersion`, `command`, `success`, `data`,
+`warnings`, and `errors` ([schema](../schemas/cli-envelope.schema.json)).
+
+Commands that change files, run tasks, or touch a remote require `--yes`.
+Non-interactive execution never infers consent: a missing confirmation exits with code 2
+and, in JSON mode, the error code `CONFIRMATION_REQUIRED`. `tasks plan` prints the exact
+command line a task would run without running it.
+
+`vantadeck mcp` serves the same capabilities to AI apps over the Model Context Protocol
+(stdio). AI agents can only run a project's tasks after you trust them on this machine
+with `vantadeck tasks trust` or from the app; any change to `tasks.toml` revokes that
+trust. See [AI_INTEGRATION.md](AI_INTEGRATION.md).
+
+## Data location
+
+The CLI uses the installed app's database under the operating system's data directory
+(`com.vantadeck.launcher`). `--channel dev` points it at the PipelineOS Dev build's data
+instead. Tests and managed deployments can set `VANTADECK_DATABASE_PATH` to an explicit
+SQLite file without changing project metadata.
 
 `tools cache` validates a user-supplied index file and stores it for offline use; it
 does not perform a network request. `tools verify` never executes an artifact.

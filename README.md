@@ -146,7 +146,7 @@ Pipeline OS finds the engines, DCCs, editors and tools you already have, with ea
 - Merge-conflict help (including automatic merging of TOML settings), pre-commit checks, and guarded branch deletion.
 - GitHub pull requests and CI checks for the current branch, with failed-job logs. This uses an optional token kept in your OS keychain.
 - Git LFS checks that only warn when a project actually has large files.
-- Perforce support (experimental; not yet tested against a live server).
+- Perforce: a typed provider exists in the core library; the app and CLI don't use it yet.
 
 ### AI-ready
 - Start Claude Code, Codex, Gemini, Aider or a terminal inside any project.
@@ -262,7 +262,7 @@ The code lives in a Cargo workspace (`crates/`) plus two apps (`apps/desktop`, `
 ## Privacy and security
 
 - No account, telemetry, analytics or ads. The network is only used for the features listed in [Works offline](#works-offline). The launch-time update check can be turned off in Settings.
-- Tokens are stored in the OS keychain, never in SQLite or project files. Git and Perforce use your existing CLI credentials.
+- Tokens are stored in the OS keychain, never in SQLite or project files. Git uses your existing credentials.
 - Apps are launched with structured arguments, never through a shell. Task commands from a repository need your review before they run.
 - Downloaded content is never executed automatically.
 
@@ -270,7 +270,7 @@ Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## Status
 
-**0.5** is the current release. It is stable for daily use on Windows, and macOS and Linux builds ship with every release. Still open before 1.0: Microsoft/Apple installer signing, clean-machine validation on each OS, and live Perforce testing. See [BLOCKERS.md](docs/release/BLOCKERS.md) and the [roadmap](ROADMAP.md).
+**0.5** is the current release. It is stable for daily use on Windows, and macOS and Linux builds ship with every release. Still open before 1.0: Microsoft/Apple installer signing, clean-machine validation on each OS, and bringing Perforce into the app. See [BLOCKERS.md](docs/release/BLOCKERS.md) and the [roadmap](ROADMAP.md).
 
 ## Contributing
 

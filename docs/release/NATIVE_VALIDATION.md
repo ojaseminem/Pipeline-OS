@@ -8,7 +8,7 @@ fields are failures, not implied passes.
 - Tag:
 - Commit:
 - Workflow run URL:
-- Draft release URL:
+- Release URL:
 - Evidence reviewer and timestamp:
 
 ## Artifact evidence
@@ -25,7 +25,8 @@ fields are failures, not implied passes.
 | Platform / version / architecture | Artifact and SHA-256 | Platform signature result | Install | Launch | Basic project workflow | Uninstall / cleanup | Tester, time, evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Windows | | | | | | | |
-| macOS | | | | | | | |
+| macOS Apple Silicon | | | | | | | |
+| macOS Intel | | | | | | | |
 | Linux AppImage | | N/A or distribution signature evidence | | | | | |
 | Linux DEB | | N/A or repository signature evidence | | | | | |
 | Linux RPM | | N/A or repository signature evidence | | | | | |

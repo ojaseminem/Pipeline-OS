@@ -23,7 +23,7 @@ if (!artifactsDir || !releaseAssetsDir || !rawTag) {
 }
 
 const version = explicitVersion || rawTag.replace(/^v/, "");
-const repo = process.env.GITHUB_REPOSITORY ?? "ojaseminem/Vantadeck";
+const repo = process.env.GITHUB_REPOSITORY ?? "ojaseminem/Pipeline-OS";
 const server = process.env.GITHUB_SERVER_URL ?? "https://github.com";
 const downloadBase = `${server}/${repo}/releases/download/${rawTag}`;
 

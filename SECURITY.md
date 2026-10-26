@@ -17,11 +17,15 @@ and include only enough information to establish a secure follow-up channel.
 
 ## Supported versions
 
-Before 1.0, only the newest published alpha is supported. After 1.0, the current
-minor line and latest patch of the previous minor line will receive security fixes.
+Before 1.0, only the newest published release (currently the 0.5.x line) receives
+security fixes; the in-app updater moves installs to it. After 1.0, the current minor
+line and the latest patch of the previous minor line will receive security fixes.
 
-Vantadeck never accepts shell commands from manifests, never automatically executes
-downloaded tools, and stores no credentials in SQLite or project files.
+Pipeline OS never accepts shell commands from manifests or pipeline tasks, never
+automatically executes downloaded tools, and stores no credentials in SQLite or
+project files (tokens go to the OS keychain). Pipeline tasks that arrive through a
+repository, or that an AI agent writes over MCP, run only after the user reviews and
+trusts the exact commands on that machine; any change to the tasks file revokes trust.
 
 ## Supply-chain controls
 
@@ -35,9 +39,11 @@ the installers, checksums, and SBOMs (not a redundant `.sigstore.json` bundle pe
 against the GitHub attestation store. Actions are pinned to immutable revisions and
 workflows use least-privilege job permissions.
 
-These controls do not replace Apple notarization, Windows Authenticode signing, Linux
-package-repository signing, or hands-on native smoke testing. Releases remain drafts
-until the external promotion gates in `docs/release/RELEASE.md` are satisfied.
+Auto-update packages are signed with the project's updater key and verified by the app
+before installing. These controls do not replace Apple notarization, Windows
+Authenticode signing, or Linux package-repository signing, which are still pending
+(see `docs/release/BLOCKERS.md`), so installers show an "unknown publisher" or
+Gatekeeper prompt on first launch.
 
 ## Verification and response
 

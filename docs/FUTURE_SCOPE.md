@@ -1,9 +1,18 @@
 # Future Scope
 
-The following are intentionally excluded from v1: team accounts, cloud sync,
-permissions and roles, studio administration, Jira/ClickUp/ShotGrid/FTrack/Kitsu,
-build and render farms, asset review, license management, automatic marketplace
-installation, executable plugins, plugin sandboxing, embedded AI, deep conflict
-resolution, per-project environment variables, web dashboards, and mobile apps.
+Pipeline OS stays local-first and account-free. These are intentionally **not**
+planned, because they would need accounts, servers, or code execution we can't
+review:
 
-Adding any item requires its own threat model and RFC.
+- Team accounts, cloud sync, hosted dashboards, roles and permissions.
+- Build and render farms or any remote execution service.
+- License-server management.
+- Automatic marketplace installs or executable plugins (extension stays declarative:
+  app manifests and argument-vector tasks).
+- An embedded AI model. Pipeline OS works with the AI apps you already use through
+  its MCP server instead.
+- Mobile apps.
+
+Integrations that remain local and opt-in (more trackers, more engines, more DCC
+presets) are welcome. Adding anything from the list above requires its own threat
+model and RFC.

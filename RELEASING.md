@@ -1,106 +1,91 @@
-# Releasing Vantadeck
+# Releasing Pipeline OS
 
-Vantadeck uses **trunk-based development with release branches and SemVer tags** —
-the model used by most desktop apps (VS Code, etc.) and the one our CI is built
-around. It cleanly separates day-to-day development from shippable releases.
+## Branches and channels
 
-## Branches
+| Branch / tag | Purpose |
+| --- | --- |
+| `dev` | Integration branch. Every push builds **PipelineOS Dev** and updates the rolling [`dev-latest`](https://github.com/ojaseminem/Pipeline-OS/releases/tag/dev-latest) pre-release for testers. |
+| `main` | Stable trunk, promoted from `dev` once a change has been tested. Always releasable. |
+| `release/X.Y` | Optional stabilization line for a minor version, cut from `main` when a release needs fixes without new features. |
+| tags `vX.Y.Z` | Immutable release points. Pushing one builds, signs and publishes the release. |
 
-| Branch | Purpose | Who commits |
-| --- | --- | --- |
-| `main` | **Development trunk.** All features and fixes land here (directly or via PRs). Always buildable. | everyone |
-| `release/X.Y` | **Release line** for a minor version (e.g. `release/0.2`). Cut from `main` when preparing the `X.Y.0` release; only stabilization fixes are cherry-picked in afterward. | maintainers |
-| tags `vX.Y.Z` | Immutable release points on a `release/X.Y` branch. Pushing one triggers the release pipeline. | maintainers |
-
-Feature work → branch off `main` → PR into `main`. Releases → `release/X.Y` → tag `vX.Y.Z`.
+Feature work → branch → merge into `dev` → test the dev build → merge `dev` into
+`main` → tag.
 
 ## Versioning (SemVer)
 
-`MAJOR.MINOR.PATCH`. Keep these three in lockstep:
+Keep these in lockstep (`MAJOR.MINOR.PATCH`):
 
 - `Cargo.toml` → `[workspace.package] version`
 - `apps/desktop/package.json` → `version`
-- `apps/desktop/src-tauri/tauri.conf.json` → `version`  ← this is what the running
-  app reports and what the auto-updater compares against.
+- `apps/desktop/src-tauri/tauri.conf.json` → `version` (what the app reports and the
+  updater compares against)
 
-Bump on the release branch, commit, then tag.
+Then refresh the lockfiles: `cargo update -w` and
+`npm install --package-lock-only --ignore-scripts`.
 
 ## Cutting a release
 
 ```bash
-# 1. From an up-to-date main, cut (or fast-forward) the release line:
-git switch -c release/0.2 main          # first time for the 0.2 line
-# ...or: git switch release/0.2 && git merge --ff-only main
-
-# 2. Bump the three version fields to X.Y.Z, refresh Cargo.lock, commit:
-cargo check -p vantadeck-desktop
-git commit -am "release: v0.2.0"
-
-# 3. Create an annotated (ideally signed) tag and push:
-git tag -a v0.2.0 -m "Vantadeck 0.2.0"   # add -s to GPG-sign (recommended)
-git push origin release/0.2 --tags
+# On an up-to-date main with green CI:
+#   bump the three version fields and refresh lockfiles, then
+git commit -am "release: vX.Y.Z"
+git push origin main
+git tag -a vX.Y.Z -m "Pipeline OS X.Y.Z"   # annotated (add -s to GPG-sign)
+git push origin vX.Y.Z
 ```
 
-Pushing the `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml):
-it builds Windows/macOS/Linux bundles, **signs the auto-updater artifacts**,
-generates `latest.json`, and publishes a **draft** GitHub Release. Review the
-draft (see [docs/release/RELEASE.md](docs/release/RELEASE.md)) and publish it.
+The tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which:
 
-## Required GitHub configuration (one-time)
+1. checks the tag is annotated;
+2. builds Windows x64, macOS Apple Silicon, macOS Intel and Linux x64 on native
+   runners (Mac updater bundles are named by architecture);
+3. signs the auto-update packages and writes `latest.json` for `windows-x86_64`,
+   `darwin-aarch64`, `darwin-x86_64` and `linux-x86_64`;
+4. writes `SHA256SUMS.txt`, source and artifact SBOMs, Sigstore signatures and
+   GitHub build-provenance attestations;
+5. **publishes** the GitHub release, which installed apps then offer as an update.
 
-For auto-update and signed release assets to work, add these repository secrets
-(Settings → Secrets and variables → Actions):
+Add a [CHANGELOG.md](CHANGELOG.md) entry in the release commit. If a release has to
+be stopped, cancel the run and delete the tag before it publishes; never move or reuse
+a tag after a release is public (see [docs/release/RECOVERY.md](docs/release/RECOVERY.md)).
 
-- **`TAURI_SIGNING_PRIVATE_KEY`** — contents of `apps/desktop/.tauri/updater.key`
-  (generated locally; gitignored, never committed). This signs updater artifacts.
-- **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`** — the key's password (empty if none).
+## One-time GitHub configuration
 
-The matching **public key is already embedded** in `tauri.conf.json`, and the
-updater reads its feed from
-`https://github.com/<owner>/Vantadeck/releases/latest/download/latest.json`.
-Once a release with `latest.json` is published, installed apps on an older
-version will detect and install it (respecting the "Automatically check for
-updates" toggle in Settings).
+Repository secrets (Settings → Secrets and variables → Actions):
 
-Optional but recommended: enable branch protection on `main` and `release/*`,
-and GPG-sign release tags.
+- **`TAURI_SIGNING_PRIVATE_KEY`**: the updater signing key (generated locally,
+  never committed).
+- **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`**: its password (empty if none).
+
+The matching public key is embedded in `tauri.conf.json`. Apps read the update feed
+from `https://github.com/ojaseminem/Pipeline-OS/releases/latest/download/latest.json`.
 
 ## How auto-update works for users
 
-1. The app reports its `tauri.conf.json` version.
-2. On launch (if auto-update is on) and via Settings → Updates → "Check for
-   updates", it fetches `latest.json` from the latest GitHub Release.
-3. If a newer signed version exists, the user sees a banner / Settings prompt and
-   can "Install & restart". The download is verified against the embedded public
-   key before installing.
+1. On launch (if *Automatically check for updates* is on) and from Settings →
+   Updates, the app fetches `latest.json` from the latest release.
+2. If a newer version exists for its platform, it offers *Install & restart*.
+3. The download is verified against the embedded public key before installing.
 
 ## Dev channel
 
-Work in progress ships to testers through a separate **dev channel** before it
-reaches a release:
+- Every push to `dev` runs [`.github/workflows/dev-build.yml`](.github/workflows/dev-build.yml)
+  (also runnable by hand from the Actions tab).
+- It builds **PipelineOS Dev** (identifier `com.vantadeck.launcher.dev`, config
+  `apps/desktop/src-tauri/tauri.dev.conf.json`), versioned `X.Y.(Z+1)-<run>`, for
+  Windows x64, macOS Apple Silicon and macOS Intel.
+- The installers, update packages, `latest.json` and checksums replace the
+  `dev-latest` pre-release. Pre-releases are never "latest", so stable installs
+  never see them.
+- Dev installs alongside stable with its own data and updates itself from
+  `dev-latest`.
 
-- Integrate work into the **`dev` branch**. Every push to `dev` runs
-  [`.github/workflows/dev-build.yml`](.github/workflows/dev-build.yml) (it can
-  also be started by hand from the Actions tab). Feature/agent branches don't
-  publish; merge them into `dev` when they're ready for testers.
-- It builds **PipelineOS Dev** (identifier `com.vantadeck.launcher.dev`, via
-  `apps/desktop/src-tauri/tauri.dev.conf.json`), versioned `X.Y.(Z+1)-<run>`,
-  for **Windows x64**, **macOS Apple Silicon** and **macOS Intel**.
-- Installers (`…_x64-setup.exe`, `…_aarch64.dmg`, `…_x64.dmg`), updater
-  artifacts, `latest.json` and checksums replace the rolling **`dev-latest`
-  pre-release**. Pre-releases are never "latest", so the stable updater never
-  sees them.
-- Dev installs side by side with stable, keeps its own data, and self-updates
-  from `releases/download/dev-latest/latest.json` when the signing secrets are
-  available.
-- macOS builds (dev and stable) are ad-hoc signed (`signingIdentity: "-"`)
-  but not notarized: on first launch use *System Settings → Privacy &
-  Security → Open Anyway*. Without that signature, Apple Silicon reports
-  downloaded apps as "damaged". Notarization needs an Apple Developer ID.
-- Promote by merging `dev` into `main` and cutting a release as below.
+macOS builds (dev and stable) are ad-hoc signed but not notarized: on first launch
+use right-click → *Open*, or *System Settings → Privacy & Security → Open Anyway*.
 
 ## Continuous builds
 
-[`.github/workflows/build.yml`](.github/workflows/build.yml) builds **unsigned**
-installers on every push/PR for testing. These are not auto-update sources;
-only tagged `release.yml` runs produce signed, updatable releases.
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds unsigned
+installers on pushes to `main`, `release/**` and pull requests as a check. Only tagged
+`release.yml` runs produce signed, updatable releases.

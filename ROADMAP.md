@@ -1,32 +1,40 @@
 # Roadmap
 
-Roadmap labels describe intent, not shipped support.
+Roadmap items describe intent, not shipped support. Changes to major outcomes go
+through a public [RFC](docs/RFC_PROCESS.md) and a roadmap pull request.
 
-- **Alpha 1:** Windows detection, grouped versions, manual overrides, safe launch,
-  portable projects, Git/Git LFS health, CLI JSON, and the desktop dashboard.
-- **Alpha 2:** deeper Windows sources, project import, launch profiles, background
-  operations, activity logs, and Perforce workspace status.
-- **Beta:** curated Tools Hub, packaging, update checks, accessibility and performance
-  budgets, plus macOS and Linux parity.
-- **1.0:** stable schemas and CLI contracts, signed cross-platform artifacts, SBOMs,
-  migration guarantees, recovery documentation, and supported-version policy.
+## Shipped (0.5)
 
-Changes to these outcomes require a public RFC and roadmap pull request.
+- App detection on Windows, macOS and Linux for 60+ creative tools, with every
+  installed version side by side and per-machine overrides.
+- Portable projects (`.pipelineos/`), launch profiles, recent and pinned projects,
+  project discovery on disk, and health checks.
+- Source control: Git and Git LFS with diffs, history, branches (with last-updated
+  times), stash on switch, merge help, pre-commit checks, GitHub pull requests and CI
+  checks. A typed Perforce provider exists in the core library but isn't in the app
+  or CLI yet.
+- Pipeline tasks with live progress, logs, run history and a trust review; built-in
+  Unity, Unreal, Godot and Blender presets; per-project presets; copy and import as TOML.
+- A git-native board per project, cross-project planning, tracker sync (GitHub
+  Issues, Jira, Linear, Plane, Gitea/Forgejo, ClickUp), and an asset library with
+  review status.
+- AI: project brief, agent launch, and an MCP server that can read projects and
+  author tasks and presets (user-trusted before they run).
+- Works offline; signed auto-updates; Windows, macOS (Apple Silicon and Intel) and
+  Linux builds on every release; dev channel.
 
-## Current implementation status
+## Next
 
-The current local implementation includes recursive filesystem discovery;
-Windows Registry, Unity Hub, Epic, Steam, shortcut, macOS bundle, Linux desktop,
-Flatpak, Snap, AppImage, and common-path sources; local overrides; portable project
-import and revision-checked recovery-backed writes; Git/LFS workflows; a typed Perforce provider;
-project/app/health/tool management screens; offline validated Tools Hub caching;
-durable activity; and matching JSON CLI contracts.
+- **Multi-step pipelines:** chain tasks (test → build → package → upload) with
+  stop-on-failure, without needing a script.
+- **Perforce in the desktop app**, validated against a live server.
+- **Platform signing:** Windows Authenticode and Apple notarization, so installers
+  open without a security prompt.
+- **Clean-machine validation** of installers on each OS.
+- **Tools Hub:** a separately governed, reviewed index of community tools.
 
-The following are release gates, not implied shipped support:
+## Toward 1.0
 
-- macOS and Linux adapters require native compilation and hands-on validation.
-- Perforce requires integration testing against a disposable live server.
-- The community tool index requires its separately governed public repository.
-- Platform signing, notarization, package signing, and clean-machine packaging tests
-  require external identities and native environments.
-- A public 1.0 tag remains blocked until `docs/release/` contains complete evidence.
+Stable schemas and CLI/MCP contracts, signed cross-platform installers, migration
+guarantees, recovery documentation, and a supported-version policy. The remaining
+external gates are tracked in [docs/release/BLOCKERS.md](docs/release/BLOCKERS.md).

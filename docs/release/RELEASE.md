@@ -1,8 +1,10 @@
 # Release Runbook
 
-Vantadeck releases are assembled by `.github/workflows/release.yml`. A successful
-workflow creates a **draft**, not a promoted release. Promotion is a deliberate human
-decision after evidence review and native validation.
+Pipeline OS releases are built and **published** by `.github/workflows/release.yml`
+when an annotated `vX.Y.Z` tag is pushed (see [RELEASING.md](../../RELEASING.md)).
+Because the release goes live as soon as the workflow finishes, the checks below
+happen before tagging (inputs) and right after publishing (evidence). A release that
+fails a check is fixed forward with a new patch version, never by moving a tag.
 
 ## Reproducible inputs
 
@@ -25,10 +27,13 @@ identical installers. Differences must be explained before promotion.
 
 ## Evidence review
 
-For every draft:
+For every release, right after it publishes:
 
 - Confirm the workflow resolved the expected tag and commit.
-- Confirm all three build jobs and the assembly job completed without overrides.
+- Confirm all four build jobs (Windows, macOS Apple Silicon, macOS Intel, Linux) and
+  the assembly job completed without overrides.
+- Confirm `latest.json` lists `windows-x86_64`, `darwin-aarch64`, `darwin-x86_64`
+  and `linux-x86_64`, each pointing at the matching file.
 - Download release assets into a clean directory and verify `SHA256SUMS.txt`.
 - Verify each asset against Rekor and the expected workflow identity/issuer using
   `cosign verify-blob --certificate-identity ... --certificate-oidc-issuer ...` (no
@@ -40,9 +45,10 @@ For every draft:
 - Preserve the run URL, reviewer, review time, and verification output in the release
   record. The workflow itself is evidence, but is not evidence of manual validation.
 
-## External promotion gates
+## External platform gates (before 1.0)
 
-The following evidence is required before changing a draft to published:
+These are not met yet, which is why installers show a security prompt on first
+launch. They are tracked in [BLOCKERS.md](BLOCKERS.md):
 
 | Platform | Platform trust gate | Native validation gate |
 | --- | --- | --- |
@@ -55,15 +61,7 @@ substitute for platform signing. Hosted compilation alone does not satisfy nativ
 validation. Record the OS version, architecture, artifact hash, tester, result, and
 evidence link for every row.
 
-## Promotion
+## If something is wrong
 
-1. Confirm release notes accurately describe changes, security impact, migration, and
-   rollback considerations.
-2. Confirm all external gates have recorded evidence or explicitly remove an
-   unvalidated artifact from the release.
-3. Have a second maintainer compare the draft assets to `SHA256SUMS.txt` and approve.
-4. Publish the existing draft without replacing its assets.
-5. Re-download the public assets and repeat checksum, Sigstore, attestation, and
-   platform-signature verification.
-
-If any check fails, keep the release draft and follow `RECOVERY.md`.
+Follow [RECOVERY.md](RECOVERY.md): stop distribution if an artifact is bad, keep the
+evidence, and ship a corrected patch release under a new tag.

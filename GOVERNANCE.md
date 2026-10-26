@@ -1,6 +1,6 @@
 # Governance
 
-Vantadeck begins as a maintainer-led project with public decision-making.
+Pipeline OS is a maintainer-led project with public decision-making.
 
 - Maintainers merge changes, manage releases, moderate community spaces, and publish
   conflicts of interest.
