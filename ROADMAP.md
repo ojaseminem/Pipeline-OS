@@ -27,6 +27,7 @@ through a public [RFC](docs/RFC_PROCESS.md) and a roadmap pull request.
 
 - **Multi-step pipelines:** chain tasks (test → build → package → upload) with
   stop-on-failure, without needing a script.
+- **Art Git support** view, review, revise and visualize art diff via Git using the launcher. 
 - **Perforce in the desktop app**, validated against a live server.
 - **Platform signing:** Windows Authenticode and Apple notarization, so installers
   open without a security prompt.
