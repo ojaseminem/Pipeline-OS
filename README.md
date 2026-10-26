@@ -15,7 +15,7 @@ Find every creative app and version on your machine, open projects in the right 
 [![License: MIT](https://img.shields.io/github/license/ojaseminem/Pipeline-OS)](LICENSE)
 ![Windows · macOS · Linux](https://img.shields.io/badge/platforms-Windows%20·%20macOS%20·%20Linux-555)
 
-[Download](#download) · [Tour](#a-quick-tour) · [Features](#features) · [Works offline](#works-offline) · [CLI](#command-line) · [Build from source](#build-from-source) · [Contributing](#contributing)
+[Website](https://ojaseminem.github.io/Pipeline-OS/) · [Download](#download) · [Tour](#a-quick-tour) · [Features](#features) · [Works offline](#works-offline) · [CLI](#command-line) · [Build from source](#build-from-source) · [Contributing](#contributing)
 
 <br>
 
