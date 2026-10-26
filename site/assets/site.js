@@ -82,8 +82,9 @@
   };
   const os = detectOS();
   const osNames = { windows: "Windows", mac: "macOS", linux: "Linux" };
-  // The hero button points at the main installer for this OS.
-  const heroAsset = { windows: "x64-setup.exe", mac: "aarch64.dmg", linux: ".AppImage" };
+  // The hero button points at the main installer for this OS. The browser can't
+  // tell Apple Silicon from Intel, so Macs go to the download cards to pick one.
+  const heroAsset = { windows: "x64-setup.exe", linux: ".AppImage" };
 
   const heroBtn = document.querySelector("[data-os-download]");
   const heroLabel = document.querySelector("[data-os-label]");
@@ -91,7 +92,10 @@
   if (os) {
     heroLabel.textContent = `Download for ${osNames[os]}`;
     document.querySelector(`.plat[data-plat="${os}"]`)?.classList.add("is-mine");
-    if (os === "mac") heroMeta.innerHTML = 'Apple Silicon · <a href="#download">Intel Mac?</a>';
+    if (os === "mac") {
+      heroBtn.href = "#download";
+      heroMeta.textContent = "Apple Silicon and Intel";
+    }
   } else {
     heroBtn.href = "#download";
     heroLabel.textContent = "Download";
@@ -108,8 +112,13 @@
 
       document.querySelectorAll("[data-release-version]").forEach((el) => (el.textContent = `v${version}`));
       const date = new Date(rel.published_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+      // Release fields come from the network: build with DOM APIs, never innerHTML.
+      const notesUrl = /^https:\/\/github\.com\//.test(rel.html_url) ? rel.html_url : RELEASES;
       document.querySelectorAll("[data-release-line]").forEach((el) => {
-        el.innerHTML = `Version ${version}, released ${date}. <a href="${rel.html_url}">Release notes</a>.`;
+        const link = document.createElement("a");
+        link.href = notesUrl;
+        link.textContent = "Release notes";
+        el.replaceChildren(`Version ${version}, released ${date}. `, link, ".");
       });
 
       document.querySelectorAll("[data-asset]").forEach((el) => {
@@ -118,18 +127,17 @@
         el.href = a.browser_download_url;
         el.title = `${a.name} · ${mb(a.size)}`;
       });
-      if (os) {
-        const a = find(heroAsset[os]);
-        if (a) {
-          heroBtn.href = a.browser_download_url;
-          if (os !== "mac") heroMeta.textContent = `v${version} · ${a.name.split(".").pop().toUpperCase()} · ${mb(a.size)}`;
-          else heroMeta.innerHTML = `v${version} · Apple Silicon · <a href="#download">Intel Mac?</a>`;
-        }
+      const a = heroAsset[os] && find(heroAsset[os]);
+      if (a) {
+        heroBtn.href = a.browser_download_url;
+        heroMeta.textContent = `v${version} · ${a.name.split(".").pop().toUpperCase()} · ${mb(a.size)}`;
+      } else if (os === "mac") {
+        heroMeta.textContent = `v${version} · Apple Silicon and Intel`;
       }
     })
     .catch(() => {
       // Rate-limited or offline: every link already points at the releases page.
-      if (os) heroBtn.href = RELEASES;
+      if (heroAsset[os]) heroBtn.href = RELEASES;
     });
 
   /* ── Reveal on scroll ── */
