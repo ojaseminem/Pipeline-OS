@@ -60,7 +60,7 @@ export function ProjectTable({ projects, actions, emptyText }: { projects: Proje
               const pinned = actions.isPinned?.(project) ?? false;
               return <Button variant="ghost" size="icon" className={cn("h-8 w-8", pinned ? "text-primary" : "text-muted-foreground")} aria-pressed={pinned} aria-label={pinned ? `Unpin ${project.name}` : `Pin ${project.name}`} title={pinned ? "Unpin from Home" : "Pin to Home"} onClick={() => actions.onTogglePin?.(project)}>{pinned ? <Pin size={15} className="fill-current" /> : <Pin size={15} />}</Button>;
             })() : null}
-            <Button size="sm" variant={project.engineId ? "default" : "outline"} disabled={!project.engineId} title={project.engineId ? `Open in ${project.engine}` : "Link an engine to launch"} onClick={() => actions.onLaunch(project)}><Play size={13} /> Launch</Button>
+            <Button size="sm" variant="outline" className="hover:border-primary/50 [&_svg]:text-primary" disabled={!project.engineId} title={project.engineId ? `Open in ${project.engine}` : "Link an engine to launch"} onClick={() => actions.onLaunch(project)}><Play size={13} /> Launch</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`More actions for ${project.name}`}><MoreHorizontal size={16} /></Button>

@@ -79,7 +79,7 @@ function Segmented<T extends string | number>({ value, options, onChange, label 
 export function ThemePicker({ value, onChange }: { value: ThemePreference; onChange: (value: ThemePreference) => void }) {
   const custom = useCustomThemes();
   const options: Array<{ id: ThemePreference; name: string; description: string; swatch: readonly string[]; customId?: string }> = [
-    { id: "system", name: "Match system", description: "Midnight or Daylight, following your OS.", swatch: ["#151a24", "#f7f8fa", "#4fd1c5"] },
+    { id: "system", name: "Match system", description: "Carbon or Daylight, following your OS.", swatch: ["#151515", "#fbfaf9", "#f2711c"] },
     ...THEMES,
     ...custom.map((theme) => ({
       id: `custom:${theme.id}` as ThemePreference,
@@ -214,7 +214,7 @@ function AppearanceSettings({ preference, setPreference, appearance, onAppearanc
             {ACCENTS.map((accent) => (
               <button key={accent.id} role="radio" aria-checked={appearance.accent === accent.id} aria-label={accent.name} title={accent.name} onClick={() => onAppearanceChange({ accent: accent.id })}
                 className={cn("flex size-7 items-center justify-center rounded-full border transition-transform hover:scale-110", appearance.accent === accent.id ? "border-foreground" : "border-border")}
-                style={{ background: accent.color ?? "conic-gradient(#4fd1c5, #e8a33d, #f97316, #5b5bd6, #4fd1c5)" }}>
+                style={{ background: accent.color ?? "conic-gradient(#f2711c, #e8a33d, #4fd1c5, #5b5bd6, #f2711c)" }}>
                 {appearance.accent === accent.id ? <Check size={13} className="text-white mix-blend-difference" /> : null}
               </button>
             ))}

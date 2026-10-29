@@ -3,67 +3,69 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Vantadeck theme — dark-first, local-first creative launcher.
-   Light values kept for the light/system theme; teal accent throughout. */
+/* Pipeline OS theme: neutral charcoal (dark) and clean white (light) surfaces
+   with a single orange key color, so content and status colors read true. */
 :root {
-  --radius: 0.7rem;
-  --success: oklch(0.7 0.15 150);
-  --warning: oklch(0.78 0.15 75);
-  --background: oklch(0.98 0.003 240);
-  --foreground: oklch(0.18 0.02 250);
+  --radius: 0.5rem;
+  --success: oklch(0.66 0.15 150);
+  --warning: oklch(0.76 0.15 75);
+  --background: oklch(0.985 0.002 60);
+  --foreground: oklch(0.2 0.006 60);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.02 250);
+  --card-foreground: oklch(0.2 0.006 60);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.02 250);
-  --primary: oklch(0.7 0.12 184);
-  --primary-foreground: oklch(0.18 0.03 200);
-  --secondary: oklch(0.95 0.01 240);
-  --secondary-foreground: oklch(0.22 0.02 250);
-  --muted: oklch(0.96 0.005 240);
-  --muted-foreground: oklch(0.52 0.02 250);
-  --accent: oklch(0.94 0.02 184);
-  --accent-foreground: oklch(0.22 0.03 200);
-  --destructive: oklch(0.58 0.22 27);
-  --border: oklch(0.9 0.008 240);
-  --input: oklch(0.92 0.008 240);
-  --ring: oklch(0.7 0.12 184);
-  --sidebar: oklch(0.97 0.004 240);
-  --sidebar-foreground: oklch(0.2 0.02 250);
-  --sidebar-primary: oklch(0.7 0.12 184);
-  --sidebar-primary-foreground: oklch(0.18 0.03 200);
-  --sidebar-accent: oklch(0.94 0.02 184);
-  --sidebar-accent-foreground: oklch(0.22 0.03 200);
-  --sidebar-border: oklch(0.9 0.008 240);
-  --sidebar-ring: oklch(0.7 0.12 184);
+  --popover-foreground: oklch(0.2 0.006 60);
+  --primary: oklch(0.63 0.19 43);
+  --primary-foreground: oklch(0.99 0.005 60);
+  --secondary: oklch(0.955 0.003 60);
+  --secondary-foreground: oklch(0.24 0.006 60);
+  --muted: oklch(0.965 0.003 60);
+  --muted-foreground: oklch(0.5 0.008 60);
+  --accent: oklch(0.955 0.018 55);
+  --accent-foreground: oklch(0.3 0.06 45);
+  --destructive: oklch(0.56 0.21 27);
+  --border: oklch(0.915 0.004 60);
+  --input: oklch(0.89 0.004 60);
+  --ring: oklch(0.63 0.19 43);
+  --sidebar: oklch(0.97 0.003 60);
+  --sidebar-foreground: oklch(0.24 0.006 60);
+  --sidebar-primary: oklch(0.63 0.19 43);
+  --sidebar-primary-foreground: oklch(0.99 0.005 60);
+  --sidebar-accent: oklch(0.94 0.025 55);
+  --sidebar-accent-foreground: oklch(0.32 0.08 45);
+  --sidebar-border: oklch(0.915 0.004 60);
+  --sidebar-ring: oklch(0.63 0.19 43);
 }
 
 .dark {
-  --background: oklch(0.16 0.015 250);
-  --foreground: oklch(0.95 0.005 240);
-  --card: oklch(0.2 0.018 250);
-  --card-foreground: oklch(0.95 0.005 240);
-  --popover: oklch(0.2 0.018 250);
-  --popover-foreground: oklch(0.95 0.005 240);
-  --primary: oklch(0.78 0.13 184);
-  --primary-foreground: oklch(0.16 0.03 200);
-  --secondary: oklch(0.26 0.02 250);
-  --secondary-foreground: oklch(0.95 0.005 240);
-  --muted: oklch(0.24 0.018 250);
-  --muted-foreground: oklch(0.68 0.02 245);
-  --accent: oklch(0.3 0.04 190);
-  --accent-foreground: oklch(0.95 0.01 200);
-  --destructive: oklch(0.65 0.2 25);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.78 0.13 184);
-  --sidebar: oklch(0.18 0.016 250);
-  --sidebar-foreground: oklch(0.92 0.005 240);
-  --sidebar-primary: oklch(0.78 0.13 184);
-  --sidebar-primary-foreground: oklch(0.16 0.03 200);
-  --sidebar-accent: oklch(0.3 0.04 190);
-  --sidebar-accent-foreground: oklch(0.95 0.01 200);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.78 0.13 184);
+  --success: oklch(0.72 0.15 150);
+  --warning: oklch(0.8 0.14 80);
+  --background: oklch(0.165 0.003 60);
+  --foreground: oklch(0.95 0.003 60);
+  --card: oklch(0.2 0.004 60);
+  --card-foreground: oklch(0.95 0.003 60);
+  --popover: oklch(0.215 0.004 60);
+  --popover-foreground: oklch(0.95 0.003 60);
+  --primary: oklch(0.72 0.18 48);
+  --primary-foreground: oklch(0.17 0.02 48);
+  --secondary: oklch(0.25 0.004 60);
+  --secondary-foreground: oklch(0.95 0.003 60);
+  --muted: oklch(0.23 0.004 60);
+  --muted-foreground: oklch(0.67 0.006 60);
+  --accent: oklch(0.27 0.012 55);
+  --accent-foreground: oklch(0.97 0.004 60);
+  --destructive: oklch(0.64 0.2 25);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.72 0.18 48);
+  --sidebar: oklch(0.145 0.003 60);
+  --sidebar-foreground: oklch(0.9 0.004 60);
+  --sidebar-primary: oklch(0.72 0.18 48);
+  --sidebar-primary-foreground: oklch(0.17 0.02 48);
+  --sidebar-accent: oklch(0.26 0.035 50);
+  --sidebar-accent-foreground: oklch(0.97 0.01 60);
+  --sidebar-border: oklch(1 0 0 / 7%);
+  --sidebar-ring: oklch(0.72 0.18 48);
 }
 
 /* Additional themes. Each sets the full token set; `.dark` is also applied for
@@ -264,7 +266,8 @@
     margin: 0;
     background-color: var(--background);
     color: var(--foreground);
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-family: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
   }
   /* Keyboard focus is always visible; mouse clicks don't leave rings. */

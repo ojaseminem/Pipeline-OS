@@ -1,10 +1,10 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-/** Built-in themes. `dark` (Midnight) and `light` (Daylight) keep their
+/** Built-in themes. `dark` (Carbon) and `light` (Daylight) keep their
  *  historical ids so stored preferences stay valid. */
 export const THEMES = [
-  { id: "dark", name: "Midnight", mode: "dark", description: "Deep blue-slate with a teal accent. The default.", swatch: ["#151a24", "#1c2230", "#4fd1c5"] },
-  { id: "light", name: "Daylight", mode: "light", description: "Bright and calm for well-lit rooms.", swatch: ["#f7f8fa", "#ffffff", "#2bb3a6"] },
+  { id: "dark", name: "Carbon", mode: "dark", description: "Neutral charcoal with an orange accent. The default.", swatch: ["#151515", "#1d1c1b", "#f2711c"] },
+  { id: "light", name: "Daylight", mode: "light", description: "Clean white with an orange accent for well-lit rooms.", swatch: ["#fbfaf9", "#ffffff", "#e0560f"] },
   { id: "glass", name: "Glass", mode: "dark", description: "Frosted translucent panels over a soft aurora backdrop.", swatch: ["#2a2350", "#3b4b7a", "#7cc8f0"] },
   { id: "frost", name: "Frost", mode: "light", description: "Light frosted glass with pastel depth.", swatch: ["#dfe8fb", "#f4ecfa", "#3f6fe0"] },
   { id: "graphite", name: "Graphite", mode: "dark", description: "Neutral near-black like most DCC apps, so colors read true.", swatch: ["#161616", "#1e1e1e", "#e8a33d"] },
