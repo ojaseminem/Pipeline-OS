@@ -17,6 +17,7 @@ use vantadeck_application::ApplicationService;
 use vantadeck_studio::{
     assets,
     issues::{self, IssueKind, IssuePriority, IssueStatus, NewIssue},
+    organize::{self, LayoutScope},
     tasks,
 };
 
@@ -287,6 +288,30 @@ pub fn tool_definitions() -> Vec<Value> {
             "Pulls issues from the project's connected tracker (GitHub, Gitea/Forgejo, Jira, Linear, Plane, ClickUp) into the board.",
             json!({ "path": path_schema() }),
             &["path"],
+            false,
+        ),
+        tool(
+            "list_layouts",
+            "List folder layouts",
+            "Folder layouts available to the project: its own (.pipelineos/layouts/*.json, shared with the team), this machine's library, and built-in ones (game team, studio pipeline, film/VFX, client project). Each has folders and sorting rules.",
+            json!({ "path": path_schema() }),
+            &["path"],
+            true,
+        ),
+        tool(
+            "plan_organize",
+            "Preview organizing a project",
+            "Shows which loose files a folder layout would move and where, without changing anything. Engine-managed folders (Unity Assets, Unreal Content, Godot imports) are never moved. Moving files is done by the user in Pipeline OS.",
+            json!({ "path": path_schema(), "layout_id": { "type": "string" } }),
+            &["path", "layout_id"],
+            true,
+        ),
+        tool(
+            "save_layout",
+            "Add or update a project folder layout",
+            "Saves a folder layout to .pipelineos/layouts/<id>.json so the whole team can use it. `layout` is JSON: {\"id\", \"name\", \"description\", \"folders\": [\"Art/Concept\", ...], \"rules\": [{\"to\": \"Art/Concept\", \"match\": [\"*concept*\"], \"kinds\": [\"image\"]}], \"keep\": [\"README*\"]}. Kinds: image, source, model, scene, cache, animation, video, audio, document. Saving moves no files.",
+            json!({ "path": path_schema(), "layout": { "type": "object" } }),
+            &["path", "layout"],
             false,
         ),
         tool(
@@ -576,6 +601,38 @@ async fn call_tool(
                 .await
                 .map_err(|e| err(&e))?,
         ),
+        "list_layouts" => to_value(
+            organize::list_layouts(
+                Some(&path_arg(args)?),
+                crate::DATA_DIR.get().map(PathBuf::as_path),
+            )
+            .map_err(|e| err(&e))?,
+        ),
+        "plan_organize" => {
+            let root = path_arg(args)?;
+            let id = args
+                .get("layout_id")
+                .and_then(Value::as_str)
+                .ok_or("layout_id is required")?;
+            let layout =
+                organize::find_layout(Some(&root), crate::DATA_DIR.get().map(PathBuf::as_path), id)
+                    .map_err(|e| err(&e))?;
+            to_value(organize::plan_organize(&root, &layout).map_err(|e| err(&e))?)
+        }
+        "save_layout" => {
+            let root = path_arg(args)?;
+            let mut raw = args.get("layout").cloned().ok_or("layout is required")?;
+            if let Some(object) = raw.as_object_mut() {
+                object
+                    .entry("format")
+                    .or_insert(json!(organize::LAYOUT_FORMAT));
+                object.entry("version").or_insert(json!(1));
+            }
+            let layout = organize::parse_layout(&raw.to_string()).map_err(|e| err(&e))?;
+            let file = organize::save_layout(Some(&root), None, LayoutScope::Project, &layout)
+                .map_err(|e| err(&e))?;
+            to_value(json!({ "layout": layout, "file": file }))
+        }
         "list_assets" => {
             let limit = args
                 .get("limit")

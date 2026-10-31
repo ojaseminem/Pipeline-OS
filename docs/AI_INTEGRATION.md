@@ -55,6 +55,9 @@ real path on your machine.
 | `create_issue` / `update_issue` | Track work on the shared board | no |
 | `sync_issues` | Pull issues from the project's connected tracker | no |
 | `list_assets` | Creative assets with review status | yes |
+| `list_layouts` | Folder layouts: the project's own, this machine's, and built-in | yes |
+| `plan_organize` | Preview which loose files a layout would move and where (changes nothing) | yes |
+| `save_layout` | Add or replace a folder layout in `.pipelineos/layouts/`; moves no files. Moving files is done by you in the app or CLI | no |
 | `open_in_engine` | Open the project in its pinned engine version | no |
 
 MCP clients ask for your approval before calling tools; read-only tools are

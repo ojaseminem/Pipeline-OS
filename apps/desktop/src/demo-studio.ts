@@ -1,7 +1,11 @@
 // In-memory stand-in for the studio commands, used only in the browser demo
 // (?demo=true) so tasks, the board, assets, and AI screens are explorable and
 // testable without the desktop runtime. Mirrors the Rust command contracts.
-import type { AiClientStatus, AssetEntry, DiscoveredProject, EngineActivity, AssetMeta, FolderLayout, Issue, NewIssue, TaskDefinition, TaskLineBatch, TaskRun, TrackerConfig } from "./bridge";
+import gameArt from "../../../crates/studio/src/layouts/game-art.json";
+import studioPipeline from "../../../crates/studio/src/layouts/studio-pipeline.json";
+import filmVfx from "../../../crates/studio/src/layouts/film-vfx.json";
+import clientProject from "../../../crates/studio/src/layouts/client-project.json";
+import type { AiClientStatus, AssetEntry, DiscoveredProject, EngineActivity, AssetMeta, FileMove, FolderLayout, Issue, LayoutEntry, LayoutScope, OrganizeJournal, PlannedMove, NewIssue, TaskDefinition, TaskLineBatch, TaskRun, TrackerConfig } from "./bridge";
 
 const iso = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60_000).toISOString().replace(/\.\d+Z$/, "Z");
 
@@ -14,11 +18,64 @@ const templates: TaskDefinition[] = [
   { id: "custom-script", name: "Custom script", kind: "script", description: "Any program with arguments.", program: "python", args: ["tools/script.py"] },
 ];
 
-const layouts: FolderLayout[] = [
-  { id: "game-art", name: "Game team", description: "Art, audio, design docs, and builds beside the engine project.", folders: ["Art/Concept", "Art/Reference", "Art/Source/Models", "Art/Exports", "Audio/Source", "Docs/Design", "Builds"] },
-  { id: "studio-pipeline", name: "Studio pipeline", description: "Numbered production stages from brief to delivery.", folders: ["00_Admin", "01_Reference", "02_Concept", "03_Production", "04_Review", "05_Delivery"] },
-  { id: "film-vfx", name: "Film / VFX / Animation", description: "Asset- and shot-based structure.", folders: ["editorial", "reference", "concept", "assets", "shots", "renders", "comp", "delivery"] },
+const builtInLayouts = [gameArt, studioPipeline, filmVfx, clientProject] as FolderLayout[];
+const savedLayouts = new Map<string, LayoutEntry>();
+const journals = new Map<string, OrganizeJournal>();
+const layoutKey = (scope: LayoutScope, id: string) => `${scope}:${id}`;
+
+function demoLayouts(): LayoutEntry[] {
+  const byId = new Map<string, LayoutEntry>();
+  for (const layout of builtInLayouts) byId.set(layout.id, { ...layout, source: "builtin" });
+  for (const scope of ["user", "project"] as const) {
+    for (const [key, entry] of savedLayouts) {
+      if (!key.startsWith(`${scope}:`)) continue;
+      const previous = byId.get(entry.id);
+      byId.delete(entry.id);
+      byId.set(entry.id, { ...entry, overrides: previous?.source });
+    }
+  }
+  const rank = { project: 0, user: 1, builtin: 2 } as const;
+  return [...byId.values()].sort((a, b) => rank[a.source] - rank[b.source]);
+}
+
+function findDemoLayout(id: unknown): FolderLayout {
+  const layout = demoLayouts().find((entry) => entry.id === id);
+  if (!layout) throw new Error(`layout "${String(id)}" was not found`);
+  return layout;
+}
+
+/** Loose files in the demo project that a layout would sort. */
+const LOOSE_FILES: { path: string; size: number; kind: string }[] = [
+  { path: "hero_concept_v2.png", size: 4_812_000, kind: "image" },
+  { path: "reactor_moodboard.jpg", size: 2_204_000, kind: "image" },
+  { path: "Downloads/catwalk_ref_03.jpg", size: 1_120_000, kind: "image" },
+  { path: "reactor_core.blend", size: 88_400_000, kind: "scene" },
+  { path: "reactor_core.fbx", size: 21_900_000, kind: "model" },
+  { path: "rock_albedo.psd", size: 64_000_000, kind: "source" },
+  { path: "misc/ambience_reactor.wav", size: 18_300_000, kind: "audio" },
+  { path: "misc/ui_click.ogg", size: 48_000, kind: "audio" },
+  { path: "Voidline_GDD.pdf", size: 3_400_000, kind: "document" },
+  { path: "trailer_capture_0412.mp4", size: 412_000_000, kind: "video" },
+  { path: "old/rock_albedo.psd", size: 61_000_000, kind: "source" },
 ];
+
+function demoPlan(path: string, layout: FolderLayout) {
+  const moved = new Set((journals.get(path)?.moves ?? []).map((m) => m.from));
+  const moves: PlannedMove[] = [];
+  const conflicts: PlannedMove[] = [];
+  const taken = new Set((journals.get(path)?.moves ?? []).map((m) => m.to.toLowerCase()));
+  for (const file of LOOSE_FILES) {
+    if (moved.has(file.path)) continue;
+    const name = file.path.split("/").pop() ?? file.path;
+    const rule = layout.rules.find((r) => (!r.kinds?.length || r.kinds.includes(file.kind as never))
+      && (!r.match?.length || r.match.some((glob) => new RegExp(`^${glob.replace(/[.+^${}()|\\]/g, "\\$&").replaceAll("*", ".*").replaceAll("?", ".")}$`, "i").test(name))));
+    if (!rule) continue;
+    const reason = [rule.match?.join(", "), rule.kinds?.length ? `(${rule.kinds.join(", ")})` : ""].filter(Boolean).join(" ");
+    const planned = { from: file.path, to: `${rule.to}/${name}`, reason, size: file.size };
+    if (taken.has(planned.to.toLowerCase())) conflicts.push(planned); else { taken.add(planned.to.toLowerCase()); moves.push(planned); }
+  }
+  return { layoutId: layout.id, moves, conflicts, protected: 3, protectedAreas: ["Assets", "Packages", "ProjectSettings", "UserSettings"], examined: 4_871, truncated: false };
+}
 
 type ProjectStore = { tasks: TaskDefinition[]; presets: TaskDefinition[]; trusted: boolean; issues: Issue[]; assets: AssetEntry[]; tracker: TrackerConfig | null; hasToken: boolean };
 const stores = new Map<string, ProjectStore>();
@@ -142,7 +199,13 @@ export async function demoStudio(command: string, args: Record<string, unknown>)
         ...(task.cwd ? [`cwd = ${q(task.cwd)}`] : []),
       ].join("\n")).join("\n\n") + "\n";
     }
-    case "tasks_parse_toml": throw new Error("Importing tasks works in the desktop app.");
+    case "tasks_parse_toml": {
+      const text = String(args.text ?? "").trim();
+      if (!text.startsWith("{") && !text.startsWith("[{")) throw new Error("Importing TOML works in the desktop app; the demo accepts JSON.");
+      const parsed = JSON.parse(text) as TaskDefinition | TaskDefinition[] | { task?: TaskDefinition[]; preset?: TaskDefinition[] };
+      const tasks = Array.isArray(parsed) ? parsed : "id" in parsed ? [parsed as TaskDefinition] : [...(parsed.task ?? []), ...(parsed.preset ?? [])];
+      return tasks.map((task) => ({ ...task, kind: task.kind ?? "script", args: task.args ?? [], env: task.env ?? {} }));
+    }
     case "tasks_install_unity_script": return `${path}/Assets/Editor/PipelineOSBuild.cs`;
     case "tasks_save": { const entry = store(path); entry.tasks = args.tasks as TaskDefinition[]; entry.trusted = true; return undefined; }
     case "tasks_trust": { store(path).trusted = true; return undefined; }
@@ -201,11 +264,49 @@ export async function demoStudio(command: string, args: Record<string, unknown>)
         writtenTo: args.write ? `${path}/.pipelineos/context.md` : null,
       };
     }
-    case "asset_layouts": return layouts;
-    case "asset_apply_layout": {
-      const layout = layouts.find((l) => l.id === args.layout);
-      if (!layout) throw new Error("layout not found");
+    case "layouts_list": return demoLayouts();
+    case "layout_parse": {
+      const text = String(args.text ?? "").trim();
+      if (!text.startsWith("{")) {
+        const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const name = lines.find((line) => line.startsWith("#"))?.replace(/^#\s*/, "") ?? "Imported layout";
+        const folders = lines.filter((line) => !line.startsWith("#")).map((line) => line.split("<-")[0].trim());
+        if (!folders.length) throw new Error("the layout needs at least one folder");
+        return { format: "pipelineos-layout", version: 1, id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "layout", name, description: "", folders, rules: [] };
+      }
+      let layout: FolderLayout;
+      try { layout = JSON.parse(text) as FolderLayout; } catch (error) { throw new Error(`not a valid layout: ${String(error)}`); }
+      if (!/^[a-z0-9][a-z0-9-]{0,47}$/.test(layout.id ?? "")) throw new Error(`invalid identifier ${JSON.stringify(layout.id)}: use 1-48 lowercase letters, digits, or dashes`);
+      if (!layout.name?.trim()) throw new Error("the layout needs a name");
+      return { ...layout, rules: layout.rules ?? [], folders: layout.folders ?? [] };
+    }
+    case "layout_to_json": return `${JSON.stringify({ format: "pipelineos-layout", version: 1, ...(args.layout as FolderLayout) }, null, 2)}\n`;
+    case "layout_save": {
+      const layout = args.layout as FolderLayout; const scope = args.scope as LayoutScope;
+      const file = scope === "project" ? `${path}/.pipelineos/layouts/${layout.id}.json` : `~/PipelineOS/layouts/${layout.id}.json`;
+      savedLayouts.set(layoutKey(scope, layout.id), { ...layout, source: scope, file });
+      return file;
+    }
+    case "layout_delete": { savedLayouts.delete(layoutKey(args.scope as LayoutScope, String(args.id))); return undefined; }
+    case "layouts_folder": return args.scope === "project" ? `${path}/.pipelineos/layouts` : "~/PipelineOS/layouts";
+    case "organize_create_folders": {
+      const layout = findDemoLayout(args.layout);
       return { created: layout.folders.slice(2), existing: layout.folders.slice(0, 2) };
+    }
+    case "organize_plan": return demoPlan(path, findDemoLayout(args.layout));
+    case "organize_apply": {
+      const layout = findDemoLayout(args.layout);
+      const moves = args.moves as FileMove[];
+      const previous = journals.get(path)?.moves ?? [];
+      journals.set(path, { layoutId: layout.id, at: iso(), moves: [...previous, ...moves], createdFolders: layout.folders });
+      return { moved: moves, skipped: [], createdFolders: layout.folders };
+    }
+    case "organize_last": return journals.get(path) ?? null;
+    case "organize_undo": {
+      const journal = journals.get(path);
+      if (!journal) throw new Error("there is nothing to undo");
+      journals.delete(path);
+      return { moved: journal.moves.map((m) => ({ from: m.to, to: m.from })), skipped: [], createdFolders: journal.createdFolders };
     }
     case "assets_index": return { assets: [...store(path).assets], truncated: false };
     case "asset_set_meta": {

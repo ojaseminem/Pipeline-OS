@@ -31,6 +31,7 @@ to overwrite existing `.pipelineos/project.toml` metadata.
 | `.pipelineos/assets.toml` | Asset review status and notes. |
 | `.pipelineos/tracker.toml` | The connected issue tracker (never the token). |
 | `.pipelineos/context.md` | Optional generated project brief for AI agents. |
+| `.pipelineos/layouts/*.json` | The team's folder layouts (see [LAYOUTS.md](LAYOUTS.md)). |
 
 Task variables expanded in `program`, `args`, `cwd` and `env` values: `${project}`,
 `${projectName}`, `${engine}`, `${engineDir}`, `${date}` (YYYY-MM-DD), `${time}`

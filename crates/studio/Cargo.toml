@@ -10,6 +10,7 @@ description = "Studio workflow primitives: pipeline tasks, file-based issues, AI
 
 [dependencies]
 chrono.workspace = true
+globset = "0.4"
 ignore.workspace = true
 regex.workspace = true
 serde.workspace = true

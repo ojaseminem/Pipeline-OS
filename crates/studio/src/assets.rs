@@ -1,8 +1,5 @@
-//! Studio folder layouts and the project asset library.
-//!
-//! Layouts are additive templates (folders are created, never moved or
-//! deleted) that give art and production files a predictable home. The asset
-//! index lists creative files (concept art, references, models, audio...)
+//! The project asset library. Folder layouts and organizing live in
+//! [`crate::organize`]. The asset index lists creative files (concept art, references, models, audio...)
 //! while skipping engine caches and anything git-ignored, and per-asset review
 //! status (WIP / review / approved) is shared in `.pipelineos/assets.toml`.
 
@@ -17,110 +14,6 @@ use serde::{Deserialize, Serialize};
 use crate::{StudioError, metadata_path, write_atomic};
 
 pub const ASSETS_FILE: &str = "assets.toml";
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderLayout {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub description: &'static str,
-    pub folders: &'static [&'static str],
-}
-
-/// Built-in layouts. Paths use `/` and are relative to the project root.
-pub fn folder_layouts() -> Vec<FolderLayout> {
-    vec![
-        FolderLayout {
-            id: "game-art",
-            name: "Game team",
-            description: "Art, audio, design docs, and builds beside the engine project. Good for indie and mid-size game teams.",
-            folders: &[
-                "Art/Concept",
-                "Art/Reference",
-                "Art/Source/Models",
-                "Art/Source/Textures",
-                "Art/Source/Animation",
-                "Art/Exports",
-                "Art/Marketing",
-                "Audio/Source",
-                "Audio/Exports",
-                "Docs/Design",
-                "Docs/Tech",
-                "Builds",
-            ],
-        },
-        FolderLayout {
-            id: "studio-pipeline",
-            name: "Studio pipeline",
-            description: "Numbered production stages from brief to delivery, the convention many larger studios and outsourcers expect.",
-            folders: &[
-                "00_Admin",
-                "01_Reference",
-                "02_Concept/Characters",
-                "02_Concept/Environments",
-                "02_Concept/Props",
-                "03_Production/Characters",
-                "03_Production/Environments",
-                "03_Production/Props",
-                "03_Production/FX",
-                "04_Review",
-                "05_Delivery",
-            ],
-        },
-        FolderLayout {
-            id: "film-vfx",
-            name: "Film / VFX / Animation",
-            description: "Asset- and shot-based structure for animation, VFX, and cinematics.",
-            folders: &[
-                "editorial",
-                "reference",
-                "concept",
-                "assets/characters",
-                "assets/props",
-                "assets/environments",
-                "shots",
-                "renders",
-                "comp",
-                "delivery",
-            ],
-        },
-    ]
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LayoutResult {
-    pub created: Vec<String>,
-    pub existing: Vec<String>,
-}
-
-/// Creates the layout's missing folders. Each new leaf gets a `.gitkeep` so
-/// the empty structure can be committed and shared. Never moves or deletes.
-pub fn apply_layout(root: &Path, layout_id: &str) -> Result<LayoutResult, StudioError> {
-    let layout = folder_layouts()
-        .into_iter()
-        .find(|layout| layout.id == layout_id)
-        .ok_or_else(|| StudioError::NotFound {
-            kind: "layout",
-            id: layout_id.to_owned(),
-        })?;
-    let mut result = LayoutResult {
-        created: Vec::new(),
-        existing: Vec::new(),
-    };
-    for folder in layout.folders {
-        let path = root.join(folder);
-        if path.is_dir() {
-            result.existing.push((*folder).to_owned());
-            continue;
-        }
-        std::fs::create_dir_all(&path).map_err(|e| StudioError::io(&path, e))?;
-        let keep = path.join(".gitkeep");
-        std::fs::write(&keep, "").map_err(|e| StudioError::io(&keep, e))?;
-        result.created.push((*folder).to_owned());
-    }
-    Ok(result)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -345,18 +238,6 @@ pub fn set_asset_meta(root: &Path, asset_path: &str, meta: AssetMeta) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn layouts_are_additive_and_idempotent() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("Art/Concept")).unwrap();
-        let first = apply_layout(dir.path(), "game-art").unwrap();
-        assert!(first.existing.contains(&"Art/Concept".to_owned()));
-        assert!(dir.path().join("Docs/Design/.gitkeep").exists());
-        let second = apply_layout(dir.path(), "game-art").unwrap();
-        assert!(second.created.is_empty());
-        assert!(apply_layout(dir.path(), "nope").is_err());
-    }
 
     #[test]
     fn indexes_creative_files_and_skips_caches() {

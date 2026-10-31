@@ -1,0 +1,36 @@
+{
+  "format": "pipelineos-layout",
+  "version": 1,
+  "id": "film-vfx",
+  "name": "Film / VFX / Animation",
+  "description": "Asset- and shot-based structure for animation, VFX and cinematics.",
+  "folders": [
+    "editorial",
+    "reference",
+    "concept",
+    "assets/characters",
+    "assets/props",
+    "assets/environments",
+    "shots",
+    "caches",
+    "renders",
+    "comp",
+    "audio",
+    "delivery"
+  ],
+  "rules": [
+    { "to": "reference", "match": ["*ref*", "*reference*", "*moodboard*"] },
+    { "to": "concept", "match": ["*concept*", "*sketch*"] },
+    { "to": "editorial", "match": ["*edit*", "*cut*", "*animatic*", "*.edl", "*.xml", "*.otio"] },
+    { "to": "shots", "match": ["*sh[0-9]*", "*shot*", "*sq[0-9]*"], "kinds": ["scene"] },
+    { "to": "comp", "match": ["*.nk", "*.aep", "*comp*"] },
+    { "to": "assets/characters", "match": ["*char*", "*character*"], "kinds": ["scene", "model", "source"] },
+    { "to": "assets/environments", "match": ["*env*", "*environment*", "*set*"], "kinds": ["scene", "model", "source"] },
+    { "to": "assets/props", "kinds": ["scene", "model", "source"] },
+    { "to": "caches", "kinds": ["cache"] },
+    { "to": "renders", "match": ["*.exr", "*render*"] },
+    { "to": "audio", "kinds": ["audio"] },
+    { "to": "delivery", "match": ["*final*", "*delivery*", "*master*"], "kinds": ["video"] }
+  ],
+  "keep": ["README*", "LICENSE*"]
+}

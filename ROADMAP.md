@@ -18,6 +18,8 @@ through a public [RFC](docs/RFC_PROCESS.md) and a roadmap pull request.
 - A git-native board per project, cross-project planning, tracker sync (GitHub
   Issues, Jira, Linear, Plane, Gitea/Forgejo, ClickUp), and an asset library with
   review status.
+- Folder layouts as plain JSON (built-in, per machine, per project) and a safe
+  organizer with preview, engine protection and undo (unreleased).
 - AI: project brief, agent launch, and an MCP server that can read projects and
   author tasks and presets (user-trusted before they run).
 - Works offline; signed auto-updates; Windows, macOS (Apple Silicon and Intel) and
@@ -25,9 +27,20 @@ through a public [RFC](docs/RFC_PROCESS.md) and a roadmap pull request.
 
 ## Next
 
+Ordered by how much each helps the core problem: projects that explain themselves
+(see [VISION.md](docs/VISION.md)).
+
+- **Organize, further:** a health check that spots loose files and suggests a layout;
+  naming conventions (`T_Rock_Albedo`, `SM_Crate`) as part of a layout; engine-safe
+  moves inside Unity `Assets/` that carry `.meta` files along.
+- **Set up this project:** one screen for a newly cloned project: the engine version
+  it needs, missing apps, folder layout, build tasks and Git LFS, each with a fix.
+- **Studio packs:** one shareable file with a team's layouts and task presets, imported
+  into any project in one step.
 - **Multi-step pipelines:** chain tasks (test → build → package → upload) with
   stop-on-failure, without needing a script.
-- **Art Git support** view, review, revise and visualize art diff via Git using the launcher. 
+- **Art in version control:** view, review and compare versions of art files through
+  Git, from the launcher.
 - **Perforce in the desktop app**, validated against a live server.
 - **Platform signing:** Windows Authenticode and Apple notarization, so installers
   open without a security prompt.

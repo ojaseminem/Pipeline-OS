@@ -1,0 +1,25 @@
+{
+  "format": "pipelineos-layout",
+  "version": 1,
+  "id": "client-project",
+  "name": "Client or freelance project",
+  "description": "Brief, references, work in progress and finals, so a client job stays tidy from kickoff to handoff.",
+  "folders": [
+    "01_Brief",
+    "02_Reference",
+    "03_Working",
+    "04_Exports",
+    "05_Final",
+    "06_Admin"
+  ],
+  "rules": [
+    { "to": "01_Brief", "match": ["*brief*", "*spec*", "*requirements*"] },
+    { "to": "06_Admin", "match": ["*invoice*", "*contract*", "*quote*", "*estimate*", "*.xlsx"] },
+    { "to": "02_Reference", "match": ["*ref*", "*reference*", "*moodboard*", "*inspiration*"] },
+    { "to": "05_Final", "match": ["*final*", "*approved*", "*delivery*"] },
+    { "to": "03_Working", "kinds": ["source", "scene", "cache", "animation"] },
+    { "to": "04_Exports", "kinds": ["image", "model", "video", "audio"] },
+    { "to": "01_Brief", "kinds": ["document"] }
+  ],
+  "keep": ["README*"]
+}

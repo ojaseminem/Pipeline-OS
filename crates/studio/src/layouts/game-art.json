@@ -1,0 +1,38 @@
+{
+  "format": "pipelineos-layout",
+  "version": 1,
+  "id": "game-art",
+  "name": "Game team",
+  "description": "Art, audio, design docs and builds beside the engine project. Good for indie and mid-size game teams.",
+  "folders": [
+    "Art/Concept",
+    "Art/Reference",
+    "Art/Source/Models",
+    "Art/Source/Textures",
+    "Art/Source/Animation",
+    "Art/Exports",
+    "Art/Marketing",
+    "Audio/Source",
+    "Audio/Exports",
+    "Video/Captures",
+    "Docs/Design",
+    "Docs/Tech",
+    "Builds"
+  ],
+  "rules": [
+    { "to": "Art/Reference", "match": ["*ref*", "*reference*", "*moodboard*"], "kinds": ["image", "video"] },
+    { "to": "Art/Concept", "match": ["*concept*", "*sketch*", "*thumbnail*"] },
+    { "to": "Art/Marketing", "match": ["*key art*", "*keyart*", "*capsule*", "*banner*", "*logo*", "*screenshot*"] },
+    { "to": "Art/Source/Animation", "kinds": ["animation"] },
+    { "to": "Art/Source/Models", "kinds": ["scene", "cache"] },
+    { "to": "Art/Exports", "kinds": ["model"] },
+    { "to": "Art/Source/Textures", "kinds": ["source"] },
+    { "to": "Art/Exports", "kinds": ["image"] },
+    { "to": "Audio/Source", "match": ["*.wav", "*.aif", "*.aiff", "*.flac"] },
+    { "to": "Audio/Exports", "kinds": ["audio"] },
+    { "to": "Video/Captures", "kinds": ["video"] },
+    { "to": "Docs/Design", "match": ["*gdd*", "*design*", "*pitch*", "*.pptx", "*.xlsx"] },
+    { "to": "Docs/Tech", "match": ["*.pdf", "*.docx"] }
+  ],
+  "keep": ["README*", "LICENSE*", "CHANGELOG*", "CONTRIBUTING*"]
+}

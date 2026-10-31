@@ -167,9 +167,18 @@ pub fn tasks_to_toml(tasks: &[TaskDefinition]) -> Result<String, StudioError> {
 }
 
 /// Parses pasted or imported task definitions: `[[task]]` and/or `[[preset]]`
-/// tables (a whole tasks.toml or presets.toml works too), or a single task
-/// written as top-level keys.
+/// tables (a whole tasks.toml or presets.toml works too), a single task
+/// written as top-level keys, or the same as JSON (a task, a list of tasks,
+/// or `{"task": [...]}`).
 pub fn parse_tasks_toml(text: &str) -> Result<Vec<TaskDefinition>, StudioError> {
+    let trimmed = text.trim_start_matches('\u{feff}').trim();
+    // `[[task]]` is TOML; `[ {` or `[]` is a JSON list.
+    let json_list = trimmed
+        .strip_prefix('[')
+        .is_some_and(|rest| rest.trim_start().starts_with(['{', ']']));
+    if trimmed.starts_with('{') || json_list {
+        return parse_tasks_json(trimmed);
+    }
     #[derive(Deserialize)]
     struct Snippet {
         #[serde(default)]
@@ -188,6 +197,38 @@ pub fn parse_tasks_toml(text: &str) -> Result<Vec<TaskDefinition>, StudioError> 
                 "no tasks found: expected [[task]] tables or a task's id, name and program".into(),
             )
         })?);
+    }
+    validate_tasks(&tasks)?;
+    Ok(tasks)
+}
+
+fn parse_tasks_json(text: &str) -> Result<Vec<TaskDefinition>, StudioError> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Json {
+        List(Vec<TaskDefinition>),
+        One(TaskDefinition),
+        Tables {
+            #[serde(default)]
+            task: Vec<TaskDefinition>,
+            #[serde(default)]
+            preset: Vec<TaskDefinition>,
+        },
+    }
+    let tasks = match serde_json::from_str::<Json>(text)
+        .map_err(|e| StudioError::Invalid(format!("not valid task JSON: {e}")))?
+    {
+        Json::List(tasks) => tasks,
+        Json::Tables { mut task, preset } => {
+            task.extend(preset);
+            task
+        }
+        Json::One(task) => vec![task],
+    };
+    if tasks.is_empty() {
+        return Err(StudioError::Invalid(
+            "no tasks found: expected a task, a list of tasks, or {\"task\": [...]}".into(),
+        ));
     }
     validate_tasks(&tasks)?;
     Ok(tasks)
@@ -691,6 +732,21 @@ mod tests {
         assert_eq!(
             (parsed[0].id.as_str(), parsed[0].kind),
             ("zip", TaskKind::Script)
+        );
+    }
+
+    #[test]
+    fn task_snippets_accept_json() {
+        let one = r#"{"id": "zip", "name": "Zip", "program": "python", "args": ["zip.py"]}"#;
+        assert_eq!(parse_tasks_toml(one).unwrap()[0].args, ["zip.py"]);
+        let list = r#"[{"id": "a", "name": "A", "program": "sh"}, {"id": "b", "name": "B", "program": "sh"}]"#;
+        assert_eq!(parse_tasks_toml(list).unwrap().len(), 2);
+        let tables = r#"{"task": [{"id": "a", "name": "A", "program": "sh"}], "preset": [{"id": "b", "name": "B", "program": "sh"}]}"#;
+        assert_eq!(parse_tasks_toml(tables).unwrap().len(), 2);
+        assert!(parse_tasks_toml("[]").is_err());
+        assert!(
+            parse_tasks_toml(r#"{"id": "x", "name": "X", "program": "sh", "cwd": "../out"}"#)
+                .is_err()
         );
     }
 

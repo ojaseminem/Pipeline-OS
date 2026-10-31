@@ -4,6 +4,26 @@ What changed in each Pipeline OS release. The same notes appear on each
 [GitHub release](https://github.com/ojaseminem/Pipeline-OS/releases). Installed apps
 update themselves from the latest release.
 
+## Unreleased
+
+### What's new
+
+- **Organize a messy project.** Pick a folder layout and see exactly which loose
+  files would move where, untick anything to leave alone, then apply. Engine folders
+  (Unity `Assets/`, Unreal `Content/`, Godot imports) are never touched, nothing is
+  overwritten, and the last organize can be undone.
+- **Your own folder layouts.** Customize or duplicate a layout for the project (shared
+  through Git) or keep it on your computer. Layouts are plain JSON files; copy,
+  import and export them, or import a simple `.txt` folder list.
+- **New built-in layout** for client and freelance projects.
+- **AI agents can propose layouts** and preview an organize; moving files stays with
+  you.
+- `vantadeck organize` commands for layouts, previews, applying and undo.
+
+### Smaller changes
+
+- Task import also accepts JSON.
+
 ## 0.5.4 — 2026-10-24
 
 ### What's new

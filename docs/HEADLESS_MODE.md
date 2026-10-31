@@ -40,10 +40,17 @@ vantadeck --json issues add D:/Projects/MyGame --title "Catwalk collision" --kin
 vantadeck --json issues move D:/Projects/MyGame <id> in-progress
 vantadeck --json issues sync D:/Projects/MyGame
 
-# Assets and folder layouts
+# Assets
 vantadeck --json assets list D:/Projects/MyGame
-vantadeck --json assets layouts
-vantadeck --json assets apply-layout D:/Projects/MyGame <layout> --yes
+
+# Folder layouts and organizing (see LAYOUTS.md)
+vantadeck --json organize layouts D:/Projects/MyGame
+vantadeck organize show game-art > our-layout.json
+vantadeck --json organize import our-layout.json --project D:/Projects/MyGame
+vantadeck --json organize plan D:/Projects/MyGame game-art
+vantadeck --json organize apply D:/Projects/MyGame game-art --yes
+vantadeck --json organize apply D:/Projects/MyGame game-art --folders-only --yes
+vantadeck --json organize undo D:/Projects/MyGame --yes
 
 # AI
 vantadeck context D:/Projects/MyGame --write

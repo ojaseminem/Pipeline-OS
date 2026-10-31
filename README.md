@@ -4,9 +4,9 @@
 
 # Pipeline OS
 
-### Your whole game, film or VFX pipeline — in one local, open-source app.
+### The pipeline department for teams that don't have one.
 
-Find every creative app and version on your machine, open projects in the right one, run builds and renders, track the work, and drive Git — from one desktop app and a scriptable CLI.<br>
+Open every game, film or VFX project in the right app version, keep its files organized, turn builds and renders into buttons, and track the work, all from one desktop app and a scriptable CLI.<br>
 **No account. No cloud. No telemetry. Works offline.**
 
 [![Latest release](https://img.shields.io/github/v/release/ojaseminem/Pipeline-OS?label=download&color=2bb3a6)](https://github.com/ojaseminem/Pipeline-OS/releases/latest)
@@ -25,17 +25,20 @@ Find every creative app and version on your machine, open projects in the right 
 
 ## Why Pipeline OS
 
-A single game or film project leans on a dozen tools: an engine (often one specific version), DCC apps, editors, source control, build scripts, a tracker. Pipeline OS puts all of it in one place, on your machine.
+A creative project is never just code. It's a specific engine version, a handful of creative apps, gigabytes of source art and exports, build scripts someone wrote once, and knowledge that lives in one person's head. So projects open in the wrong version, files pile up in `Downloads` and `final_v3_REAL.psd`, builds become rituals, and getting a new teammate started takes a day.
+
+Big studios have pipeline engineers for this. Pipeline OS gives everyone else the same thing: **each project explains itself**, in plain files inside the project, shared through the Git you already use. A new teammate clones the repo and the right engine version, the folder structure, the build buttons and the open work are all there.
 
 | | |
 | --- | --- |
-| 🧭 **One home for every project** | Pinned and recent projects, what changed, health warnings and open work, the moment you open the app. |
-| 🎯 **The right version, every time** | Detects 60+ creative apps with every installed version side by side, and opens each project in the version it needs. |
-| ⚙️ **One-click pipeline** | Builds, cooks, renders, exports and tests from templates, with live progress, logs and history. |
-| 🌿 **Git without the friction** | Changes, diffs, branches (with when each was last updated), merges, pull requests and CI checks. |
-| 🗂️ **Work tracking that lives in the repo** | A Kanban board and asset reviews stored as plain files, so they sync through Git. |
-| 🤖 **AI-ready** | A project brief and a built-in MCP server let Claude, Cursor, Codex and others work with your projects safely. |
-| 🔒 **Yours** | MIT-licensed, local-first, no account, no telemetry, and it [works offline](#works-offline). |
+| 🎯 **Open it right** | Detects 60+ creative apps with every installed version side by side, and opens each project in the version it needs. |
+| 🗂️ **Keep it organized** | Folder layouts everyone follows, and a safe organizer that sorts a messy project into one, with a preview, engine folders left alone, and undo. |
+| ⚙️ **Build it the same way** | Builds, cooks, renders, exports and tests become buttons with live progress, logs and history, for you, CI and AI agents alike. |
+| 🌿 **Track and sync it** | Git built for creative projects, plus a Kanban board and asset reviews stored as plain files in the repo. |
+| 🤖 **Let AI help, safely** | A project brief and a built-in MCP server let Claude, Cursor, Codex and others read the project and propose changes you approve. |
+| 🔒 **Yours** | MIT-licensed, local-first, no account, no telemetry, and it [works offline](#works-offline). Every preset is a plain JSON or TOML file you can edit, copy and share. |
+
+Read more: [why Pipeline OS exists and where it's going](docs/VISION.md).
 
 ## Download
 
@@ -94,8 +97,13 @@ Every project gets a Kanban board stored as plain files in `.pipelineos/issues/`
   </tr>
 </table>
 
+### Organize a messy project
+Pick a folder layout (Game team, Studio pipeline, Film/VFX, Client project, or your own) and see exactly which loose files would move where. Untick anything to leave it alone, then apply. Unity `Assets/`, Unreal `Content/` and Godot imports are never touched, nothing is overwritten, and the last organize can be undone. Layouts are plain JSON: customize one for the project and the whole team gets it through Git, or keep your own on your computer. Copy, import and export them as `.json` or a simple `.txt` folder list. See [LAYOUTS.md](docs/LAYOUTS.md).
+
+<img src="docs/screenshots/organize.png" alt="Organize project: a Game team layout previewing which loose files move into Art, Audio and Docs folders" width="100%">
+
 ### Assets and reviews
-Concept art, references, models, audio and video in one library, with shared review status (WIP, In review, Approved) and studio folder layouts.
+Concept art, references, models, audio and video in one library, with shared review status (WIP, In review, Approved).
 
 <img src="docs/screenshots/assets.png" alt="Asset library with previews and review status badges" width="100%">
 
@@ -137,9 +145,10 @@ Pipeline OS finds the engines, DCCs, editors and tools you already have, with ea
 
 ### Studio workflows
 - **Pipeline tasks.** One-click builds, cooks, renders, exports and tests from templates (Unity batch mode, Unreal BuildCookRun, Godot export, Blender render, or your own). Live logs, cancel, and run history. Commands that arrive through the repo must be reviewed and trusted on your machine before they run.
-- **Your own presets.** Save any task as a project preset (`.pipelineos/presets.toml`, shared through Git), copy tasks as TOML, and import them into another project by pasting or opening a file.
+- **Your own presets.** Save any task as a project preset (`.pipelineos/presets.toml`, shared through Git), copy tasks as TOML, and import them into another project by pasting TOML or JSON or opening a file.
+- **Folder layouts and organizing.** Four built-in layouts plus your own, saved per project (`.pipelineos/layouts/*.json`, shared through Git) or on your computer. Customize, duplicate, import and export them as JSON or a plain-text folder list. The organizer previews every move, leaves engine-managed folders alone, never overwrites, and can undo.
 - **Board.** A Kanban board per project, stored as one small file per issue under `.pipelineos/issues/`, so it merges cleanly through Git. *Open work* on Home and *Planning* show everything across projects. Optional sync with GitHub Issues, Jira, Linear and others.
-- **Asset library.** Concept art, references, models, audio and video with review status (WIP / In review / Approved), notes and studio folder layouts.
+- **Asset library.** Concept art, references, models, audio and video with review status (WIP / In review / Approved) and notes.
 - **Engine activity and time.** See what the engine is doing from its logs (lighting builds, shader compiles, cooks), and how long you've worked on each project (kept locally).
 
 ### Source control
@@ -153,7 +162,7 @@ Pipeline OS finds the engines, DCCs, editors and tools you already have, with ea
 ### AI-ready
 - Start Claude Code, Codex, Gemini, Aider or a terminal inside any project.
 - A generated **project brief** (on each project's Overview) tells agents the engine, how to build, and which folders to leave alone.
-- A built-in **MCP server** (`vantadeck mcp`) lets Claude Desktop, Claude Code, Cursor and others work with your projects, issues and pipelines: they can add or edit tasks and presets for you, and you review and trust the changes before anything runs. The app can set this up for you. See [AI_INTEGRATION.md](docs/AI_INTEGRATION.md).
+- A built-in **MCP server** (`vantadeck mcp`) lets Claude Desktop, Claude Code, Cursor and others work with your projects, issues and pipelines: they can add or edit tasks, presets and folder layouts for you and preview an organize, and you review and trust the changes before anything runs. The app can set this up for you. See [AI_INTEGRATION.md](docs/AI_INTEGRATION.md).
 
 ### Desktop experience
 - 11 themes, including light, dark, glass and high-contrast, plus custom accent colors and reduced motion.
@@ -190,6 +199,7 @@ vantadeck project launch ~/Projects/MyGame editor     # open it with a launch pr
 vantadeck project vcs ~/Projects/MyGame sync --yes    # fetch, pull and push
 vantadeck tasks run ~/Projects/MyGame build --yes     # run a pipeline task
 vantadeck issues list ~/Projects/MyGame               # the project's board
+vantadeck organize plan ~/Projects/MyGame game-art    # preview sorting loose files
 vantadeck context ~/Projects/MyGame                   # AI-ready project brief
 vantadeck discover                                    # projects not added yet
 vantadeck mcp                                         # serve AI agents over MCP (stdio)
@@ -218,7 +228,7 @@ app_id = "unity"
 arguments = ["-projectPath", "{projectRoot}"]
 ```
 
-Pipeline tasks live in `.pipelineos/tasks.toml` and issues in `.pipelineos/issues/`. Absolute paths, credentials and personal preferences never go in these files; they stay in the app's local data. The full contract is in [PROJECT_SPEC.md](docs/PROJECT_SPEC.md). Older `.vantadeck/` folders are migrated automatically.
+Pipeline tasks live in `.pipelineos/tasks.toml`, folder layouts in `.pipelineos/layouts/`, and issues in `.pipelineos/issues/`. Absolute paths, credentials and personal preferences never go in these files; they stay in the app's local data. The full contract is in [PROJECT_SPEC.md](docs/PROJECT_SPEC.md). Older `.vantadeck/` folders are migrated automatically.
 
 ## Build from source
 

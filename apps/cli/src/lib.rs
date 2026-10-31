@@ -28,6 +28,7 @@ use vantadeck_security::ArtifactVerificationError;
 use vantadeck_studio::{
     StudioError, assets,
     issues::{self, IssueKind, IssuePriority, IssueStatus, NewIssue},
+    organize::{self, FileMove, LayoutScope},
     tasks,
 };
 
@@ -91,10 +92,15 @@ pub enum Command {
         #[command(subcommand)]
         command: IssuesCommand,
     },
-    /// Creative asset library and studio folder layouts.
+    /// Creative asset library.
     Assets {
         #[command(subcommand)]
         command: AssetsCommand,
+    },
+    /// Folder layouts, and sorting a messy project's loose files into them.
+    Organize {
+        #[command(subcommand)]
+        command: OrganizeCommand,
     },
     /// Serve Pipeline OS to AI agents over the Model Context Protocol (stdio).
     Mcp,
@@ -201,6 +207,46 @@ pub enum AssetsCommand {
     ApplyLayout {
         path: PathBuf,
         layout: String,
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OrganizeCommand {
+    /// Layouts available to a project: its own, this machine's, and built-in.
+    Layouts {
+        /// Project folder (adds the project's own layouts).
+        path: Option<PathBuf>,
+    },
+    /// Print a layout as JSON, ready to edit or share.
+    Show {
+        layout: String,
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+    /// Add a layout from a .json or .txt file to this machine's library, or to
+    /// a project with --project.
+    Import {
+        file: PathBuf,
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+    /// Preview which loose files a layout would move. Changes nothing.
+    Plan { path: PathBuf, layout: String },
+    /// Create the layout's folders and move every file the plan lists.
+    Apply {
+        path: PathBuf,
+        layout: String,
+        /// Only create the folders; move nothing.
+        #[arg(long)]
+        folders_only: bool,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Put the files from the last organize back where they were.
+    Undo {
+        path: PathBuf,
         #[arg(long)]
         yes: bool,
     },
@@ -469,6 +515,7 @@ pub async fn execute(
         }
         Command::Issues { command } => execute_issues(command, service).await,
         Command::Assets { command } => execute_assets(command),
+        Command::Organize { command } => execute_organize(command),
         Command::Scan {
             command:
                 ScanCommand::Apps {
@@ -1021,13 +1068,119 @@ fn execute_assets(
                 assets::index_assets(&path, limit).map_err(studio(COMMAND))?,
             )
         }
-        AssetsCommand::Layouts => success("assets.layouts", assets::folder_layouts()),
+        AssetsCommand::Layouts => {
+            const COMMAND: &str = "assets.layouts";
+            success(
+                COMMAND,
+                organize::list_layouts(None, DATA_DIR.get().map(PathBuf::as_path))
+                    .map_err(studio(COMMAND))?,
+            )
+        }
         AssetsCommand::ApplyLayout { path, layout, yes } => {
             const COMMAND: &str = "assets.apply-layout";
             require_confirmation(COMMAND, yes)?;
+            let layout =
+                organize::find_layout(Some(&path), DATA_DIR.get().map(PathBuf::as_path), &layout)
+                    .map_err(studio(COMMAND))?;
             success(
                 COMMAND,
-                assets::apply_layout(&path, &layout).map_err(studio(COMMAND))?,
+                organize::create_folders(&path, &layout).map_err(studio(COMMAND))?,
+            )
+        }
+    }
+}
+
+fn execute_organize(
+    command: OrganizeCommand,
+) -> Result<CliEnvelope<serde_json::Value>, CliExecutionError> {
+    let user_dir = DATA_DIR.get().map(PathBuf::as_path);
+    let need_user_dir = |command: &'static str| {
+        user_dir.ok_or(CliExecutionError::Usage {
+            command,
+            message: "this machine's Pipeline OS data folder isn't available".into(),
+        })
+    };
+    match command {
+        OrganizeCommand::Layouts { path } => {
+            const COMMAND: &str = "organize.layouts";
+            success(
+                COMMAND,
+                organize::list_layouts(path.as_deref(), user_dir).map_err(studio(COMMAND))?,
+            )
+        }
+        OrganizeCommand::Show { layout, project } => {
+            const COMMAND: &str = "organize.show";
+            success(
+                COMMAND,
+                organize::find_layout(project.as_deref(), user_dir, &layout)
+                    .map_err(studio(COMMAND))?,
+            )
+        }
+        OrganizeCommand::Import { file, project } => {
+            const COMMAND: &str = "organize.import";
+            let text = fs::read_to_string(&file).map_err(|source| CliExecutionError::Io {
+                command: COMMAND,
+                source,
+            })?;
+            let layout = organize::parse_layout(&text).map_err(studio(COMMAND))?;
+            let scope = if project.is_some() {
+                LayoutScope::Project
+            } else {
+                LayoutScope::User
+            };
+            let saved = organize::save_layout(project.as_deref(), user_dir, scope, &layout)
+                .map_err(studio(COMMAND))?;
+            success(
+                COMMAND,
+                serde_json::json!({ "layout": layout, "file": saved }),
+            )
+        }
+        OrganizeCommand::Plan { path, layout } => {
+            const COMMAND: &str = "organize.plan";
+            let layout =
+                organize::find_layout(Some(&path), user_dir, &layout).map_err(studio(COMMAND))?;
+            success(
+                COMMAND,
+                organize::plan_organize(&path, &layout).map_err(studio(COMMAND))?,
+            )
+        }
+        OrganizeCommand::Apply {
+            path,
+            layout,
+            folders_only,
+            yes,
+        } => {
+            const COMMAND: &str = "organize.apply";
+            require_confirmation(COMMAND, yes)?;
+            let layout =
+                organize::find_layout(Some(&path), user_dir, &layout).map_err(studio(COMMAND))?;
+            if folders_only {
+                return success(
+                    COMMAND,
+                    organize::create_folders(&path, &layout).map_err(studio(COMMAND))?,
+                );
+            }
+            let plan = organize::plan_organize(&path, &layout).map_err(studio(COMMAND))?;
+            let moves: Vec<FileMove> = plan
+                .moves
+                .into_iter()
+                .map(|planned| FileMove {
+                    from: planned.from,
+                    to: planned.to,
+                })
+                .collect();
+            success(
+                COMMAND,
+                organize::apply_organize(&path, need_user_dir(COMMAND)?, &layout, &moves)
+                    .map_err(studio(COMMAND))?,
+            )
+        }
+        OrganizeCommand::Undo { path, yes } => {
+            const COMMAND: &str = "organize.undo";
+            require_confirmation(COMMAND, yes)?;
+            success(
+                COMMAND,
+                organize::undo_organize(&path, need_user_dir(COMMAND)?).map_err(studio(COMMAND))?,
             )
         }
     }

@@ -14,6 +14,7 @@ pub mod discovery;
 pub mod engine_activity;
 pub mod github;
 pub mod issues;
+pub mod organize;
 pub mod task_presets;
 pub mod tasks;
 pub mod toml_merge;

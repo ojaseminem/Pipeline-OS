@@ -1,0 +1,34 @@
+{
+  "format": "pipelineos-layout",
+  "version": 1,
+  "id": "studio-pipeline",
+  "name": "Studio pipeline",
+  "description": "Numbered production stages from brief to delivery, the convention many larger studios and outsourcers expect.",
+  "folders": [
+    "00_Admin",
+    "01_Reference",
+    "02_Concept/Characters",
+    "02_Concept/Environments",
+    "02_Concept/Props",
+    "03_Production/Characters",
+    "03_Production/Environments",
+    "03_Production/Props",
+    "03_Production/FX",
+    "04_Review",
+    "05_Delivery"
+  ],
+  "rules": [
+    { "to": "00_Admin", "match": ["*.pdf", "*.docx", "*.xlsx", "*.pptx", "*brief*", "*contract*", "*schedule*"] },
+    { "to": "01_Reference", "match": ["*ref*", "*reference*", "*moodboard*"] },
+    { "to": "02_Concept/Characters", "match": ["*concept*char*", "*char*concept*"] },
+    { "to": "02_Concept/Environments", "match": ["*concept*env*", "*env*concept*"] },
+    { "to": "02_Concept/Props", "match": ["*concept*prop*", "*prop*concept*"] },
+    { "to": "04_Review", "match": ["*review*", "*wip*", "*_v[0-9]*"], "kinds": ["image", "video"] },
+    { "to": "03_Production/Characters", "match": ["*char*", "*character*"], "kinds": ["scene", "model", "source"] },
+    { "to": "03_Production/Environments", "match": ["*env*", "*environment*", "*level*"], "kinds": ["scene", "model", "source"] },
+    { "to": "03_Production/FX", "match": ["*fx*", "*vfx*"], "kinds": ["scene", "cache", "source"] },
+    { "to": "03_Production/Props", "kinds": ["scene", "model", "source"] },
+    { "to": "05_Delivery", "match": ["*final*", "*delivery*", "*.zip"] }
+  ],
+  "keep": ["README*", "LICENSE*"]
+}

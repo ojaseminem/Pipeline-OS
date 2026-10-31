@@ -1,6 +1,6 @@
 // Project "Assets" tab: concept art, references, source art, models, audio
-// and video in one browsable library with shared review status, plus studio
-// folder layouts that give every file a predictable home.
+// and video in one browsable library with shared review status. "Organize
+// project" opens the folder layouts and organizer (organize-dialog.tsx).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Box, Clipboard, FileAudio, FileText, Film, FolderOpen, FolderTree, ImageIcon, Layers, MoreHorizontal, Search, SquarePen, Boxes, Database, PersonStanding, LayoutGrid, List } from "lucide-react";
@@ -12,9 +12,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { desktopApi, isNativeRuntime, studioApi, studioAvailable, type AssetEntry, type AssetKind, type ReviewStatus } from "../bridge";
-import { confirmAction } from "../lib/confirm";
 import { REVIEW_META } from "../lib/asset-meta";
 import { EmptyState } from "./empty-state";
+import { OrganizeDialog } from "./organize-dialog";
 
 const KIND_META: Record<AssetKind, { label: string; icon: typeof Box }> = {
   image: { label: "Images", icon: ImageIcon },
@@ -145,7 +145,7 @@ export function ProjectAssets({ projectPath, onCreateIssue }: { projectPath: str
           <h2 className="text-base font-semibold">Asset library</h2>
           <p className="max-w-2xl text-sm text-muted-foreground">Concept art, references, source art, models, audio, and video across the project. Engine caches and git-ignored files are skipped. Review status is shared with the team in <code>.pipelineos/assets.toml</code>.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setLayoutOpen(true)}><FolderTree size={14} /> Organize folders…</Button>
+        <Button variant="outline" size="sm" onClick={() => setLayoutOpen(true)}><FolderTree size={14} /> Organize project…</Button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -174,7 +174,7 @@ export function ProjectAssets({ projectPath, onCreateIssue }: { projectPath: str
       {assetsQuery.isLoading ? (
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-48 animate-pulse rounded-xl bg-secondary/60" />)}</div>
       ) : !assets.length ? (
-        <EmptyState icon={ImageIcon} title="No creative assets found yet" description="Drop concept art, references, or source files into the project, or set up a studio folder layout so everyone knows where things go." action={<Button onClick={() => setLayoutOpen(true)}><FolderTree size={15} /> Set up folders</Button>} />
+        <EmptyState icon={ImageIcon} title="No creative assets found yet" description="Drop concept art, references, or source files into the project, or pick a folder layout so everyone knows where things go." action={<Button onClick={() => setLayoutOpen(true)}><FolderTree size={15} /> Organize project</Button>} />
       ) : !shown.length ? (
         <EmptyState compact icon={Search} title="Nothing matches these filters" action={<Button variant="outline" size="sm" onClick={() => { setKind(null); setStatus(null); setFolder(null); setQuery(""); }}>Clear filters</Button>} />
       ) : (
@@ -240,7 +240,7 @@ export function ProjectAssets({ projectPath, onCreateIssue }: { projectPath: str
       {assetsQuery.data?.truncated ? <p className="text-xs text-muted-foreground">Showing the most recent {assets.length} assets.</p> : null}
 
       <AssetPreview root={projectPath} asset={preview} onClose={() => setPreview(null)} onReview={(asset, next, note) => { void setReview(asset, next, note); setPreview(null); }} />
-      <LayoutDialog open={layoutOpen} projectPath={projectPath} onClose={() => setLayoutOpen(false)} onApplied={() => void queryClient.invalidateQueries({ queryKey: key })} />
+      <OrganizeDialog open={layoutOpen} projectPath={projectPath} onClose={() => setLayoutOpen(false)} onChanged={() => void queryClient.invalidateQueries({ queryKey: key })} />
     </div>
   );
 }
@@ -271,52 +271,6 @@ function AssetPreview({ root, asset, onClose, onReview }: { root: string; asset:
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Close</Button>
           {asset ? <Button onClick={() => onReview(asset, status, note.trim() || null)}>Save review</Button> : null}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function LayoutDialog({ open, projectPath, onClose, onApplied }: { open: boolean; projectPath: string; onClose: () => void; onApplied: () => void }) {
-  const layouts = useQuery({ queryKey: ["asset-layouts"], queryFn: () => studioApi.layouts(), enabled: open, staleTime: Infinity });
-  const [selected, setSelected] = useState<string>("game-art");
-  const layout = layouts.data?.find((item) => item.id === selected) ?? layouts.data?.[0];
-  async function apply() {
-    if (!layout) return;
-    if (!(await confirmAction({ title: `Create the "${layout.name}" folders?`, description: "Missing folders are created (with a .gitkeep so they can be committed). Nothing is moved, renamed, or deleted.", confirmLabel: "Create folders" }))) return;
-    try {
-      const result = await studioApi.applyLayout(projectPath, layout.id);
-      toast.success(result.created.length ? `Created ${result.created.length} folder${result.created.length === 1 ? "" : "s"}.` : "All folders already exist.");
-      onApplied();
-      onClose();
-    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
-  }
-  return (
-    <Dialog open={open} onOpenChange={(value) => { if (!value) onClose(); }}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Organize project folders</DialogTitle>
-          <DialogDescription>Pick a structure so concept art, references, source files, and deliveries always land in the same place, for everyone on the team.</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
-          <div className="space-y-1.5" role="radiogroup" aria-label="Folder layouts">
-            {(layouts.data ?? []).map((item) => (
-              <button key={item.id} role="radio" aria-checked={selected === item.id} onClick={() => setSelected(item.id)} className={cn("w-full rounded-lg border p-2.5 text-left text-sm transition-colors", selected === item.id ? "border-primary bg-primary/10" : "border-border hover:bg-muted/40")}>
-                <span className="block font-medium">{item.name}</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">{item.description}</span>
-              </button>
-            ))}
-          </div>
-          <div className="max-h-80 overflow-y-auto rounded-lg border border-border bg-muted/20 p-3 font-mono text-xs">
-            {layout?.folders.map((path) => {
-              const depth = path.split("/").length - 1;
-              return <div key={path} style={{ paddingLeft: depth * 14 }} className="flex items-center gap-1.5 py-0.5"><FolderTree size={12} className="text-primary" aria-hidden />{path.split("/").pop()}</div>;
-            })}
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => void apply()} disabled={!layout}>Create folders</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

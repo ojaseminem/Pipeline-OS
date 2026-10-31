@@ -16,8 +16,12 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use vantadeck_studio::{
-    assets::{self, AssetIndex, AssetMeta, FolderLayout, LayoutResult},
+    assets::{self, AssetIndex, AssetMeta},
     issues::{self, Issue, NewIssue},
+    organize::{
+        self, FileMove, Layout, LayoutEntry, LayoutResult, LayoutScope, OrganizeJournal,
+        OrganizePlan, OrganizeResult,
+    },
     task_presets::{self, TaskPreset},
     tasks::{self, LogTail, OutputStream, RunStatus, TaskDefinition, TrustStore},
     toml_merge::{self, FileMergeReport, Side},
@@ -762,14 +766,154 @@ pub async fn toml_conflict_resolve(
 
 // ---------------------------------------------------------------- assets
 
-#[tauri::command]
-pub async fn asset_layouts() -> Vec<FolderLayout> {
-    assets::folder_layouts()
+// ---------------------------------------------------- layouts and organize
+
+fn user_dir(studio: &StudioState) -> Option<PathBuf> {
+    studio.data_dir.lock().unwrap().clone()
+}
+
+fn optional_root(path: &Option<String>) -> Option<PathBuf> {
+    path.as_deref().filter(|path| !path.is_empty()).map(root)
 }
 
 #[tauri::command]
-pub async fn asset_apply_layout(path: String, layout: String) -> Result<LayoutResult, String> {
-    assets::apply_layout(&root(&path), &layout).map_err(err)
+pub async fn layouts_list(
+    path: Option<String>,
+    studio: State<'_, StudioState>,
+) -> Result<Vec<LayoutEntry>, String> {
+    organize::list_layouts(
+        optional_root(&path).as_deref(),
+        user_dir(&studio).as_deref(),
+    )
+    .map_err(err)
+}
+
+/// Validates pasted or opened layout text (JSON or a plain folder list).
+#[tauri::command]
+pub async fn layout_parse(text: String) -> Result<Layout, String> {
+    organize::parse_layout(&text).map_err(err)
+}
+
+#[tauri::command]
+pub async fn layout_to_json(layout: Layout) -> Result<String, String> {
+    organize::layout_to_json(&layout).map_err(err)
+}
+
+#[tauri::command]
+pub async fn layout_save(
+    path: Option<String>,
+    scope: LayoutScope,
+    layout: Layout,
+    studio: State<'_, StudioState>,
+) -> Result<String, String> {
+    organize::save_layout(
+        optional_root(&path).as_deref(),
+        user_dir(&studio).as_deref(),
+        scope,
+        &layout,
+    )
+    .map(|file| file.to_string_lossy().into_owned())
+    .map_err(err)
+}
+
+#[tauri::command]
+pub async fn layout_delete(
+    path: Option<String>,
+    scope: LayoutScope,
+    id: String,
+    studio: State<'_, StudioState>,
+) -> Result<(), String> {
+    organize::delete_layout(
+        optional_root(&path).as_deref(),
+        user_dir(&studio).as_deref(),
+        scope,
+        &id,
+    )
+    .map_err(err)
+}
+
+/// The folder holding a scope's layout files, created so it can be opened.
+#[tauri::command]
+pub async fn layouts_folder(
+    path: Option<String>,
+    scope: LayoutScope,
+    studio: State<'_, StudioState>,
+) -> Result<String, String> {
+    let dir = organize::layouts_dir(
+        optional_root(&path).as_deref(),
+        user_dir(&studio).as_deref(),
+        scope,
+    )
+    .map_err(err)?;
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+fn find_layout(path: &str, studio: &StudioState, id: &str) -> Result<Layout, String> {
+    organize::find_layout(Some(&root(path)), user_dir(studio).as_deref(), id).map_err(err)
+}
+
+#[tauri::command]
+pub async fn organize_create_folders(
+    path: String,
+    layout: String,
+    studio: State<'_, StudioState>,
+) -> Result<LayoutResult, String> {
+    let layout = find_layout(&path, &studio, &layout)?;
+    organize::create_folders(&root(&path), &layout).map_err(err)
+}
+
+#[tauri::command]
+pub async fn organize_plan(
+    path: String,
+    layout: String,
+    studio: State<'_, StudioState>,
+) -> Result<OrganizePlan, String> {
+    let layout = find_layout(&path, &studio, &layout)?;
+    tauri::async_runtime::spawn_blocking(move || organize::plan_organize(&root(&path), &layout))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+#[tauri::command]
+pub async fn organize_apply(
+    path: String,
+    layout: String,
+    moves: Vec<FileMove>,
+    studio: State<'_, StudioState>,
+) -> Result<OrganizeResult, String> {
+    let layout = find_layout(&path, &studio, &layout)?;
+    let dir = user_dir(&studio).ok_or("the app data folder isn't available")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        organize::apply_organize(&root(&path), &dir, &layout, &moves)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+#[tauri::command]
+pub async fn organize_last(
+    path: String,
+    studio: State<'_, StudioState>,
+) -> Result<Option<OrganizeJournal>, String> {
+    let Some(dir) = user_dir(&studio) else {
+        return Ok(None);
+    };
+    organize::last_organize(&root(&path), &dir).map_err(err)
+}
+
+#[tauri::command]
+pub async fn organize_undo(
+    path: String,
+    studio: State<'_, StudioState>,
+) -> Result<OrganizeResult, String> {
+    let dir = user_dir(&studio).ok_or("the app data folder isn't available")?;
+    tauri::async_runtime::spawn_blocking(move || organize::undo_organize(&root(&path), &dir))
+        .await
+        .map_err(err)?
+        .map_err(err)
 }
 
 #[tauri::command]

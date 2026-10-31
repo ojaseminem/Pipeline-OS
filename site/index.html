@@ -79,9 +79,9 @@
     <h1 class="display">Your whole pipeline,<br> on your machine.</h1>
     <div class="hero__row">
       <p class="lead">
-        Pipeline OS finds every creative app and version you have, opens each project in the one it needs,
-        runs your builds and renders, tracks the work and drives Git. One desktop app and a scriptable CLI
-        for game, film and VFX.
+        The pipeline department for teams that don't have one. Pipeline OS opens every game, film and VFX
+        project in the right app version, keeps its files organized, turns builds and renders into buttons,
+        and tracks the work, all in plain files your team already shares through Git.
       </p>
       <div class="hero__cta">
         <a class="btn btn--primary btn--lg" href="https://github.com/ojaseminem/Pipeline-OS/releases/latest" data-os-download>
@@ -140,7 +140,7 @@
     <div class="section__head">
       <p class="eyebrow">01 — The tour</p>
       <h2 id="tour-title" class="h2">Everything a project leans on,<br> in one place.</h2>
-      <p class="lead muted">An engine in one exact version, a few DCC apps, source control, build scripts, a tracker. Pipeline OS keeps them together, per project.</p>
+      <p class="lead muted">An engine in one exact version, a few DCC apps, gigabytes of art, build scripts someone wrote once. Pipeline OS makes each project explain itself, so a new teammate clones it and everything is there.</p>
     </div>
 
     <div class="tour" data-tabs>
@@ -159,6 +159,11 @@
           <span class="mono tour__n">Pipeline</span>
           <span class="tour__t">Builds become buttons</span>
           <span class="tour__d">Unity, Unreal, Godot and Blender templates, or your own commands. Live progress, logs and history.</span>
+        </button>
+        <button class="tour__tab" role="tab" id="t-org" aria-controls="p-org" aria-selected="false" tabindex="-1">
+          <span class="mono tour__n">Organize</span>
+          <span class="tour__t">Sort out a messy project</span>
+          <span class="tour__d">Pick a folder layout, preview every move, keep what you want. Engine folders are never touched, and you can undo.</span>
         </button>
         <button class="tour__tab" role="tab" id="t-board" aria-controls="p-board" aria-selected="false" tabindex="-1">
           <span class="mono tour__n">Board</span>
@@ -186,6 +191,9 @@
         </div>
         <div class="frame" role="tabpanel" id="p-pipe" aria-labelledby="t-pipe" tabindex="0" hidden>
           <img src="assets/shots/pipeline.webp" width="2160" height="1350" loading="lazy" alt="Pipeline tasks: a Windows build running at 64% with run history">
+        </div>
+        <div class="frame" role="tabpanel" id="p-org" aria-labelledby="t-org" tabindex="0" hidden>
+          <img src="assets/shots/organize.webp" width="2160" height="1350" loading="lazy" alt="Organize project: a Game team layout previewing which loose files move into Art, Audio and Docs folders">
         </div>
         <div class="frame" role="tabpanel" id="p-board" aria-labelledby="t-board" tabindex="0" hidden>
           <img src="assets/shots/board.webp" width="2160" height="1350" loading="lazy" alt="Project board with backlog, to do, in progress, review and done columns">
@@ -222,7 +230,7 @@
       <p class="body">Tasks live in <code>.pipelineos/tasks.toml</code>, so the whole team shares them through Git. When a task file arrives through the repo, you read the commands and trust them on your machine before any of them can run.</p>
       <ul class="ticks">
         <li>Save any task as a preset that the whole team gets</li>
-        <li>Copy a pipeline as TOML and paste it into another project</li>
+        <li>Copy a pipeline as TOML, and paste TOML or JSON into another project</li>
         <li>Engine activity from the logs: lighting builds, shader compiles, cooks</li>
       </ul>
     </div>
